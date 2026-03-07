@@ -1,0 +1,56 @@
+{
+  "name": "gnosys-mcp",
+  "version": "0.1.0",
+  "description": "Gnosys \u2014 LLM-native persistent memory system. MCP server + CLI.",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "gnosys": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "cli": "tsx src/cli.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "better-sqlite3": "^11.7.0",
+    "commander": "^13.1.0",
+    "dotenv": "^17.3.1",
+    "glob": "^11.0.1",
+    "gray-matter": "^4.0.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.0.18"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "gnosys",
+    "memory",
+    "llm",
+    "mcp",
+    "knowledge",
+    "persistent-memory",
+    "agent"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/proticom/gnosys-mcp"
+  }
+}

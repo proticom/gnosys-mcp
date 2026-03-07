@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cookie Policy — Gnosys</title>
+<meta name="description" content="Gnosys cookie policy. The good kind.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --accent: #C04C4C;
+  --accent-light: #D46A6A;
+  --accent-lighter: #E08888;
+  --accent-faint: #F5EAEA;
+  --accent-glow: rgba(192, 76, 76, 0.12);
+  --slate: #3F434D;
+  --bg: #FAFAFA;
+  --bg-card: #FFFFFF;
+  --bg-code: #F6F3F3;
+  --text: #1A1A22;
+  --text-secondary: #555560;
+  --text-muted: #888890;
+  --border: #E8E4E4;
+  --border-light: #F0ECEC;
+}
+[data-theme="dark"],
+[data-theme="system"].sys-dark {
+  --accent-faint: rgba(192, 76, 76, 0.15);
+  --accent-glow: rgba(212, 106, 106, 0.10);
+  --bg: #12141A;
+  --bg-card: #1A1C24;
+  --bg-code: #1E2028;
+  --text: #E4E2E8;
+  --text-secondary: #A8A6B0;
+  --text-muted: #6E6C78;
+  --border: #2A2C34;
+  --border-light: #22242C;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+}
+.container { max-width: 720px; margin: 0 auto; padding: 0 24px; }
+
+/* Nav */
+nav {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+}
+@supports (backdrop-filter: blur(12px)) {
+  nav { background: color-mix(in srgb, var(--bg) 85%, transparent); }
+}
+nav .container { display: flex; align-items: center; justify-content: space-between; height: 64px; max-width: 1100px; }
+.nav-logo { height: 28px; width: auto; }
+.nav-logo .logo-text { fill: var(--text); }
+.nav-logo .logo-mark { fill: var(--accent); }
+.nav-links { display: flex; gap: 28px; align-items: center; }
+.nav-links a {
+  color: var(--text-secondary); text-decoration: none; font-size: 14px; font-weight: 500; transition: color 0.2s;
+}
+.nav-links a:hover { color: var(--text); }
+.btn {
+  display: inline-flex; align-items: center; gap: 8px; padding: 10px 20px;
+  border-radius: 8px; font-size: 14px; font-weight: 600; text-decoration: none;
+  transition: all 0.2s; cursor: pointer; border: none;
+}
+.btn-ghost {
+  background: transparent; color: var(--text); border: 1px solid var(--border);
+}
+.btn-ghost:hover { border-color: var(--accent-lighter); color: var(--accent-light); }
+.gh-icon { width: 18px; height: 18px; fill: currentColor; vertical-align: middle; }
+/* Theme Toggle */
+.theme-toggle {
+  display: flex; align-items: center; position: relative;
+  padding: 2px; border-radius: 100px;
+  border: 1px solid var(--border); background: var(--bg-card);
+}
+.theme-toggle-pill {
+  position: absolute; left: 2px; top: 2px;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--accent-faint);
+  transition: transform 0.2s ease-out; pointer-events: none;
+}
+.theme-toggle[data-active="1"] .theme-toggle-pill { transform: translateX(0); }
+.theme-toggle[data-active="2"] .theme-toggle-pill { transform: translateX(20px); }
+.theme-toggle[data-active="3"] .theme-toggle-pill { transform: translateX(40px); }
+.theme-toggle button {
+  position: relative; z-index: 1; display: flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 50%; border: none; background: none;
+  cursor: pointer; color: var(--text-muted); transition: color 0.2s; padding: 0;
+}
+.theme-toggle button.active { color: var(--text); }
+.theme-toggle button svg { width: 11px; height: 11px; }
+
+/* Page header */
+.page-header { padding: 80px 0 40px; text-align: center; }
+.page-label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: var(--accent); margin-bottom: 12px; }
+.page-header h1 { font-size: clamp(2rem, 5vw, 3rem); font-weight: 700; line-height: 1.15; color: var(--text); }
+
+/* Policy card */
+.policy-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; padding: 32px; margin-bottom: 64px; text-align: center; }
+.policy-card p { font-size: 16px; color: var(--text-secondary); line-height: 1.8; }
+.policy-card strong { color: var(--text); }
+
+/* Recipe */
+.recipe { padding-bottom: 80px; }
+.recipe h2 { font-size: 1.5rem; font-weight: 700; margin-bottom: 8px; color: var(--text); }
+.recipe-subtitle { font-size: 14px; color: var(--text-muted); margin-bottom: 32px; }
+
+/* Selectors row */
+.selectors-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 32px;
+  flex-wrap: wrap;
+}
+.selector-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.selector-group label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+.pill-tabs {
+  display: flex;
+  background: var(--bg-code);
+  border-radius: 10px;
+  padding: 3px;
+  gap: 2px;
+}
+.pill-tab {
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  padding: 5px 12px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.pill-tab:hover { color: var(--text-secondary); }
+.pill-tab.active {
+  background: var(--bg-card);
+  color: var(--accent);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+}
+.yield-info {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+.yield-info strong { color: var(--accent); font-weight: 600; }
+
+/* Ingredients card */
+.ingredients-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 28px;
+  margin-bottom: 40px;
+}
+.ingredients-card h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 16px;
+  border: none !important;
+  padding: 0 !important;
+}
+.ingredients-list {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 32px;
+}
+@media (max-width: 500px) { .ingredients-list { grid-template-columns: 1fr; } }
+.ingredients-list li {
+  font-size: 14px;
+  color: var(--text-secondary);
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border-light);
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ing-name { color: var(--text); font-weight: 500; }
+.ing-qty {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  color: var(--accent);
+  white-space: nowrap;
+  font-weight: 500;
+  transition: opacity 0.2s;
+}
+.ing-optional { font-size: 11px; color: var(--text-muted); font-style: italic; }
+
+/* Instructions */
+.recipe h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 36px 0 16px;
+  color: var(--text);
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-light);
+}
+.recipe ol { counter-reset: step; list-style: none; padding: 0; }
+.recipe ol li {
+  position: relative;
+  padding-left: 36px;
+  margin-bottom: 12px;
+  font-size: 15px;
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+.recipe ol li::before {
+  counter-increment: step;
+  content: counter(step);
+  position: absolute; left: 0; top: 1px;
+  width: 24px; height: 24px; border-radius: 50%;
+  background: var(--accent-faint);
+  color: var(--accent);
+  font-size: 12px; font-weight: 600;
+  display: flex; align-items: center; justify-content: center;
+}
+.recipe .ingredient { font-weight: 600; color: var(--text); }
+
+/* Bake info */
+.bake-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  margin-top: 16px;
+}
+.bake-card h4 { font-size: 15px; font-weight: 600; color: var(--accent); margin-bottom: 8px; }
+.bake-card p { font-size: 14px; color: var(--text-secondary); line-height: 1.7; margin-bottom: 4px; }
+.bake-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+@media (max-width: 600px) { .bake-grid { grid-template-columns: 1fr; } .yield-info { margin-left: 0; width: 100%; } }
+.bake-alt { background: var(--bg-code); border-radius: 10px; padding: 16px; }
+.bake-alt h4 { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+.bake-alt p { font-size: 13px; color: var(--text-muted); line-height: 1.6; }
+
+.recipe .note {
+  font-size: 14px; color: var(--text-muted); font-style: italic;
+  margin-top: 24px; padding: 16px;
+  background: var(--bg-code); border-radius: 10px; line-height: 1.7;
+}
+
+/* Footer */
+footer { border-top: 1px solid var(--border); padding: 32px 0; }
+footer .container { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; max-width: 1100px; }
+footer p { font-size: 13px; color: var(--text-muted); }
+footer a { color: var(--text-secondary); text-decoration: none; font-size: 13px; }
+footer a:hover { color: var(--accent-light); }
+.footer-links { display: flex; gap: 24px; }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="container">
+    <a href="/" style="text-decoration:none;display:flex;align-items:center;">
+      <svg class="nav-logo" viewBox="0 0 870.84 183.02" xmlns="http://www.w3.org/2000/svg">
+        <path class="logo-text" d="M67.71,183.02c-9.4,0-17.95-.23-25.66-.69s-14.33-1.57-19.85-3.32c-5.53-1.75-9.8-4.51-12.81-8.29-3.01-3.78-4.51-8.95-4.51-15.52h17.69c0,4.3,1.67,7.37,5.02,9.21,3.35,1.84,8.37,2.95,15.06,3.32,6.69.37,15.05.55,25.06.55,7.43,0,13.79-.23,19.07-.69,5.28-.46,9.6-1.8,12.94-4.01,3.35-2.21,5.8-5.91,7.37-11.1,1.57-5.19,2.35-12.48,2.35-21.88v-2.49c-4.3,5.53-10.21,9.18-17.73,10.96-7.52,1.78-16.85,2.67-27.96,2.67s-21.28-.66-29.39-1.98c-8.11-1.32-14.69-3.82-19.76-7.51-5.07-3.69-8.77-9.03-11.1-16.03-2.33-7-3.5-16.15-3.5-27.46,0-12.04,1.17-21.68,3.5-28.93,2.33-7.25,6.03-12.7,11.1-16.35,5.07-3.65,11.65-6.08,19.76-7.28,8.11-1.2,17.9-1.8,29.39-1.8s20.44.82,27.96,2.44c7.52,1.63,13.43,5.24,17.73,10.83v-11.24h17.69v94.89c-.25,11.67-1.72,20.96-4.42,27.87-2.7,6.91-6.56,12.07-11.56,15.48-5.01,3.41-11.15,5.65-18.43,6.72-7.28,1.07-15.62,1.61-25.01,1.61ZM109.45,88.77c0-8.78-.54-15.8-1.61-21.05-1.08-5.25-3.16-9.21-6.26-11.88-3.1-2.67-7.68-4.45-13.73-5.34-6.05-.89-14.08-1.34-24.09-1.34-10.57,0-18.93.45-25.11,1.34-6.17.89-10.76,2.67-13.77,5.34-3.01,2.67-4.96,6.63-5.85,11.88-.89,5.25-1.34,12.27-1.34,21.05,0,7.99.45,14.5,1.34,19.53.89,5.04,2.82,8.91,5.8,11.61,2.98,2.7,7.57,4.56,13.77,5.57,6.2,1.01,14.59,1.52,25.15,1.52,10.01,0,18.04-.51,24.09-1.52,6.05-1.01,10.62-2.87,13.73-5.57,3.1-2.7,5.19-6.57,6.26-11.61,1.07-5.04,1.61-11.55,1.61-19.53Z"/>
+        <path class="logo-text" d="M151.46,142.57V36.44h17.69v14.1c2.64-3.56,5.91-6.54,9.81-8.94s9.12-4.19,15.66-5.39c6.54-1.2,15.12-1.8,25.75-1.8,13.88,0,24.83,1.35,32.84,4.05,8.01,2.7,13.71,7.52,17.09,14.46,3.38,6.94,5.07,16.77,5.07,29.48v60.16h-17.78v-60.16c0-7.25-.61-13.08-1.84-17.5-1.23-4.42-3.33-7.77-6.31-10.04-2.98-2.27-7.08-3.79-12.3-4.56-5.22-.77-11.85-1.15-19.9-1.15-12.29,0-21.93,1.01-28.93,3.04-7,2.03-11.95,5.21-14.83,9.54-2.89,4.33-4.33,9.97-4.33,16.91v63.94h-17.69Z"/>
+        <path class="logo-text" d="M531.16,144.6c-12.9,0-23.26-.43-31.09-1.29s-13.76-2.46-17.78-4.79c-4.02-2.33-6.73-5.65-8.11-9.95-1.38-4.3-2.07-9.89-2.07-16.77h16.95c0,3.87.28,6.99.83,9.35.55,2.37,2.12,4.18,4.7,5.44,2.58,1.26,6.77,2.12,12.58,2.58,5.8.46,13.96.69,24.46.69,11.12,0,19.76-.23,25.93-.69,6.17-.46,10.61-1.32,13.31-2.58,2.7-1.26,4.34-3.09,4.93-5.48.58-2.4.88-5.56.88-9.49,0-4.79-.43-8.38-1.29-10.78-.86-2.4-2.89-4.01-6.08-4.84-3.19-.83-8.29-1.27-15.29-1.34l-42.19-.46c-10.87-.12-19.16-1.04-24.88-2.76-5.71-1.72-9.61-4.74-11.7-9.07-2.09-4.33-3.13-10.49-3.13-18.47,0-7.43,1.15-13.17,3.46-17.23,2.3-4.05,5.91-6.94,10.83-8.66,4.91-1.72,11.3-2.75,19.16-3.09,7.86-.34,17.35-.51,28.47-.51,13.08,0,23.48.4,31.19,1.2,7.71.8,13.48,2.3,17.32,4.51,3.84,2.21,6.36,5.42,7.55,9.63,1.2,4.21,1.8,9.69,1.8,16.45h-16.95c0-3.99-.28-7.14-.83-9.44-.55-2.3-2.04-3.99-4.47-5.07-2.43-1.07-6.36-1.76-11.79-2.07-5.44-.31-13.07-.46-22.89-.46-11.18,0-19.87.12-26.07.37-6.2.25-10.69.83-13.45,1.75-2.76.92-4.45,2.38-5.07,4.38-.61,2-.92,4.74-.92,8.25s.2,6.37.6,8.43c.4,2.06,1.46,3.61,3.18,4.65,1.72,1.04,4.53,1.74,8.43,2.07,3.9.34,9.35.54,16.35.6l36.39.37c10.93.12,19.24,1.03,24.92,2.72,5.68,1.69,9.55,4.79,11.61,9.3,2.06,4.51,3.09,11.04,3.09,19.58,0,7.68-1.12,13.73-3.36,18.15-2.24,4.42-5.82,7.69-10.73,9.81-4.91,2.12-11.38,3.49-19.39,4.1-8.01.61-17.8.92-29.34.92Z"/>
+        <path class="logo-text" d="M628.16,177.95v-14.74c6.33,0,11.56-.14,15.71-.41s7.62-1.04,10.41-2.3c2.79-1.26,5.31-3.3,7.55-6.13,2.24-2.83,4.59-6.76,7.05-11.79h-5.9l-58.96-106.13h20.27l50.49,92.96,42.47-92.96h20.73l-53.8,112.03c-2.4,4.97-4.87,9.3-7.42,12.99-2.55,3.68-5.74,6.76-9.58,9.21-3.84,2.46-8.86,4.28-15.06,5.48-6.2,1.2-14.19,1.8-23.95,1.8Z"/>
+        <path class="logo-text" d="M808.01,144.6c-12.9,0-23.26-.43-31.09-1.29s-13.76-2.46-17.78-4.79c-4.02-2.33-6.73-5.65-8.11-9.95-1.38-4.3-2.07-9.89-2.07-16.77h16.95c0,3.87.28,6.99.83,9.35.55,2.37,2.12,4.18,4.7,5.44,2.58,1.26,6.77,2.12,12.58,2.58,5.8.46,13.96.69,24.46.69,11.12,0,19.76-.23,25.93-.69,6.17-.46,10.61-1.32,13.31-2.58,2.7-1.26,4.34-3.09,4.93-5.48.58-2.4.88-5.56.88-9.49,0-4.79-.43-8.38-1.29-10.78-.86-2.4-2.89-4.01-6.08-4.84-3.19-.83-8.29-1.27-15.29-1.34l-42.19-.46c-10.87-.12-19.16-1.04-24.88-2.76-5.71-1.72-9.61-4.74-11.7-9.07-2.09-4.33-3.13-10.49-3.13-18.47,0-7.43,1.15-13.17,3.46-17.23,2.3-4.05,5.91-6.94,10.83-8.66,4.91-1.72,11.3-2.75,19.16-3.09,7.86-.34,17.35-.51,28.47-.51,13.08,0,23.48.4,31.19,1.2,7.71.8,13.48,2.3,17.32,4.51,3.84,2.21,6.36,5.42,7.55,9.63,1.2,4.21,1.8,9.69,1.8,16.45h-16.95c0-3.99-.28-7.14-.83-9.44-.55-2.3-2.04-3.99-4.47-5.07-2.43-1.07-6.36-1.76-11.79-2.07-5.44-.31-13.07-.46-22.89-.46-11.18,0-19.87.12-26.07.37-6.2.25-10.69.83-13.45,1.75-2.76.92-4.45,2.38-5.07,4.38-.61,2-.92,4.74-.92,8.25s.2,6.37.6,8.43c.4,2.06,1.46,3.61,3.18,4.65,1.72,1.04,4.53,1.74,8.43,2.07,3.9.34,9.35.54,16.35.6l36.39.37c10.93.12,19.24,1.03,24.92,2.72,5.68,1.69,9.55,4.79,11.61,9.3,2.06,4.51,3.09,11.04,3.09,19.58,0,7.68-1.12,13.73-3.36,18.15-2.24,4.42-5.82,7.69-10.73,9.81-4.91,2.12-11.38,3.49-19.39,4.1-8.01.61-17.8.92-29.34.92Z"/>
+        <g>
+          <path class="logo-mark" d="M450.14,76.86l-27.25-47.2c-4.5-7.8-12.9-12.65-21.9-12.65h-54.5c-9.01,0-17.4,4.85-21.9,12.65l-27.25,47.2c-4.5,7.8-4.5,17.49,0,25.29l27.25,47.2c4.5,7.8,12.9,12.65,21.9,12.65h54.5c9.01,0,17.4-4.85,21.9-12.65l27.25-47.2c4.51-7.8,4.51-17.49,0-25.29ZM442.69,97.85l-27.25,47.2c-2.98,5.16-8.49,8.34-14.45,8.34h-54.5c-5.96,0-11.47-3.18-14.45-8.34l-27.25-47.2c-2.98-5.16-2.98-11.52,0-16.68l27.25-47.2c2.98-5.16,8.49-8.34,14.45-8.34h54.5c5.96,0,11.47,3.18,14.45,8.34l27.25,47.2c2.98,5.16,2.98,11.52,0,16.68Z"/>
+          <path class="logo-mark" d="M442.65,36.15L385.49,3.15c-7.27-4.2-16.23-4.2-23.5,0l-57.16,33c-7.27,4.2-11.75,11.96-11.75,20.36v66c0,8.4,4.48,16.16,11.75,20.36l57.16,33c7.27,4.2,16.23,4.2,23.5,0l57.16-33c7.27-4.2,11.75-11.96,11.75-20.36V56.51c0-8.4-4.48-16.16-11.75-20.36ZM445.79,122.51c0,5.3-2.85,10.24-7.45,12.9l-57.16,33c-2.26,1.3-4.84,1.99-7.45,1.99s-5.19-.69-7.45-1.99l-57.16-33c-4.59-2.65-7.45-7.59-7.45-12.9V56.51c0-5.3,2.85-10.24,7.45-12.9l57.16-33c2.26-1.31,4.83-2,7.45-2s5.18.69,7.45,2l57.16,33c4.59,2.65,7.45,7.59,7.45,12.9v66Z"/>
+        </g>
+      </svg>
+    </a>
+
+    <div class="nav-links">
+      <a href="/">Home</a>
+      <a href="https://github.com/proticom/gnosys-mcp" class="btn btn-ghost">
+        <svg class="gh-icon" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+      <div class="theme-toggle" data-active="1" role="group" aria-label="Theme">
+        <div class="theme-toggle-pill"></div>
+        <button aria-label="System theme" title="System" class="active" data-theme-btn="system">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>
+        </button>
+        <button aria-label="Light theme" title="Light" data-theme-btn="light">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+        </button>
+        <button aria-label="Dark theme" title="Dark" data-theme-btn="dark">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<section class="page-header">
+  <div class="container">
+    <div class="page-label">Cookie Policy</div>
+    <h1>The good kind of cookies.</h1>
+  </div>
+</section>
+
+<div class="container">
+  <div class="policy-card">
+    <p>Gnosys uses <strong>zero cookies</strong>. No tracking cookies, no analytics cookies, no advertising cookies. It's an open-source CLI tool &mdash; there's nothing to track. But since you're here, here's something actually worth baking.</p>
+  </div>
+
+  <div class="recipe">
+    <h2>Browned-Butter Bakery Toll House Cookies</h2>
+    <p class="recipe-subtitle">Thicker, chewier, better. The only cookies we endorse.</p>
+
+    <!-- Selectors -->
+    <div class="selectors-row">
+      <div class="selector-group">
+        <label>Batch:</label>
+        <div class="pill-tabs" id="batchTabs">
+          <button class="pill-tab active" data-batch="1">1&times;</button>
+          <button class="pill-tab" data-batch="2">2&times;</button>
+          <button class="pill-tab" data-batch="3">3&times;</button>
+        </div>
+      </div>
+      <div class="selector-group">
+        <label>Scoop:</label>
+        <div class="pill-tabs" id="scoopTabs">
+          <button class="pill-tab" data-size="small">Small</button>
+          <button class="pill-tab active" data-size="medium">Medium</button>
+          <button class="pill-tab" data-size="large">Large</button>
+        </div>
+      </div>
+      <span class="yield-info">Makes <strong id="yieldCount">30&ndash;36</strong> cookies</span>
+    </div>
+
+    <!-- Ingredients -->
+    <div class="ingredients-card">
+      <h3>Ingredients</h3>
+      <ul class="ingredients-list" id="ingList">
+        <li><span class="ing-name">All-purpose flour</span> <span class="ing-qty" data-ing="flour">2&frac12; cups</span></li>
+        <li><span class="ing-name">Baking soda</span> <span class="ing-qty" data-ing="soda">1 tsp</span></li>
+        <li><span class="ing-name">Fine salt</span> <span class="ing-qty" data-ing="salt">1 tsp</span></li>
+        <li><span class="ing-name">Unsalted butter</span> <span class="ing-qty" data-ing="butter">1 cup (2 sticks)</span></li>
+        <li><span class="ing-name">Granulated sugar</span> <span class="ing-qty" data-ing="gsugar">&frac34; cup</span></li>
+        <li><span class="ing-name">Brown sugar (packed)</span> <span class="ing-qty" data-ing="bsugar">&frac34; cup</span></li>
+        <li><span class="ing-name">Vanilla extract</span> <span class="ing-qty" data-ing="vanilla">1&frac12; tsp</span></li>
+        <li><span class="ing-name">Eggs</span> <span class="ing-qty" data-ing="egg">1 large</span></li>
+        <li><span class="ing-name">Egg yolks</span> <span class="ing-qty" data-ing="yolk">1</span></li>
+        <li><span class="ing-name">Semisweet chocolate chips</span> <span class="ing-qty" data-ing="chips">2 cups</span></li>
+        <li><span class="ing-name">Chopped nuts <span class="ing-optional">(optional)</span></span> <span class="ing-qty" data-ing="nuts">1 cup</span></li>
+      </ul>
+    </div>
+
+    <!-- Instructions -->
+    <h3>Brown the Butter</h3>
+    <ol>
+      <li>Cut <span class="ingredient" data-ref="butter"></span> into pieces and place in a light-colored saucepan.</li>
+      <li>Cook over medium heat, stirring, until it melts, foams, then turns golden brown and smells nutty, with brown bits on the bottom.</li>
+      <li>Immediately scrape into a heatproof bowl, including all the brown bits.</li>
+      <li>Cool to room temperature; it should be fluid but not hot.</li>
+    </ol>
+
+    <h3>Make the Dough</h3>
+    <ol>
+      <li>Whisk <span class="ingredient" data-ref="flour"></span>, <span class="ingredient" data-ref="soda"></span>, and <span class="ingredient" data-ref="salt"></span> together; set aside.</li>
+      <li>In a large bowl, mix the browned butter, <span class="ingredient" data-ref="gsugar"></span>, and <span class="ingredient" data-ref="bsugar"></span> until smooth and slightly thick.</li>
+      <li>Beat in <span class="ingredient" data-ref="vanilla"></span>.</li>
+      <li>Beat in <span class="ingredient" data-ref="egg"></span> and <span class="ingredient" data-ref="yolk"></span> just until combined.</li>
+      <li>Add the dry ingredients and mix just until no dry flour remains.</li>
+      <li>Stir in <span class="ingredient" data-ref="chips"></span> and <span class="ingredient" data-ref="nuts"></span> (walnuts or pecans, optional).</li>
+      <li>Cover and chill the dough at least 2 hours (or overnight) for best thickness.</li>
+    </ol>
+
+    <h3>Scoop &amp; Bake</h3>
+    <div class="bake-card" id="bakeCard">
+      <h4 id="bakeTitle">Medium Scoop &middot; #40&ndash;#30</h4>
+      <p id="bakeDough">About 1&frac12;&ndash;2 tablespoons of dough per cookie.</p>
+      <p>Bake at <strong>350&deg;F (175&deg;C)</strong> for <strong id="bakeTime">10&ndash;12 minutes</strong>.</p>
+      <p id="bakeTip">Look for: edges set and lightly golden, centers slightly underdone and puffy. They'll finish setting as they cool.</p>
+    </div>
+
+    <div class="bake-grid" id="bakeAlts">
+      <div class="bake-alt" id="bakeAlt1">
+        <h4>Larger Scoop (3&ndash;4 tbsp)</h4>
+        <p>Space well apart. Bake for 12&ndash;15 min. Let cool on the sheet 8&ndash;10 min so they don't collapse.</p>
+      </div>
+      <div class="bake-alt" id="bakeAlt2">
+        <h4>Smaller Scoop (~1 tbsp)</h4>
+        <p>Bake for 8&ndash;10 min. Pull as soon as edges are golden so they don't overbake.</p>
+      </div>
+    </div>
+
+    <div class="note">
+      <strong>General tip:</strong> If the first tray spreads more than you like, chill the scooped dough balls longer. If they're too tall and doughy in the center, bake the next tray 1&ndash;2 minutes longer.
+    </div>
+  </div>
+</div>
+
+<footer>
+  <div class="container">
+    <p>Gnosys &middot; Built by <a href="https://proticom.com">Proticom</a></p>
+    <div class="footer-links">
+      <a href="/">Home</a>
+      <a href="https://github.com/proticom/gnosys-mcp">GitHub</a>
+      <a href="https://github.com/proticom/gnosys-mcp/blob/main/LICENSE">MIT License</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+// Theme toggle
+(function() {
+  var html = document.documentElement;
+  var toggle = document.querySelector('.theme-toggle');
+  var buttons = toggle.querySelectorAll('button');
+  var posMap = { system: '1', light: '2', dark: '3' };
+
+  function getSystemDark() {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  }
+
+  function apply(theme) {
+    html.setAttribute('data-theme', theme);
+    if (theme === 'system') {
+      html.classList.toggle('sys-dark', getSystemDark());
+    } else {
+      html.classList.remove('sys-dark');
+    }
+    toggle.setAttribute('data-active', posMap[theme]);
+    buttons.forEach(function(b) { b.classList.toggle('active', b.getAttribute('data-theme-btn') === theme); });
+    localStorage.setItem('gnosys-theme', theme);
+  }
+
+  buttons.forEach(function(b) {
+    b.addEventListener('click', function() { apply(b.getAttribute('data-theme-btn')); });
+  });
+
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function() {
+    if (html.getAttribute('data-theme') === 'system') {
+      html.classList.toggle('sys-dark', getSystemDark());
+    }
+  });
+
+  apply(localStorage.getItem('gnosys-theme') || 'system');
+})();
+
+// Recipe engine
+(function() {
+  // Ingredient data: [1x qty string, 1x inline string, 2x qty, 2x inline, 3x qty, 3x inline]
+  var data = {
+    flour:   ['2\u00bd cups', '2\u00bd cups all-purpose flour', '5 cups', '5 cups all-purpose flour', '7\u00bd cups', '7\u00bd cups all-purpose flour'],
+    soda:    ['1 tsp', '1 teaspoon baking soda', '2 tsp', '2 teaspoons baking soda', '1 tbsp', '1 tablespoon baking soda'],
+    salt:    ['1 tsp', '1 teaspoon fine salt', '2 tsp', '2 teaspoons fine salt', '1 tbsp', '1 tablespoon fine salt'],
+    butter:  ['1 cup (2 sticks)', '1 cup (2 sticks) unsalted butter', '2 cups (4 sticks)', '2 cups (4 sticks) unsalted butter', '3 cups (6 sticks)', '3 cups (6 sticks) unsalted butter'],
+    gsugar:  ['\u00be cup', '\u00be cup granulated sugar', '1\u00bd cups', '1\u00bd cups granulated sugar', '2\u00bc cups', '2\u00bc cups granulated sugar'],
+    bsugar:  ['\u00be cup', '\u00be cup packed brown sugar', '1\u00bd cups', '1\u00bd cups packed brown sugar', '2\u00bc cups', '2\u00bc cups packed brown sugar'],
+    vanilla: ['1\u00bd tsp', '1\u00bd teaspoons vanilla extract', '1 tbsp', '1 tablespoon vanilla extract', '1\u00bd tbsp', '1\u00bd tablespoons vanilla extract'],
+    egg:     ['1 large', '1 large egg', '2 large', '2 large eggs', '3 large', '3 large eggs'],
+    yolk:    ['1', '1 egg yolk', '2', '2 egg yolks', '3', '3 egg yolks'],
+    chips:   ['2 cups', '2 cups semisweet chocolate chips', '4 cups', '4 cups semisweet chocolate chips', '6 cups', '6 cups semisweet chocolate chips'],
+    nuts:    ['1 cup', '1 cup chopped nuts', '2 cups', '2 cups chopped nuts', '3 cups', '3 cups chopped nuts']
+  };
+
+  // Yield ranges: [small, medium, large] per batch multiplier
+  var yields = {
+    1: { small: '45\u201350', medium: '30\u201336', large: '16\u201322' },
+    2: { small: '90\u2013100', medium: '60\u201372', large: '32\u201344' },
+    3: { small: '135\u2013150', medium: '90\u2013108', large: '48\u201366' }
+  };
+
+  var scoopInfo = {
+    small: {
+      title: 'Small Scoop \u00b7 #60',
+      dough: 'About 1 tablespoon of dough per cookie.',
+      time: '8\u201310 minutes',
+      tip: 'They\u2019ll spread less in height and set faster. Pull them as soon as edges are golden so they don\u2019t overbake and dry out.',
+      alt1h: 'Medium Scoop (1\u00bd\u20132 tbsp)', alt1p: 'Bake for 10\u201312 min. Edges set and lightly golden, centers slightly underdone.',
+      alt2h: 'Larger Scoop (3\u20134 tbsp)', alt2p: 'Space well apart. Bake for 12\u201315 min. Let cool on sheet 8\u201310 min.'
+    },
+    medium: {
+      title: 'Medium Scoop \u00b7 #40\u2013#30',
+      dough: 'About 1\u00bd\u20132 tablespoons of dough per cookie.',
+      time: '10\u201312 minutes',
+      tip: 'Look for: edges set and lightly golden, centers slightly underdone and puffy. They\u2019ll finish setting as they cool.',
+      alt1h: 'Larger Scoop (3\u20134 tbsp)', alt1p: 'Space well apart. Bake for 12\u201315 min. Let cool on the sheet 8\u201310 min so they don\u2019t collapse.',
+      alt2h: 'Smaller Scoop (~1 tbsp)', alt2p: 'Bake for 8\u201310 min. Pull as soon as edges are golden so they don\u2019t overbake.'
+    },
+    large: {
+      title: 'Large Scoop \u00b7 #20\u2013#16 / Ice Cream Scoop',
+      dough: 'About 3\u20134 tablespoons of dough per cookie.',
+      time: '12\u201315 minutes',
+      tip: 'Expect thicker centers. Let them cool on the sheet 8\u201310 minutes so they don\u2019t collapse.',
+      alt1h: 'Medium Scoop (1\u00bd\u20132 tbsp)', alt1p: 'Bake for 10\u201312 min. Edges set and lightly golden, centers slightly underdone.',
+      alt2h: 'Smaller Scoop (~1 tbsp)', alt2p: 'Bake for 8\u201310 min. Pull as soon as edges are golden so they don\u2019t overbake.'
+    }
+  };
+
+  var currentBatch = 1;
+  var currentSize = 'medium';
+
+  function update() {
+    var bIdx = (currentBatch - 1) * 2; // 0, 2, or 4
+
+    // Update ingredient list quantities
+    document.querySelectorAll('[data-ing]').forEach(function(el) {
+      var key = el.getAttribute('data-ing');
+      if (data[key]) el.textContent = data[key][bIdx];
+    });
+
+    // Update inline ingredient references in instructions
+    document.querySelectorAll('[data-ref]').forEach(function(el) {
+      var key = el.getAttribute('data-ref');
+      if (data[key]) el.textContent = data[key][bIdx + 1];
+    });
+
+    // Update yield
+    document.getElementById('yieldCount').textContent = yields[currentBatch][currentSize];
+
+    // Update bake card
+    var s = scoopInfo[currentSize];
+    document.getElementById('bakeTitle').textContent = s.title;
+    document.getElementById('bakeDough').textContent = s.dough;
+    document.getElementById('bakeTime').textContent = s.time;
+    document.getElementById('bakeTip').textContent = s.tip;
+    document.getElementById('bakeAlt1').innerHTML = '<h4>' + s.alt1h + '</h4><p>' + s.alt1p + '</p>';
+    document.getElementById('bakeAlt2').innerHTML = '<h4>' + s.alt2h + '</h4><p>' + s.alt2p + '</p>';
+  }
+
+  // Batch tabs
+  document.querySelectorAll('#batchTabs .pill-tab').forEach(function(tab) {
+    tab.addEventListener('click', function() {
+      document.querySelectorAll('#batchTabs .pill-tab').forEach(function(t) { t.classList.remove('active'); });
+      tab.classList.add('active');
+      currentBatch = parseInt(tab.getAttribute('data-batch'));
+      update();
+    });
+  });
+
+  // Scoop tabs
+  document.querySelectorAll('#scoopTabs .pill-tab').forEach(function(tab) {
+    tab.addEventListener('click', function() {
+      document.querySelectorAll('#scoopTabs .pill-tab').forEach(function(t) { t.classList.remove('active'); });
+      tab.classList.add('active');
+      currentSize = tab.getAttribute('data-size');
+      update();
+    });
+  });
+
+  // Initial render
+  update();
+})();
+</script>
+</body>
+</html>
