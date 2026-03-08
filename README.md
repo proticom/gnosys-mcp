@@ -1,6 +1,10 @@
-# Gnosys
+<p align="center">
+  <img src="docs/logo.svg" alt="Gnosys" width="200">
+</p>
 
-**LLM-native persistent memory for AI agents.**
+<p align="center"><strong>LLM-native persistent memory for AI agents.</strong></p>
+
+---
 
 Gnosys gives AI agents long-term memory that survives across sessions. Memories are atomic markdown files with structured frontmatter, stored in plain directories, versioned by git, and searchable via FTS5. No database, no vector store, no external services — just files.
 
@@ -9,11 +13,8 @@ Gnosys works as an MCP server (for Cursor, Claude Desktop, or any MCP-compatible
 ## Quick Start
 
 ```bash
-# Install
-git clone https://github.com/gnosys-ai/gnosys.git
-cd gnosys
-npm install
-npm run build
+# Install globally from npm
+npm install -g gnosys-mcp
 
 # Initialize a store in your project
 cd /path/to/your/project
