@@ -384,10 +384,46 @@ nav .container {
   align-items: center;
 }
 
+.hiw-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 0;
+}
+.hiw-tab {
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s;
+}
+.hiw-tab:hover {
+  color: var(--text);
+}
+.hiw-tab.active {
+  background: var(--bg-code);
+  color: var(--text);
+  border-bottom: 1px solid var(--bg-code);
+  margin-bottom: -1px;
+  position: relative;
+  z-index: 1;
+}
+.hiw-config-panel {
+  display: none;
+}
+.hiw-config-panel.active {
+  display: block;
+}
+
 .hiw-code {
   background: var(--bg-code);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 0 14px 14px 14px;
   overflow: hidden;
 }
 
@@ -847,18 +883,29 @@ footer a:hover { color: var(--accent-light); }
     <p class="section-desc">Gnosys is an MCP server. Point your AI client at it, and your agent gains persistent memory.</p>
 
     <div class="hiw-grid">
-      <div class="hiw-code">
-        <div class="hiw-code-header">
-          <span class="hiw-code-dot"></span>
-          <span class="hiw-code-dot"></span>
-          <span class="hiw-code-dot"></span>
-          claude_desktop_config.json
-          <span class="hiw-copy-buttons">
-            <button class="hiw-copy-btn" data-highlight="inner" onclick="var b=this;var ic=b.innerHTML;navigator.clipboard.writeText('&quot;gnosys&quot;: {\n  &quot;command&quot;: &quot;npx&quot;,\n  &quot;args&quot;: [&quot;gnosys-mcp&quot;],\n  &quot;env&quot;: {\n    &quot;ANTHROPIC_API_KEY&quot;: &quot;sk-...&quot;\n  }\n}').then(function(){b.innerHTML='copied!';b.classList.add('copied');setTimeout(function(){b.innerHTML=ic;b.classList.remove('copied')},2000)})"><svg class="copy-icon" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Add to existing</button>
-            <button class="hiw-copy-btn" data-highlight="full" onclick="var b=this;var ic=b.innerHTML;navigator.clipboard.writeText('{\n  &quot;mcpServers&quot;: {\n    &quot;gnosys&quot;: {\n      &quot;command&quot;: &quot;npx&quot;,\n      &quot;args&quot;: [&quot;gnosys-mcp&quot;],\n      &quot;env&quot;: {\n        &quot;ANTHROPIC_API_KEY&quot;: &quot;sk-...&quot;\n      }\n    }\n  }\n}').then(function(){b.innerHTML='copied!';b.classList.add('copied');setTimeout(function(){b.innerHTML=ic;b.classList.remove('copied')},2000)})"><svg class="copy-icon" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy full config</button>
-          </span>
+      <div>
+        <div class="hiw-tabs">
+          <button class="hiw-tab active" onclick="switchTab(this, 'claude-desktop')">Claude Desktop</button>
+          <button class="hiw-tab" onclick="switchTab(this, 'cursor')">Cursor</button>
+          <button class="hiw-tab" onclick="switchTab(this, 'claude-code')">Claude Code</button>
+          <button class="hiw-tab" onclick="switchTab(this, 'codex')">Codex</button>
+          <button class="hiw-tab" onclick="switchTab(this, 'opencode')">OpenCode</button>
         </div>
-        <pre id="configPre"><span class="hl-line" data-group="full"><span class="punct">{</span></span>
+
+        <!-- Claude Desktop -->
+        <div class="hiw-config-panel active" id="panel-claude-desktop">
+          <div class="hiw-code">
+            <div class="hiw-code-header">
+              <span class="hiw-code-dot"></span>
+              <span class="hiw-code-dot"></span>
+              <span class="hiw-code-dot"></span>
+              claude_desktop_config.json
+              <span class="hiw-copy-buttons">
+                <button class="hiw-copy-btn" data-highlight="inner" onclick="var b=this;var ic=b.innerHTML;navigator.clipboard.writeText('&quot;gnosys&quot;: {\n  &quot;command&quot;: &quot;npx&quot;,\n  &quot;args&quot;: [&quot;gnosys-mcp&quot;],\n  &quot;env&quot;: {\n    &quot;ANTHROPIC_API_KEY&quot;: &quot;sk-...&quot;\n  }\n}').then(function(){b.innerHTML='copied!';b.classList.add('copied');setTimeout(function(){b.innerHTML=ic;b.classList.remove('copied')},2000)})"><svg class="copy-icon" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Add to existing</button>
+                <button class="hiw-copy-btn" data-highlight="full" onclick="var b=this;var ic=b.innerHTML;navigator.clipboard.writeText('{\n  &quot;mcpServers&quot;: {\n    &quot;gnosys&quot;: {\n      &quot;command&quot;: &quot;npx&quot;,\n      &quot;args&quot;: [&quot;gnosys-mcp&quot;],\n      &quot;env&quot;: {\n        &quot;ANTHROPIC_API_KEY&quot;: &quot;sk-...&quot;\n      }\n    }\n  }\n}').then(function(){b.innerHTML='copied!';b.classList.add('copied');setTimeout(function(){b.innerHTML=ic;b.classList.remove('copied')},2000)})"><svg class="copy-icon" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy full config</button>
+              </span>
+            </div>
+            <pre id="configPre"><span class="hl-line" data-group="full"><span class="punct">{</span></span>
 <span class="hl-line" data-group="full">  <span class="key">"mcpServers"</span><span class="punct">: {</span></span>
 <span class="hl-line" data-group="full inner">    <span class="key">"gnosys"</span><span class="punct">: {</span></span>
 <span class="hl-line" data-group="full inner">      <span class="key">"command"</span><span class="punct">:</span> <span class="string">"npx"</span><span class="punct">,</span></span>
@@ -869,6 +916,97 @@ footer a:hover { color: var(--accent-light); }
 <span class="hl-line" data-group="full inner">    <span class="punct">}</span></span>
 <span class="hl-line" data-group="full">  <span class="punct">}</span></span>
 <span class="hl-line" data-group="full"><span class="punct">}</span></span></pre>
+          </div>
+        </div>
+
+        <!-- Cursor -->
+        <div class="hiw-config-panel" id="panel-cursor">
+          <div class="hiw-code">
+            <div class="hiw-code-header">
+              <span class="hiw-code-dot"></span>
+              <span class="hiw-code-dot"></span>
+              <span class="hiw-code-dot"></span>
+              .cursor/mcp.json
+              <span class="hiw-copy-buttons">
+                <button class="hiw-copy-btn" onclick="var b=this;var ic=b.innerHTML;navigator.clipboard.writeText('{\n  &quot;mcpServers&quot;: {\n    &quot;gnosys&quot;: {\n      &quot;command&quot;: &quot;npx&quot;,\n      &quot;args&quot;: [&quot;gnosys-mcp&quot;],\n      &quot;env&quot;: {\n        &quot;ANTHROPIC_API_KEY&quot;: &quot;sk-...&quot;\n      }\n    }\n  }\n}').then(function(){b.innerHTML='copied!';b.classList.add('copied');setTimeout(function(){b.innerHTML=ic;b.classList.remove('copied')},2000)})"><svg class="copy-icon" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy config</button>
+              </span>
+            </div>
+            <pre><span class="punct">{</span>
+  <span class="key">"mcpServers"</span><span class="punct">: {</span>
+    <span class="key">"gnosys"</span><span class="punct">: {</span>
+      <span class="key">"command"</span><span class="punct">:</span> <span class="string">"npx"</span><span class="punct">,</span>
+      <span class="key">"args"</span><span class="punct">:</span> <span class="punct">[</span><span class="string">"gnosys-mcp"</span><span class="punct">],</span>
+      <span class="key">"env"</span><span class="punct">: {</span>
+        <span class="key">"ANTHROPIC_API_KEY"</span><span class="punct">:</span> <span class="string">"sk-..."</span>
+      <span class="punct">}</span>
+    <span class="punct">}</span>
+  <span class="punct">}</span>
+<span class="punct">}</span></pre>
+          </div>
+        </div>
+
+        <!-- Claude Code -->
+        <div class="hiw-config-panel" id="panel-claude-code">
+          <div class="hiw-code">
+            <div class="hiw-code-header">
+              <span class="hiw-code-dot"></span>
+              <span class="hiw-code-dot"></span>
+              <span class="hiw-code-dot"></span>
+              terminal
+              <span class="hiw-copy-buttons">
+                <button class="hiw-copy-btn" onclick="var b=this;var ic=b.innerHTML;navigator.clipboard.writeText('claude mcp add gnosys npx gnosys-mcp').then(function(){b.innerHTML='copied!';b.classList.add('copied');setTimeout(function(){b.innerHTML=ic;b.classList.remove('copied')},2000)})"><svg class="copy-icon" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy command</button>
+              </span>
+            </div>
+            <pre><span class="punct">$</span> claude mcp add gnosys npx <span class="string">gnosys-mcp</span></pre>
+          </div>
+        </div>
+
+        <!-- Codex -->
+        <div class="hiw-config-panel" id="panel-codex">
+          <div class="hiw-code">
+            <div class="hiw-code-header">
+              <span class="hiw-code-dot"></span>
+              <span class="hiw-code-dot"></span>
+              <span class="hiw-code-dot"></span>
+              ~/.codex/config.toml
+              <span class="hiw-copy-buttons">
+                <button class="hiw-copy-btn" onclick="var b=this;var ic=b.innerHTML;navigator.clipboard.writeText('[mcp.gnosys]\ntype = &quot;local&quot;\ncommand = [&quot;npx&quot;, &quot;gnosys-mcp&quot;]\n\n[mcp.gnosys.env]\nANTHROPIC_API_KEY = &quot;your-key-here&quot;').then(function(){b.innerHTML='copied!';b.classList.add('copied');setTimeout(function(){b.innerHTML=ic;b.classList.remove('copied')},2000)})"><svg class="copy-icon" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy config</button>
+              </span>
+            </div>
+            <pre><span class="punct">[</span><span class="key">mcp.gnosys</span><span class="punct">]</span>
+<span class="key">type</span> <span class="punct">=</span> <span class="string">"local"</span>
+<span class="key">command</span> <span class="punct">=</span> <span class="punct">[</span><span class="string">"npx"</span><span class="punct">,</span> <span class="string">"gnosys-mcp"</span><span class="punct">]</span>
+
+<span class="punct">[</span><span class="key">mcp.gnosys.env</span><span class="punct">]</span>
+<span class="key">ANTHROPIC_API_KEY</span> <span class="punct">=</span> <span class="string">"your-key-here"</span></pre>
+          </div>
+        </div>
+
+        <!-- OpenCode -->
+        <div class="hiw-config-panel" id="panel-opencode">
+          <div class="hiw-code">
+            <div class="hiw-code-header">
+              <span class="hiw-code-dot"></span>
+              <span class="hiw-code-dot"></span>
+              <span class="hiw-code-dot"></span>
+              opencode.json
+              <span class="hiw-copy-buttons">
+                <button class="hiw-copy-btn" onclick="var b=this;var ic=b.innerHTML;navigator.clipboard.writeText('{\n  &quot;mcp&quot;: {\n    &quot;gnosys&quot;: {\n      &quot;type&quot;: &quot;local&quot;,\n      &quot;command&quot;: [&quot;npx&quot;, &quot;gnosys-mcp&quot;],\n      &quot;env&quot;: {\n        &quot;ANTHROPIC_API_KEY&quot;: &quot;your-key-here&quot;\n      }\n    }\n  }\n}').then(function(){b.innerHTML='copied!';b.classList.add('copied');setTimeout(function(){b.innerHTML=ic;b.classList.remove('copied')},2000)})"><svg class="copy-icon" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy config</button>
+              </span>
+            </div>
+            <pre><span class="punct">{</span>
+  <span class="key">"mcp"</span><span class="punct">: {</span>
+    <span class="key">"gnosys"</span><span class="punct">: {</span>
+      <span class="key">"type"</span><span class="punct">:</span> <span class="string">"local"</span><span class="punct">,</span>
+      <span class="key">"command"</span><span class="punct">:</span> <span class="punct">[</span><span class="string">"npx"</span><span class="punct">,</span> <span class="string">"gnosys-mcp"</span><span class="punct">],</span>
+      <span class="key">"env"</span><span class="punct">: {</span>
+        <span class="key">"ANTHROPIC_API_KEY"</span><span class="punct">:</span> <span class="string">"your-key-here"</span>
+      <span class="punct">}</span>
+    <span class="punct">}</span>
+  <span class="punct">}</span>
+<span class="punct">}</span></pre>
+          </div>
+        </div>
       </div>
 
       <div class="hiw-steps">
@@ -883,7 +1021,7 @@ footer a:hover { color: var(--accent-light); }
           <div class="hiw-step-num">2</div>
           <div>
             <h3>Add to your MCP client</h3>
-            <p>Works with Claude Desktop, Cursor, Claude Code, or any MCP-compatible client on macOS, Linux, or Windows. Just add the server config.</p>
+            <p>Works with Claude Desktop, Cursor, Claude Code, Codex, OpenCode, or any MCP-compatible client on macOS, Linux, or Windows. Just add the server config.</p>
           </div>
         </div>
         <div class="hiw-step">
@@ -984,6 +1122,14 @@ footer a:hover { color: var(--accent-light); }
 </footer>
 
 <script>
+// Tab switching for MCP client configs
+function switchTab(btn, panelId) {
+  document.querySelectorAll('.hiw-tab').forEach(function(t) { t.classList.remove('active'); });
+  document.querySelectorAll('.hiw-config-panel').forEach(function(p) { p.classList.remove('active'); });
+  btn.classList.add('active');
+  document.getElementById('panel-' + panelId).classList.add('active');
+}
+
 // Highlight code lines on copy-button hover
 (function() {
   var btns = document.querySelectorAll('.hiw-copy-btn[data-highlight]');
