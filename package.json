@@ -50,6 +50,7 @@
     "agent"
   ],
   "license": "MIT",
+  "homepage": "https://gnosys.ai",
   "repository": {
     "type": "git",
     "url": "https://github.com/proticom/gnosys-mcp"

@@ -4,6 +4,13 @@
 
 <p align="center"><strong>LLM-native persistent memory for AI agents.</strong></p>
 
+<p align="center">
+  <a href="https://www.npmjs.com/package/gnosys-mcp"><img src="https://img.shields.io/npm/v/gnosys-mcp.svg" alt="npm version"></a>
+  <a href="https://github.com/proticom/gnosys-mcp/actions"><img src="https://github.com/proticom/gnosys-mcp/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://gnosys.ai"><img src="https://img.shields.io/badge/docs-gnosys.ai-C04C4C" alt="docs"></a>
+  <a href="https://github.com/proticom/gnosys-mcp/blob/master/LICENSE"><img src="https://img.shields.io/npm/l/gnosys-mcp.svg" alt="license"></a>
+</p>
+
 ---
 
 Gnosys gives AI agents long-term memory that survives across sessions. Memories are atomic markdown files with structured frontmatter, stored in plain directories, versioned by git, and searchable via FTS5. No database, no vector store, no external services — just files.
@@ -92,15 +99,8 @@ Edits made in Obsidian are picked up automatically by Gnosys (the filesystem is 
 
 ## CLI Reference
 
-Install globally or run via `npx`:
-
 ```bash
-# Global install
 npm install -g gnosys-mcp
-
-# Or run from the project
-npm run build
-node dist/cli.js <command>
 ```
 
 ### Core Commands
@@ -160,24 +160,6 @@ gnosys <command> --help    # Same as above
 
 ## MCP Server Setup
 
-### Cursor
-
-Add to your Cursor MCP settings (`.cursor/mcp.json` in your project or global config):
-
-```json
-{
-  "mcpServers": {
-    "gnosys": {
-      "command": "node",
-      "args": ["/path/to/gnosys-mcp/dist/index.js"],
-      "env": {
-        "ANTHROPIC_API_KEY": "your-key-here"
-      }
-    }
-  }
-}
-```
-
 ### Claude Desktop
 
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or the equivalent config on your platform:
@@ -186,14 +168,38 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 {
   "mcpServers": {
     "gnosys": {
-      "command": "node",
-      "args": ["/path/to/gnosys-mcp/dist/index.js"],
+      "command": "npx",
+      "args": ["gnosys-mcp"],
       "env": {
         "ANTHROPIC_API_KEY": "your-key-here"
       }
     }
   }
 }
+```
+
+### Cursor
+
+Add to your Cursor MCP settings (`.cursor/mcp.json` in your project or global config):
+
+```json
+{
+  "mcpServers": {
+    "gnosys": {
+      "command": "npx",
+      "args": ["gnosys-mcp"],
+      "env": {
+        "ANTHROPIC_API_KEY": "your-key-here"
+      }
+    }
+  }
+}
+```
+
+### Claude Code
+
+```bash
+claude mcp add gnosys npx gnosys-mcp
 ```
 
 ### MCP Tools
@@ -273,7 +279,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 ```bash
 npm install          # Install dependencies
 npm run build        # Compile TypeScript
-npm test             # Run test suite (32 tests)
+npm test             # Run test suite
 npm run test:watch   # Run tests in watch mode
 npm run dev          # Run MCP server in dev mode (tsx)
 ```
