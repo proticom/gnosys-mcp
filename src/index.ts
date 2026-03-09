@@ -26,14 +26,16 @@ import { getFileHistory, getFileAtCommit, rollbackToCommit, hasGitHistory, getFi
 import { groupByPeriod, computeStats, TimePeriod } from "./lib/timeline.js";
 import { buildLinkGraph, getBacklinks, getOutgoingLinks, formatGraphSummary } from "./lib/wikilinks.js";
 import { bootstrap, discoverFiles } from "./lib/bootstrap.js";
+import { loadConfig, GnosysConfig, DEFAULT_CONFIG } from "./lib/config.js";
 
 // Initialize resolver (discovers all layered stores)
 const resolver = new GnosysResolver();
+let config: GnosysConfig = DEFAULT_CONFIG;
 
 // Create MCP server
 const server = new McpServer({
   name: "gnosys",
-  version: "0.1.0",
+  version: "0.4.0",
 });
 
 // These are initialized in main() after resolver runs
@@ -1493,7 +1495,13 @@ async function main() {
     search = new GnosysSearch(writeTarget.store.getStorePath());
     tagRegistry = new GnosysTagRegistry(writeTarget.store.getStorePath());
     await tagRegistry.load();
-    ingestion = new GnosysIngestion(writeTarget.store, tagRegistry);
+    // Load config from the primary store
+    try {
+      config = await loadConfig(writeTarget.store.getStorePath());
+    } catch (err) {
+      console.error(`Warning: Failed to load gnosys.json: ${err instanceof Error ? err.message : err}`);
+    }
+    ingestion = new GnosysIngestion(writeTarget.store, tagRegistry, config);
 
     // Build search index across all stores
     await reindexAllStores();

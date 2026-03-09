@@ -2,8 +2,6 @@
   <img src="docs/logo.svg" alt="Gnosys" width="200">
 </p>
 
-<p align="center"><strong>LLM-native persistent memory for AI agents.</strong></p>
-
 <p align="center">
   <a href="https://www.npmjs.com/package/gnosys-mcp"><img src="https://img.shields.io/npm/v/gnosys-mcp.svg" alt="npm version"></a>
   <a href="https://github.com/proticom/gnosys-mcp/actions"><img src="https://github.com/proticom/gnosys-mcp/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -13,48 +11,267 @@
 
 ---
 
-Gnosys gives AI agents long-term memory that survives across sessions. Memories are atomic markdown files with structured frontmatter, stored in plain directories, versioned by git, and searchable via FTS5. No database, no vector store, no external services — just files.
+### Gnosys — Persistent Memory for AI Agents (and Universal Transparent Knowledge Engine)
 
-Gnosys works as an MCP server (for Cursor, Claude Desktop, or any MCP-compatible agent) and as a standalone CLI.
+**Gnosys** gives LLMs — and humans — a knowledge layer that survives across sessions and scales to real-world datasets.
+
+Every piece of knowledge is stored as an atomic Markdown file with rich YAML frontmatter inside a `.gnosys/` directory. Git versions every change. SQLite FTS5 delivers instant keyword search. The entire folder is a fully functional Obsidian vault for browsing, wikilinking, graphing, and editing.
+
+It runs as a CLI and a complete MCP server that drops straight into Cursor, Claude Desktop, Claude Code, or any MCP client.
+
+**Beyond agents**: Gnosys turns any structured dataset into a connected, versioned knowledge graph.
+• NVD/CVE Database: 200k+ vulnerabilities auto-linked to packages, exploits, patches, and supersession history. Ask "which of our dependencies have active unpatched criticals?"
+• USDA FoodData Central: ~8k foods atomized with wikilinks to nutrients and substitutions. Ask "high-protein, low-sodium, high-potassium alternatives to X?"
+
+No vector DBs. No black boxes. No external services. Just files, Git, and Obsidian — the way knowledge should be.
+
+---
+
+## Why Gnosys?
+
+Most "memory for LLMs" solutions use vector databases, embeddings, or proprietary services. They're opaque — you can't see what the model remembers, can't edit it, can't version it, can't share it.
+
+Gnosys takes a different approach: every memory is a plain Markdown file with YAML frontmatter. The entire knowledge base is a Git repository and an Obsidian vault. You can read it, edit it, version it, grep it, and back it up with the tools you already use.
+
+**What makes it different:**
+
+- **Transparent** — every memory is a human-readable `.md` file. No embeddings, no binary blobs.
+- **Versioned** — Git auto-commits every write. Full history, rollback, and diff support.
+- **Obsidian-native** — the `.gnosys/` folder is a real vault. Graph view, wikilinks, tags, backlinks — all work.
+- **MCP-first** — drops into Cursor, Claude Desktop, Claude Code, Codex, or any MCP client with one config line.
+- **Bulk import** — CSV, JSON, JSONL. Import entire datasets (USDA, NVD, your internal docs) in seconds.
+- **Layered stores** — project, personal, global, and optional read-only stores stacked by precedence.
+- **Zero infrastructure** — no databases, no Docker (unless you want it), no cloud services. Just `npm install`.
+
+---
+
+## Real-World Use Cases
+
+### USDA FoodData Central — 100 foods imported in 0.6s
+
+![USDA import: 100 Foundation Foods with nutrient data, wikilinks to food categories](docs/screenshots/usda-import-result.png)
+
+```bash
+gnosys import usda-foods.json \
+  --format json \
+  --mapping '{"title":"title","category":"category","content":"content","tags":"tags","relevance":"relevance"}' \
+  --mode structured --skip-existing
+```
+
+Each food becomes an atomic memory with nutrient data and `[[wikilinks]]` to food categories:
+
+```yaml
+---
+title: "Almond butter, creamy"
+category: usda-foods
+tags:
+  domain: [food, nutrition, usda]
+relevance: "almond butter creamy food nutrition usda fdc nutrient diet dietary protein"
+---
+# Almond butter, creamy
+
+**Food Category:** [[General]]
+
+## Key Nutrients (per 100g)
+- Protein (g): 20.4 G
+- Total Fat (g): 55.7 G
+- Calcium (mg): 264 MG
+- Potassium (mg): 699 MG
+```
+
+### NVD/CVE Database — 20 vulnerabilities with CVSS scores and affected products
+
+![NVD import: CVEs with CVSS scores, severity tags, wikilinks to affected products](docs/screenshots/nvd-import-result.png)
+
+```bash
+gnosys import nvd-cves.json \
+  --format json \
+  --mapping '{"title":"title","category":"category","content":"content","tags":"tags","relevance":"relevance"}' \
+  --mode structured --skip-existing
+```
+
+Each CVE links to affected packages via wikilinks:
+
+```yaml
+---
+title: CVE-1999-0095
+tags:
+  domain: [cve, vulnerability, security, high]
+relevance: "cve-1999-0095 cve vulnerability security nvd patch exploit high eric_allman sendmail"
+---
+# CVE-1999-0095
+
+The debug command in Sendmail is enabled, allowing attackers to execute commands as root.
+
+**CVSS Score:** 10.0 (HIGH)
+**Affected:** [[eric_allman/sendmail]]
+```
+
+See [DEMO.md](DEMO.md) for the full step-by-step walkthrough.
+
+---
 
 ## Quick Start
 
 ```bash
-# Install globally from npm
+# Install
 npm install -g gnosys-mcp
 
 # Initialize a store in your project
-cd /path/to/your/project
+cd your-project
 gnosys init
 
-# Add your first memory
-gnosys add "We decided to use PostgreSQL for the main database because of its JSON support and mature ecosystem"
+# Add a memory (uses LLM to structure it — needs ANTHROPIC_API_KEY)
+gnosys add "We chose PostgreSQL over MySQL for its JSON support and mature ecosystem"
+
+# Or add without an LLM
+gnosys add-structured --title "Use PostgreSQL" --category decisions \
+  --content "Chosen for JSON support and mature ecosystem" \
+  --relevance "database postgres sql json storage"
 
 # Find memories later
 gnosys discover "database selection"
+
+# Full-text search
+gnosys search "PostgreSQL"
 ```
+
+---
+
+## Installation
+
+### npm (recommended)
+
+```bash
+npm install -g gnosys-mcp
+```
+
+### Docker
+
+```bash
+# Build the image
+docker build -t gnosys .
+
+# Initialize a store
+docker run -v $(pwd):/data gnosys init
+
+# Import data
+docker run -v $(pwd):/data gnosys import data.json --format json \
+  --mapping '{"name":"title","type":"category","notes":"content"}' \
+  --mode structured
+
+# Start the MCP server
+docker run -v $(pwd):/data gnosys serve
+```
+
+Or with Docker Compose:
+
+```bash
+# Start the MCP server (mounts current directory)
+docker compose up
+
+# Run any CLI command
+docker compose run gnosys search "my query"
+docker compose run gnosys import data.json --format json --mapping '...'
+```
+
+---
+
+## MCP Server Setup
+
+### Claude Desktop
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "gnosys": {
+      "command": "npx",
+      "args": ["gnosys-mcp"],
+      "env": { "ANTHROPIC_API_KEY": "your-key-here" }
+    }
+  }
+}
+```
+
+### Cursor
+
+Add to `.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "gnosys": {
+      "command": "npx",
+      "args": ["gnosys-mcp"],
+      "env": { "ANTHROPIC_API_KEY": "your-key-here" }
+    }
+  }
+}
+```
+
+### Claude Code
+
+```bash
+claude mcp add gnosys npx gnosys-mcp
+```
+
+### Codex
+
+Add to `.codex/config.toml`:
+
+```toml
+[mcp.gnosys]
+type = "local"
+command = ["npx", "gnosys-mcp"]
+
+[mcp.gnosys.env]
+ANTHROPIC_API_KEY = "your-key-here"
+```
+
+### MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `gnosys_discover` | Find relevant memories by keyword (start here) |
+| `gnosys_read` | Read a specific memory |
+| `gnosys_search` | Full-text search across stores |
+| `gnosys_list` | List memories with optional filters |
+| `gnosys_add` | Add a memory (LLM-structured) |
+| `gnosys_add_structured` | Add with explicit fields (no LLM) |
+| `gnosys_update` | Update frontmatter or content |
+| `gnosys_reinforce` | Signal usefulness of a memory |
+| `gnosys_commit_context` | Extract memories from conversation context |
+| `gnosys_import` | Bulk import from CSV, JSON, or JSONL |
+| `gnosys_init` | Initialize a new store |
+| `gnosys_stores` | Show active stores |
+| `gnosys_tags` | List tag registry |
+
+---
 
 ## How It Works
 
-A Gnosys store is a `.gnosys/` directory inside your project. It contains markdown files organized by category:
+A Gnosys store is a `.gnosys/` directory inside your project:
 
 ```
 your-project/
   .gnosys/
     decisions/
       use-postgresql.md
-      jwt-over-sessions.md
     architecture/
       three-layer-design.md
-    concepts/
-      memory-decay.md
-    .config/          # internal config
-      tags.json       # tag registry
-      reinforcement.log
+    usda-foods/
+      almond-butter-creamy.md
+    nvd-cves/
+      cve-2024-1234.md
+    gnosys.json          # configuration
+    .config/tags.json    # tag registry
     CHANGELOG.md
+    .git/                # auto-versioned
 ```
 
-Each memory is a markdown file with YAML frontmatter:
+Each memory is an atomic Markdown file with YAML frontmatter:
 
 ```yaml
 ---
@@ -69,11 +286,9 @@ author: human+ai
 authority: declared
 confidence: 0.9
 created: 2026-03-01
-modified: 2026-03-01
 status: active
 supersedes: null
 ---
-
 # Use PostgreSQL for Main Database
 
 We chose PostgreSQL over MySQL and SQLite because...
@@ -81,271 +296,142 @@ We chose PostgreSQL over MySQL and SQLite because...
 
 Key fields:
 
-- **relevance**: A keyword cloud that powers `discover`. Describe the contexts where this memory would be useful.
-- **confidence**: 0–1 score. How certain is this knowledge? Observations might be 0.6; declared decisions are 0.9.
-- **authority**: Who established this? `declared` (human decided), `observed` (AI noticed), `imported` (from external source), `inferred` (AI deduced).
-- **status**: `active`, `archived`, or `superseded`. Superseded memories link to their replacement via `superseded_by`.
+- **relevance** — keyword cloud powering `discover`. Think: what would someone search to find this?
+- **confidence** — 0–1 score. Observations: 0.6. Firm decisions: 0.9.
+- **authority** — who established this? `declared`, `observed`, `imported`, `inferred`.
+- **status** — `active`, `archived`, or `superseded`. Superseded memories link to replacements.
+
+---
+
+## Configuration
+
+Gnosys reads `gnosys.json` from the `.gnosys/` directory. All fields are optional with sensible defaults:
+
+```json
+{
+  "defaultLLMProvider": "anthropic",
+  "defaultModel": "claude-haiku-4-5-20251001",
+  "bulkIngestionBatchSize": 500,
+  "importConcurrency": 5,
+  "autoCommit": true,
+  "llmRetryAttempts": 3,
+  "llmRetryBaseDelayMs": 1000,
+  "defaultAuthor": "ai",
+  "defaultAuthority": "imported",
+  "defaultConfidence": 0.8
+}
+```
+
+A default `gnosys.json` is created during `gnosys init`. Validation is handled by Zod — invalid configs produce clear error messages.
+
+---
 
 ## Using with Obsidian
 
-A Gnosys store is a valid Obsidian vault. Open your `.gnosys/` directory in Obsidian and you get full browsing, graph view, tag filtering, and search — with zero configuration. This is the recommended way for humans to browse and explore the knowledge base.
+The `.gnosys/` directory is a fully valid Obsidian vault. Open it and get graph view, wikilinks, backlinks, tag search, and visual editing with zero configuration.
 
-1. Open Obsidian
-2. Click "Open folder as vault"
-3. Select your project's `.gnosys/` directory
-4. Browse, search, and explore your memories visually
+1. Open Obsidian → "Open folder as vault" → select `.gnosys/`
+2. Browse categories as folders, explore the graph view
+3. Wikilinks between memories (e.g., `[[eric_allman/sendmail]]` in CVE data) create navigable connections
+4. Edits made in Obsidian are picked up automatically (filesystem is source of truth)
 
-Edits made in Obsidian are picked up automatically by Gnosys (the filesystem is the source of truth).
+---
+
+## Bulk Import
+
+Import any structured dataset into atomic memories:
+
+```bash
+# JSON with field mapping
+gnosys import foods.json --format json \
+  --mapping '{"description":"title","foodCategory":"category","notes":"content"}' \
+  --mode structured
+
+# CSV
+gnosys import data.csv --format csv \
+  --mapping '{"name":"title","type":"category","notes":"content"}'
+
+# JSONL (one record per line)
+gnosys import events.jsonl --format jsonl \
+  --mapping '{"event":"title","type":"category","details":"content"}'
+
+# With LLM enrichment (generates keyword clouds, better structure)
+gnosys import data.json --mode llm --concurrency 3
+
+# Preview without writing
+gnosys import data.json --dry-run
+
+# Resume interrupted imports
+gnosys import data.json --skip-existing
+
+# Slice a large dataset
+gnosys import large.json --limit 500 --offset 1000
+```
+
+---
+
+## Layered Stores
+
+Multiple stores stacked by precedence:
+
+| Layer | Source | Writable | Use Case |
+|-------|--------|----------|----------|
+| **Project** | `.gnosys/` in project root | Yes (default) | Project-specific knowledge |
+| **Optional** | `GNOSYS_STORES` env var | Read-only | Shared reference data |
+| **Personal** | `GNOSYS_PERSONAL` env var | Yes (fallback) | Cross-project personal knowledge |
+| **Global** | `GNOSYS_GLOBAL` env var | Explicit only | Org-wide shared knowledge |
+
+```bash
+export GNOSYS_PERSONAL="$HOME/.gnosys-personal"
+export GNOSYS_GLOBAL="/shared/team/.gnosys"
+export GNOSYS_STORES="/path/to/reference-data"
+```
+
+---
+
+## Comparison
+
+| Feature | **Gnosys** | NotebookLM | gnosis-mcp | Official MCP Memory |
+|---------|-----------|------------|------------|-------------------|
+| Storage | Markdown files + Git | Google proprietary | SQLite | JSON file |
+| Transparent/editable | ✅ Plain `.md` files | ❌ Opaque | ❌ Binary DB | ✅ But flat JSON |
+| Version history | ✅ Full Git history | ❌ | ❌ | ❌ |
+| Obsidian vault | ✅ Native | ❌ | ❌ | ❌ |
+| Bulk import | ✅ CSV/JSON/JSONL | ❌ Manual | ❌ | ❌ |
+| MCP server | ✅ Native | ❌ | ✅ | ✅ |
+| CLI | ✅ Full-featured | ❌ | ❌ | ❌ |
+| Layered stores | ✅ 4 layers | ❌ | ❌ | ❌ |
+| Wikilinks | ✅ Auto-generated | ❌ | ❌ | ❌ |
+| Search | FTS5 keyword + relevance clouds | Proprietary | Basic SQL | None |
+| Self-hosted | ✅ | ❌ | ✅ | ✅ |
+| LLM required | Optional (structured mode) | Required | No | No |
+| Docker support | ✅ | ❌ | ❌ | ❌ |
+| Price | Free / MIT | Free tier, then paid | Free | Free |
+
+---
 
 ## CLI Reference
 
 ```bash
-npm install -g gnosys-mcp
+gnosys --help               # List all commands
+gnosys init                  # Initialize a new store
+gnosys add "raw input"       # Add memory via LLM
+gnosys add-structured ...    # Add memory with explicit fields
+gnosys discover "keywords"   # Find relevant memories (metadata only)
+gnosys search "query"        # Full-text search with snippets
+gnosys read <path>           # Read a specific memory
+gnosys list                  # List all memories
+gnosys update <path> ...     # Update a memory
+gnosys reinforce <id> ...    # Signal memory usefulness
+gnosys stale                 # Find stale memories
+gnosys commit-context "..."  # Extract memories from conversation
+gnosys import <file> ...     # Bulk import data
+gnosys tags                  # List tag registry
+gnosys stores                # Show active stores
+gnosys serve                 # Start MCP server (stdio)
 ```
 
-### Core Commands
-
-**`gnosys init [--directory <dir>]`**
-Initialize a new `.gnosys` store. Creates the directory structure, default tag registry, and a git repository.
-
-**`gnosys add <input> [--author human|ai|human+ai] [--authority declared|observed] [--store project|personal|global]`**
-Add a memory using natural language. An LLM structures your input into an atomic memory with proper frontmatter, category, and tags. Requires `ANTHROPIC_API_KEY`.
-
-**`gnosys add-structured --title <title> --category <category> --content <content> [--tags <json>] [--relevance <keywords>] [--confidence <n>]`**
-Add a memory with explicit fields. No LLM needed — you provide the structure directly.
-
-**`gnosys discover <query> [--limit <n>]`**
-Find relevant memories by keyword. Searches relevance clouds, titles, and tags. Returns metadata only (no file contents). This is the primary entry point for agents starting a task.
-
-**`gnosys search <query> [--limit <n>]`**
-Full-text search across all memories. Returns matching paths with context snippets.
-
-**`gnosys read <path>`**
-Read a specific memory. Supports layer-prefixed paths: `project:decisions/auth.md`.
-
-**`gnosys list [--category <cat>] [--tag <tag>] [--store <store>]`**
-List all memories, optionally filtered.
-
-**`gnosys update <path> [--title <t>] [--status active|archived|superseded] [--confidence <n>] [--relevance <kw>] [--supersedes <id>] [--superseded-by <id>] [--content <md>]`**
-Update a memory's frontmatter or content. Handles supersession cross-linking automatically.
-
-**`gnosys reinforce <memoryId> --signal useful|not_relevant|outdated [--context <why>]`**
-Signal whether a memory was helpful. `useful` resets decay; `not_relevant` logs routing feedback; `outdated` flags for review.
-
-**`gnosys stale [--days <n>] [--limit <n>]`**
-Find memories not modified within N days (default: 90). Useful for periodic review.
-
-**`gnosys commit-context <context> [--dry-run] [--store <store>]`**
-Extract atomic memories from a conversation context. Checks existing memories for duplicates — only adds what's genuinely new. Use `--dry-run` to preview without writing. Requires `ANTHROPIC_API_KEY`.
-
-**`gnosys tags`**
-List all tags in the registry, grouped by category.
-
-**`gnosys tags-add --category <cat> --tag <tag>`**
-Add a new tag to the registry.
-
-**`gnosys stores`**
-Show all active stores with their layers, paths, and write permissions.
-
-**`gnosys serve`**
-Start the MCP server in stdio mode (used by editors and agent runtimes).
-
-### Bulk Import
-
-**`gnosys import <file-or-url> [options]`**
-Import data from CSV, JSON, or JSONL files (or URLs) into a Gnosys store. Each record becomes an atomic memory.
-
-```bash
-# Import a JSON file with LLM-powered ingestion
-gnosys import foods.json --format json \
-  --mapping '{"description":"title","foodCategory":"category","foodNutrients":"content"}' \
-  --mode llm --concurrency 3
-
-# Import a CSV with structured mode (no LLM, no API key needed)
-gnosys import data.csv --format csv \
-  --mapping '{"name":"title","type":"category","notes":"content"}' \
-  --mode structured
-
-# Dry run to preview without writing
-gnosys import data.json --dry-run
-
-# Resume an interrupted import (skips existing records)
-gnosys import data.json --skip-existing
-
-# Import a subset
-gnosys import large-dataset.json --limit 50 --offset 100
-```
-
-Options:
-
-- `--format` — `csv`, `json`, or `jsonl` (auto-detected from extension if omitted)
-- `--mapping` — JSON object mapping source fields to Gnosys fields (`title`, `category`, `content`, `tags`, `relevance`)
-- `--mode` — `llm` (uses Claude to structure memories with keyword clouds) or `structured` (direct mapping, no API key needed)
-- `--concurrency` — Number of parallel LLM calls (default: 5)
-- `--limit` / `--offset` — Import a slice of the dataset
-- `--skip-existing` — Skip records whose title matches an existing memory (for resuming interrupted imports)
-- `--dry-run` — Preview what would be imported without writing any files
-- `--store` — Target store: `project`, `personal`, or `global`
-
-Unmapped fields from the source data are automatically appended as extra context, giving the LLM richer material for generating keyword clouds.
-
-The MCP tool `gnosys_import` provides the same functionality. For datasets over 100 records, the tool will suggest switching to the CLI for better progress tracking.
-
-### Getting Help
-
-```bash
-gnosys --help              # List all commands
-gnosys help <command>      # Detailed help for a command
-gnosys <command> --help    # Same as above
-```
-
-## MCP Server Setup
-
-### Claude Desktop
-
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or the equivalent config on your platform:
-
-```json
-{
-  "mcpServers": {
-    "gnosys": {
-      "command": "npx",
-      "args": ["gnosys-mcp"],
-      "env": {
-        "ANTHROPIC_API_KEY": "your-key-here"
-      }
-    }
-  }
-}
-```
-
-### Cursor
-
-Add to your Cursor MCP settings (`.cursor/mcp.json` in your project or global config):
-
-```json
-{
-  "mcpServers": {
-    "gnosys": {
-      "command": "npx",
-      "args": ["gnosys-mcp"],
-      "env": {
-        "ANTHROPIC_API_KEY": "your-key-here"
-      }
-    }
-  }
-}
-```
-
-### Claude Code
-
-```bash
-claude mcp add gnosys npx gnosys-mcp
-```
-
-### Codex
-
-Add to `~/.codex/config.toml` or `.codex/config.toml` in your project:
-
-```toml
-[mcp.gnosys]
-type = "local"
-command = ["npx", "gnosys-mcp"]
-
-[mcp.gnosys.env]
-ANTHROPIC_API_KEY = "your-key-here"
-```
-
-### OpenCode
-
-Add to `~/.config/opencode/opencode.json` or `opencode.json` in your project:
-
-```json
-{
-  "mcp": {
-    "gnosys": {
-      "type": "local",
-      "command": ["npx", "gnosys-mcp"],
-      "env": {
-        "ANTHROPIC_API_KEY": "your-key-here"
-      }
-    }
-  }
-}
-```
-
-### MCP Tools
-
-The MCP server exposes the same operations as the CLI:
-
-| Tool | Description |
-|------|-------------|
-| `gnosys_discover` | Find relevant memories by keyword |
-| `gnosys_read` | Read a specific memory |
-| `gnosys_search` | Full-text search across stores |
-| `gnosys_list` | List memories with optional filters |
-| `gnosys_add` | Add a memory (LLM-structured) |
-| `gnosys_add_structured` | Add a memory (explicit fields) |
-| `gnosys_update` | Update frontmatter or content |
-| `gnosys_reinforce` | Signal usefulness of a memory |
-| `gnosys_stale` | Find stale memories |
-| `gnosys_commit_context` | Extract and commit memories from context |
-| `gnosys_tags` | List tag registry |
-| `gnosys_tags_add` | Add a tag to the registry |
-| `gnosys_import` | Bulk import from CSV, JSON, or JSONL |
-| `gnosys_init` | Initialize a new store |
-| `gnosys_stores` | Show active stores |
-
-## Layered Stores
-
-Gnosys supports multiple stores stacked in precedence order, so project-specific knowledge can override personal defaults, which can override shared organizational knowledge.
-
-| Layer | Source | Writable | Use Case |
-|-------|--------|----------|----------|
-| **Project** | `.gnosys/` in project root | Yes (default) | Project-specific decisions and architecture |
-| **Optional** | `GNOSYS_STORES` env var | Read-only | Shared reference knowledge |
-| **Personal** | `GNOSYS_PERSONAL` env var | Yes (fallback) | Cross-project personal knowledge |
-| **Global** | `GNOSYS_GLOBAL` env var | Explicit only | Organization-wide shared knowledge |
-
-Writes go to the project store by default. Global writes require `--store global` to prevent accidental changes to shared knowledge.
-
-### Environment Variables
-
-```bash
-# Optional: API key for LLM-powered features (add, commit-context)
-export ANTHROPIC_API_KEY="sk-ant-..."
-
-# Optional: Personal knowledge store (cross-project)
-export GNOSYS_PERSONAL="$HOME/.gnosys-personal"
-
-# Optional: Organization-wide shared knowledge
-export GNOSYS_GLOBAL="/shared/team/.gnosys"
-
-# Optional: Additional read-only stores (colon-separated)
-export GNOSYS_STORES="/path/to/store1:/path/to/store2"
-```
-
-You can also place your API key in `~/.config/gnosys/.env`:
-
-```
-ANTHROPIC_API_KEY=sk-ant-...
-```
-
-## Agent Integration Guide
-
-### Recommended Agent Workflow
-
-1. **Start of session**: Call `gnosys_discover` with keywords about the current task to load relevant context.
-2. **During work**: When making decisions or learning something new, call `gnosys_add` to persist it.
-3. **When things change**: Use `gnosys_update` with `supersedes` to create clean revision chains.
-4. **End of session**: Call `gnosys_commit_context` with a summary of the conversation to extract and persist novel knowledge before context is lost.
-
-### Memory Quality Tips
-
-- Write **atomic memories** — one decision, fact, or insight per file.
-- Use **specific relevance keywords** — think about what someone would search for to find this memory.
-- Set **confidence scores honestly** — a hunch is 0.5, a firm decision is 0.9.
-- Use **supersession** instead of editing — when a decision changes, create a new memory that `supersedes` the old one. This preserves the history of why things changed.
+---
 
 ## Development
 
@@ -367,11 +453,28 @@ src/
     store.ts        # Core: read/write/update memory files
     search.ts       # FTS5 search and discovery
     tags.ts         # Tag registry management
-    ingest.ts       # LLM-powered structuring of raw input
+    ingest.ts       # LLM-powered structuring (with retry logic)
     import.ts       # Bulk import engine (CSV, JSON, JSONL)
+    config.ts       # gnosys.json loader with Zod validation
+    retry.ts        # Exponential backoff for LLM calls
     resolver.ts     # Layered multi-store resolution
+    lensing.ts      # Memory lensing (filtered views)
+    history.ts      # Git history and rollback
+    timeline.ts     # Knowledge evolution timeline
+    wikilinks.ts    # Obsidian wikilink graph
+    bootstrap.ts    # Bootstrap from source code
 ```
+
+---
+
+## Roadmap
+
+See the [6-phase roadmap](https://gnosys.ai/roadmap) for what's next: semantic search, LLM abstraction, auto-maintenance, freeform queries, and graph ecosystem.
+
+**Have ideas?** [Join the discussion →](https://github.com/proticom/gnosys-mcp/discussions)
+
+---
 
 ## License
 
-MIT
+MIT — [LICENSE](LICENSE)

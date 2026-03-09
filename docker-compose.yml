@@ -1,0 +1,15 @@
+version: "3.8"
+
+services:
+  gnosys:
+    build: .
+    volumes:
+      # Mount the current directory so .gnosys/ vault persists on host
+      - .:/data
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    # Override command as needed:
+    #   docker compose run gnosys init
+    #   docker compose run gnosys import data.json --format json --mapping '...'
+    #   docker compose run gnosys search "query"
+    #   docker compose run gnosys serve   (default)

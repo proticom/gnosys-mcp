@@ -35,6 +35,26 @@ export interface Memory {
   relativePath: string;
 }
 
+/**
+ * Flatten categorized tags into a flat array for Obsidian compatibility.
+ * Input:  { domain: ["food", "nutrition"], type: ["fact"] }
+ * Output: ["food", "nutrition", "fact"]
+ * Already-flat arrays pass through unchanged.
+ */
+function flattenTags(tags: Record<string, string[]> | string[]): string[] {
+  if (Array.isArray(tags)) return tags;
+  if (!tags || typeof tags !== "object") return [];
+  const flat: string[] = [];
+  for (const values of Object.values(tags)) {
+    if (Array.isArray(values)) {
+      for (const v of values) {
+        if (!flat.includes(v)) flat.push(v);
+      }
+    }
+  }
+  return flat;
+}
+
 export class GnosysStore {
   private storePath: string;
   private gitEnabled: boolean;
@@ -121,7 +141,9 @@ export class GnosysStore {
     const filePath = path.join(dir, filename);
     const relativePath = path.join(category, filename);
 
-    const fileContent = matter.stringify(content, frontmatter);
+    // Flatten tags for Obsidian compatibility (nested objects → flat array)
+    const serializable = { ...frontmatter, tags: flattenTags(frontmatter.tags) };
+    const fileContent = matter.stringify(content, serializable);
     await fs.writeFile(filePath, fileContent, "utf-8");
 
     // Auto git commit (skip when batching)
@@ -158,7 +180,9 @@ export class GnosysStore {
     const updatedContent = newContent ?? existing.content;
 
     const fullPath = path.join(this.storePath, relativePath);
-    const fileContent = matter.stringify(updatedContent, updatedFrontmatter);
+    // Flatten tags for Obsidian compatibility
+    const serializable = { ...updatedFrontmatter, tags: flattenTags(updatedFrontmatter.tags) };
+    const fileContent = matter.stringify(updatedContent, serializable);
     await fs.writeFile(fullPath, fileContent, "utf-8");
 
     await this.autoCommit(`Update memory: ${updatedFrontmatter.title}`);
@@ -214,17 +238,31 @@ export class GnosysStore {
 
   /**
    * Auto-commit changes to git (silent, never user-facing).
+   * Safe: if commit fails for a real reason (not "nothing to commit"),
+   * it resets staged changes to avoid leaving a dirty index.
    */
   private async autoCommit(message: string): Promise<void> {
     if (!this.gitEnabled) return;
     try {
       execSync("git add -A", { cwd: this.storePath, stdio: "pipe" });
-      execSync(`git commit -m "${message}" --allow-empty-message`, {
+      // Escape double quotes in the commit message
+      const safeMessage = message.replace(/"/g, '\\"');
+      execSync(`git commit -m "${safeMessage}" --allow-empty-message`, {
         cwd: this.storePath,
         stdio: "pipe",
       });
-    } catch {
-      // Git commit can fail if nothing changed — that's fine
+    } catch (err) {
+      // "nothing to commit" is fine — anything else gets a safe reset
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (errMsg.includes("nothing to commit") || errMsg.includes("no changes added")) {
+        return;
+      }
+      // Reset staged changes to keep index clean
+      try {
+        execSync("git reset HEAD", { cwd: this.storePath, stdio: "pipe" });
+      } catch {
+        // If even reset fails, there's nothing we can do
+      }
     }
   }
 }

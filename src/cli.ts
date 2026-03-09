@@ -19,6 +19,7 @@ import { groupByPeriod, computeStats, TimePeriod } from "./lib/timeline.js";
 import { buildLinkGraph, getBacklinks, getOutgoingLinks, formatGraphSummary } from "./lib/wikilinks.js";
 import { bootstrap, discoverFiles } from "./lib/bootstrap.js";
 import { performImport, formatImportSummary, estimateDuration } from "./lib/import.js";
+import { loadConfig, generateConfigTemplate, GnosysConfig } from "./lib/config.js";
 
 // Load API keys from ~/.config/gnosys/.env (same as MCP server)
 const home = process.env.HOME || process.env.USERPROFILE || "/tmp";
@@ -316,6 +317,13 @@ program
       "utf-8"
     );
 
+    // Write default gnosys.json config
+    await fs.writeFile(
+      path.join(storePath, "gnosys.json"),
+      generateConfigTemplate() + "\n",
+      "utf-8"
+    );
+
     const changelog = `# Gnosys Changelog\n\n## ${new Date().toISOString().split("T")[0]}\n\n- Store initialized\n`;
     await fs.writeFile(
       path.join(storePath, "CHANGELOG.md"),
@@ -344,8 +352,9 @@ program
 
     console.log(`Gnosys store initialized at ${storePath}`);
     console.log(`\nCreated:`);
-    console.log(`  .config/     (internal config)`);
-    console.log(`  tags.json    (tag registry)`);
+    console.log(`  .config/      (internal config)`);
+    console.log(`  gnosys.json   (configuration — edit to customize)`);
+    console.log(`  tags.json     (tag registry)`);
     console.log(`  CHANGELOG.md`);
     console.log(`  git repo`);
     console.log(`\nStart adding memories with: gnosys add "your knowledge here"`);

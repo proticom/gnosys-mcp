@@ -6,6 +6,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { GnosysTagRegistry } from "./tags.js";
 import { GnosysStore, MemoryFrontmatter } from "./store.js";
+import { withRetry, isTransientError } from "./retry.js";
+import { GnosysConfig, DEFAULT_CONFIG } from "./config.js";
 
 interface IngestResult {
   title: string;
@@ -22,10 +24,12 @@ export class GnosysIngestion {
   private client: Anthropic | null = null;
   private tagRegistry: GnosysTagRegistry;
   private store: GnosysStore;
+  private config: GnosysConfig;
 
-  constructor(store: GnosysStore, tagRegistry: GnosysTagRegistry) {
+  constructor(store: GnosysStore, tagRegistry: GnosysTagRegistry, config?: GnosysConfig) {
     this.store = store;
     this.tagRegistry = tagRegistry;
+    this.config = config || DEFAULT_CONFIG;
 
     // Initialize Anthropic client if API key is available
     const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -79,17 +83,25 @@ Rules:
 5. Write in third person or neutral voice, not first person.
 6. The relevance field is critical for discovery. Include all terms an agent might use to find this memory — think about what someone working on a related task would search for.`;
 
-    const response = await this.client.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 2000,
-      system: systemPrompt,
-      messages: [
-        {
-          role: "user",
-          content: `Structure this into an atomic memory:\n\n${rawInput}`,
-        },
-      ],
-    });
+    const response = await withRetry(
+      () =>
+        this.client!.messages.create({
+          model: this.config.defaultModel,
+          max_tokens: 2000,
+          system: systemPrompt,
+          messages: [
+            {
+              role: "user",
+              content: `Structure this into an atomic memory:\n\n${rawInput}`,
+            },
+          ],
+        }),
+      {
+        maxAttempts: this.config.llmRetryAttempts,
+        baseDelayMs: this.config.llmRetryBaseDelayMs,
+        isRetryable: isTransientError,
+      }
+    );
 
     // Extract text from response
     const text =
