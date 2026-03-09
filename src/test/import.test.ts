@@ -284,7 +284,8 @@ describe("limit and offset", () => {
     });
 
     expect(result.imported).toHaveLength(2);
-    expect(result.imported[0].title).toBe("Food 3");
+    const titles = result.imported.map((r) => r.title).sort();
+    expect(titles).toEqual(["Food 3", "Food 4"]);
   });
 });
 

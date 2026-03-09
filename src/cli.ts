@@ -7,6 +7,8 @@
 import { Command } from "commander";
 import path from "path";
 import fs from "fs/promises";
+import { fileURLToPath } from "url";
+import dotenv from "dotenv";
 import { GnosysResolver } from "./lib/resolver.js";
 import { GnosysSearch } from "./lib/search.js";
 import { GnosysTagRegistry } from "./lib/tags.js";
@@ -17,6 +19,19 @@ import { groupByPeriod, computeStats, TimePeriod } from "./lib/timeline.js";
 import { buildLinkGraph, getBacklinks, getOutgoingLinks, formatGraphSummary } from "./lib/wikilinks.js";
 import { bootstrap, discoverFiles } from "./lib/bootstrap.js";
 import { performImport, formatImportSummary, estimateDuration } from "./lib/import.js";
+
+// Load API keys from ~/.config/gnosys/.env (same as MCP server)
+const home = process.env.HOME || process.env.USERPROFILE || "/tmp";
+dotenv.config({ path: path.join(home, ".config", "gnosys", ".env") });
+
+// Also load .env from current directory as fallback
+dotenv.config();
+
+// Read version from package.json at build time
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const pkgPath = path.resolve(__dirname, "..", "package.json");
+const pkg = JSON.parse(await fs.readFile(pkgPath, "utf-8"));
 
 const program = new Command();
 
@@ -29,7 +44,7 @@ async function getResolver(): Promise<GnosysResolver> {
 program
   .name("gnosys")
   .description("Gnosys — LLM-native persistent memory system")
-  .version("0.1.0");
+  .version(pkg.version);
 
 // ─── gnosys read <path> ──────────────────────────────────────────────────
 program
