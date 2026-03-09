@@ -1,6 +1,6 @@
 {
   "name": "gnosys-mcp",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Gnosys — LLM-native persistent memory system. MCP server + CLI.",
   "type": "module",
   "main": "dist/index.js",
