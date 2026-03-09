@@ -16,6 +16,7 @@ import { getFileHistory, getFileAtCommit, rollbackToCommit, hasGitHistory, getFi
 import { groupByPeriod, computeStats, TimePeriod } from "./lib/timeline.js";
 import { buildLinkGraph, getBacklinks, getOutgoingLinks, formatGraphSummary } from "./lib/wikilinks.js";
 import { bootstrap, discoverFiles } from "./lib/bootstrap.js";
+import { performImport, formatImportSummary, estimateDuration } from "./lib/import.js";
 
 const program = new Command();
 
@@ -1136,6 +1137,150 @@ program
         for (const f of result.failed) {
           console.log(`  ❌ ${f.path}: ${f.error}`);
         }
+      }
+    }
+  );
+
+// ─── gnosys import <file> ────────────────────────────────────────────────
+program
+  .command("import <fileOrUrl>")
+  .description(
+    "Bulk import structured data (CSV, JSON, JSONL) into Gnosys memories"
+  )
+  .requiredOption(
+    "--format <format>",
+    "Data format: csv, json, jsonl"
+  )
+  .requiredOption(
+    "--mapping <json>",
+    'Field mapping as JSON: \'{"source_field":"gnosys_field"}\'. Valid targets: title, category, content, tags, relevance'
+  )
+  .option("--mode <mode>", "Processing mode: llm or structured", "structured")
+  .option("--limit <n>", "Max records to import", parseInt)
+  .option("--offset <n>", "Skip first N records", parseInt)
+  .option("--skip-existing", "Skip records whose titles already exist")
+  .option("--batch-commit", "Single git commit for all imports (default)", true)
+  .option("--no-batch-commit", "Commit each record individually")
+  .option("--concurrency <n>", "Parallel LLM calls (default: 5)", parseInt)
+  .option("--dry-run", "Preview without writing")
+  .option(
+    "--store <store>",
+    "Target store: project, personal, global",
+    "project"
+  )
+  .action(
+    async (
+      fileOrUrl: string,
+      opts: {
+        format: string;
+        mapping: string;
+        mode: string;
+        limit?: number;
+        offset?: number;
+        skipExisting?: boolean;
+        batchCommit: boolean;
+        concurrency?: number;
+        dryRun?: boolean;
+        store: string;
+      }
+    ) => {
+      // Parse mapping JSON
+      let mapping: Record<string, string>;
+      try {
+        mapping = JSON.parse(opts.mapping);
+      } catch {
+        console.error(
+          "Error: --mapping must be valid JSON. Example: '{\"name\":\"title\",\"group\":\"category\"}'"
+        );
+        process.exit(1);
+      }
+
+      const resolver = await getResolver();
+      const writeTarget = resolver.getWriteTarget(
+        opts.store as "project" | "personal" | "global"
+      );
+      if (!writeTarget) {
+        console.error("No writable store found.");
+        process.exit(1);
+      }
+
+      const tagRegistry = new GnosysTagRegistry(
+        writeTarget.store.getStorePath()
+      );
+      await tagRegistry.load();
+      const ingestion = new GnosysIngestion(writeTarget.store, tagRegistry);
+
+      const format = opts.format as "csv" | "json" | "jsonl";
+      const mode = opts.mode as "llm" | "structured";
+      const concurrency = opts.concurrency || 5;
+
+      // Show estimate for LLM mode
+      if (mode === "llm") {
+        console.error(
+          `Mode: LLM (concurrency: ${concurrency})`
+        );
+      } else {
+        console.error("Mode: structured (no LLM calls)");
+      }
+
+      if (opts.dryRun) {
+        console.error("DRY RUN — no files will be written\n");
+      }
+
+      // Progress tracking
+      let lastLine = "";
+      const onProgress = (p: {
+        processed: number;
+        total: number;
+        current: string;
+        stage: string;
+      }) => {
+        const pct = p.total > 0 ? Math.round((p.processed / p.total) * 100) : 0;
+        const bar =
+          "█".repeat(Math.floor(pct / 5)) +
+          "░".repeat(20 - Math.floor(pct / 5));
+        const line = `[${bar}] ${p.processed}/${p.total} | ${p.current.substring(0, 40)}`;
+        if (line !== lastLine) {
+          process.stderr.write(`\r${line}`);
+          lastLine = line;
+        }
+      };
+
+      try {
+        const result = await performImport(writeTarget.store, ingestion, {
+          format,
+          data: fileOrUrl,
+          mapping,
+          mode,
+          limit: opts.limit,
+          offset: opts.offset,
+          dryRun: opts.dryRun,
+          skipExisting: opts.skipExisting,
+          batchCommit: opts.batchCommit,
+          concurrency,
+          onProgress,
+        });
+
+        // Clear progress line
+        process.stderr.write("\r" + " ".repeat(80) + "\r");
+
+        // Reindex search after import
+        if (!opts.dryRun && result.imported.length > 0) {
+          const search = new (await import("./lib/search.js")).GnosysSearch(writeTarget.store.getStorePath());
+          for (const s of resolver.getStores()) {
+            await search.addStoreMemories(s.store, s.label);
+          }
+        }
+
+        console.log(
+          (opts.dryRun ? "DRY RUN — " : "✓ ") +
+            formatImportSummary(result)
+        );
+      } catch (err) {
+        console.error(
+          `\nImport failed: ${err instanceof Error ? err.message : String(err)}`
+        );
+        process.exit(1);
       }
     }
   );

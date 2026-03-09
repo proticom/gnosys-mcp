@@ -18,6 +18,7 @@ import fs from "fs/promises";
 import { MemoryFrontmatter } from "./lib/store.js";
 import { GnosysSearch } from "./lib/search.js";
 import { GnosysTagRegistry } from "./lib/tags.js";
+import { performImport, formatImportSummary, estimateDuration } from "./lib/import.js";
 import { GnosysIngestion } from "./lib/ingest.js";
 import { GnosysResolver } from "./lib/resolver.js";
 import { applyLens, applyCompoundLens, LensFilter, CompoundLens } from "./lib/lensing.js";
@@ -1338,6 +1339,112 @@ server.tool(
     } catch (err) {
       return {
         content: [{ type: "text", text: `Bootstrap failed: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// ─── Tool: gnosys_import ─────────────────────────────────────────────────
+server.tool(
+  "gnosys_import",
+  "Bulk import structured data (CSV, JSON, JSONL) into Gnosys memories. Map source fields to title/category/content/tags/relevance. Use mode='llm' for smart ingestion with keyword clouds, or 'structured' for fast direct mapping. For large datasets (>100 records with LLM), the CLI is recommended: npx gnosys-mcp import <file>",
+  {
+    format: z.enum(["csv", "json", "jsonl"]).describe("Data format"),
+    data: z.string().describe("File path, URL, or inline data"),
+    mapping: z
+      .record(z.string(), z.string())
+      .describe(
+        "Map source fields to Gnosys fields. Keys are source field names, values are: title, category, content, tags, relevance. Example: {\"name\":\"title\", \"group\":\"category\", \"description\":\"content\"}"
+      ),
+    mode: z
+      .enum(["llm", "structured"])
+      .optional()
+      .describe("Processing mode. 'llm' uses AI for keyword clouds and smart tagging (slower). 'structured' maps directly (fast). Default: structured"),
+    dryRun: z.boolean().optional().describe("Preview without writing"),
+    skipExisting: z.boolean().optional().describe("Skip records whose titles already exist"),
+    limit: z.number().optional().describe("Max records to import"),
+    offset: z.number().optional().describe("Skip first N records"),
+    concurrency: z.number().optional().describe("Parallel LLM calls (default: 5)"),
+    store: z
+      .enum(["project", "personal", "global"])
+      .optional()
+      .describe("Target store (default: project)"),
+  },
+  async ({
+    format,
+    data,
+    mapping,
+    mode,
+    dryRun,
+    skipExisting,
+    limit,
+    offset,
+    concurrency,
+    store: targetStore,
+  }) => {
+    const writeTarget = resolver.getWriteTarget(
+      (targetStore as "project" | "personal" | "global") || undefined
+    );
+    if (!writeTarget) {
+      return {
+        content: [{ type: "text", text: "No writable store found." }],
+        isError: true,
+      };
+    }
+
+    if (!ingestion) {
+      return {
+        content: [{ type: "text", text: "Ingestion module not initialized." }],
+        isError: true,
+      };
+    }
+
+    const effectiveMode = (mode as "llm" | "structured") || "structured";
+
+    try {
+      const result = await performImport(writeTarget.store, ingestion, {
+        format: format as "csv" | "json" | "jsonl",
+        data,
+        mapping: mapping as Record<string, string>,
+        mode: effectiveMode,
+        dryRun,
+        skipExisting,
+        limit,
+        offset,
+        concurrency,
+        batchCommit: true,
+      });
+
+      // Reindex after import
+      if (!dryRun && result.imported.length > 0 && search) {
+        await reindexAllStores();
+      }
+
+      let response = formatImportSummary(result);
+
+      // Smart threshold guidance
+      if (
+        effectiveMode === "llm" &&
+        result.totalProcessed > 100
+      ) {
+        const estimate = estimateDuration(
+          result.totalProcessed,
+          "llm",
+          concurrency || 5
+        );
+        response += `\n\n💡 Tip: For large LLM imports, the CLI offers progress tracking and resume:\n  npx gnosys-mcp import ${data.length < 100 ? data : "<file>"} --format ${format} --mode llm --skip-existing`;
+      }
+
+      return { content: [{ type: "text", text: response }] };
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Import failed: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
         isError: true,
       };
     }

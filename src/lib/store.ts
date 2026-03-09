@@ -112,7 +112,8 @@ export class GnosysStore {
     category: string,
     filename: string,
     frontmatter: MemoryFrontmatter,
-    content: string
+    content: string,
+    options?: { autoCommit?: boolean }
   ): Promise<string> {
     const dir = path.join(this.storePath, category);
     await fs.mkdir(dir, { recursive: true });
@@ -123,10 +124,19 @@ export class GnosysStore {
     const fileContent = matter.stringify(content, frontmatter);
     await fs.writeFile(filePath, fileContent, "utf-8");
 
-    // Auto git commit
-    await this.autoCommit(`Add memory: ${frontmatter.title}`);
+    // Auto git commit (skip when batching)
+    if (options?.autoCommit !== false) {
+      await this.autoCommit(`Add memory: ${frontmatter.title}`);
+    }
 
     return relativePath;
+  }
+
+  /**
+   * Batch commit all pending changes (used after bulk imports).
+   */
+  async batchCommit(message: string): Promise<void> {
+    await this.autoCommit(message);
   }
 
   /**
