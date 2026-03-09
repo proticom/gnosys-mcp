@@ -296,7 +296,7 @@ program
       status_tag: ["draft", "stable", "deprecated", "experimental"],
     };
     await fs.writeFile(
-      path.join(storePath, "tags.json"),
+      path.join(storePath, ".gnosys", "tags.json"),
       JSON.stringify(defaultRegistry, null, 2),
       "utf-8"
     );
@@ -311,7 +311,14 @@ program
     try {
       const { execSync } = await import("child_process");
       execSync("git init", { cwd: storePath, stdio: "pipe" });
-      execSync("git add -A", { cwd: storePath, stdio: "pipe" });
+      // Ensure git has a user identity for the initial commit
+      try {
+        execSync("git config user.name", { cwd: storePath, stdio: "pipe" });
+      } catch {
+        execSync('git config user.name "Gnosys"', { cwd: storePath, stdio: "pipe" });
+        execSync('git config user.email "gnosys@local"', { cwd: storePath, stdio: "pipe" });
+      }
+      execSync("git add -A && git add -f .gnosys/", { cwd: storePath, stdio: "pipe" });
       execSync('git commit -m "Initialize Gnosys store"', {
         cwd: storePath,
         stdio: "pipe",

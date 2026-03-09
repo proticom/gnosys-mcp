@@ -577,7 +577,7 @@ server.tool(
       status_tag: ["draft", "stable", "deprecated", "experimental"],
     };
     await fs.writeFile(
-      path.join(storePath, "tags.json"),
+      path.join(storePath, ".gnosys", "tags.json"),
       JSON.stringify(defaultRegistry, null, 2),
       "utf-8"
     );

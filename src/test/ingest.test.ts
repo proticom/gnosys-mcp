@@ -27,7 +27,7 @@ beforeEach(async () => {
     concern: ["dx", "scalability"],
   };
   await fs.writeFile(
-    path.join(tmpDir, "tags.json"),
+    path.join(tmpDir, ".gnosys", "tags.json"),
     JSON.stringify(defaultTags, null, 2),
     "utf-8"
   );
