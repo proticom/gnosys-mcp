@@ -48,7 +48,7 @@ your-project/
       three-layer-design.md
     concepts/
       memory-decay.md
-    .gnosys/          # internal config
+    .config/          # internal config
       tags.json       # tag registry
       reinforcement.log
     CHANGELOG.md
@@ -149,6 +149,47 @@ Show all active stores with their layers, paths, and write permissions.
 
 **`gnosys serve`**
 Start the MCP server in stdio mode (used by editors and agent runtimes).
+
+### Bulk Import
+
+**`gnosys import <file-or-url> [options]`**
+Import data from CSV, JSON, or JSONL files (or URLs) into a Gnosys store. Each record becomes an atomic memory.
+
+```bash
+# Import a JSON file with LLM-powered ingestion
+gnosys import foods.json --format json \
+  --mapping '{"description":"title","foodCategory":"category","foodNutrients":"content"}' \
+  --mode llm --concurrency 3
+
+# Import a CSV with structured mode (no LLM, no API key needed)
+gnosys import data.csv --format csv \
+  --mapping '{"name":"title","type":"category","notes":"content"}' \
+  --mode structured
+
+# Dry run to preview without writing
+gnosys import data.json --dry-run
+
+# Resume an interrupted import (skips existing records)
+gnosys import data.json --skip-existing
+
+# Import a subset
+gnosys import large-dataset.json --limit 50 --offset 100
+```
+
+Options:
+
+- `--format` — `csv`, `json`, or `jsonl` (auto-detected from extension if omitted)
+- `--mapping` — JSON object mapping source fields to Gnosys fields (`title`, `category`, `content`, `tags`, `relevance`)
+- `--mode` — `llm` (uses Claude to structure memories with keyword clouds) or `structured` (direct mapping, no API key needed)
+- `--concurrency` — Number of parallel LLM calls (default: 5)
+- `--limit` / `--offset` — Import a slice of the dataset
+- `--skip-existing` — Skip records whose title matches an existing memory (for resuming interrupted imports)
+- `--dry-run` — Preview what would be imported without writing any files
+- `--store` — Target store: `project`, `personal`, or `global`
+
+Unmapped fields from the source data are automatically appended as extra context, giving the LLM richer material for generating keyword clouds.
+
+The MCP tool `gnosys_import` provides the same functionality. For datasets over 100 records, the tool will suggest switching to the CLI for better progress tracking.
 
 ### Getting Help
 
@@ -251,6 +292,7 @@ The MCP server exposes the same operations as the CLI:
 | `gnosys_commit_context` | Extract and commit memories from context |
 | `gnosys_tags` | List tag registry |
 | `gnosys_tags_add` | Add a tag to the registry |
+| `gnosys_import` | Bulk import from CSV, JSON, or JSONL |
 | `gnosys_init` | Initialize a new store |
 | `gnosys_stores` | Show active stores |
 
@@ -326,6 +368,7 @@ src/
     search.ts       # FTS5 search and discovery
     tags.ts         # Tag registry management
     ingest.ts       # LLM-powered structuring of raw input
+    import.ts       # Bulk import engine (CSV, JSON, JSONL)
     resolver.ts     # Layered multi-store resolution
 ```
 
