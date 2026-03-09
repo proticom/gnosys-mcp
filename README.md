@@ -36,6 +36,8 @@ Gnosys takes a different approach: every memory is a plain Markdown file with YA
 **What makes it different:**
 
 - **Transparent** — every memory is a human-readable `.md` file. No embeddings, no binary blobs.
+- **Freeform Ask** — ask natural-language questions and get synthesized answers with Obsidian wikilink citations from the entire vault.
+- **Hybrid Search** — combines FTS5 keyword search with semantic embeddings via Reciprocal Rank Fusion (RRF).
 - **Versioned** — Git auto-commits every write. Full history, rollback, and diff support.
 - **Obsidian-native** — the `.gnosys/` folder is a real vault. Graph view, wikilinks, tags, backlinks — all work.
 - **MCP-first** — drops into Cursor, Claude Desktop, Claude Code, Codex, or any MCP client with one config line.
@@ -237,6 +239,10 @@ ANTHROPIC_API_KEY = "your-key-here"
 | `gnosys_discover` | Find relevant memories by keyword (start here) |
 | `gnosys_read` | Read a specific memory |
 | `gnosys_search` | Full-text search across stores |
+| `gnosys_hybrid_search` | Hybrid keyword + semantic search (RRF fusion) |
+| `gnosys_semantic_search` | Semantic similarity search (embeddings) |
+| `gnosys_ask` | Ask a question, get a synthesized answer with citations |
+| `gnosys_reindex` | Rebuild semantic embeddings from all memories |
 | `gnosys_list` | List memories with optional filters |
 | `gnosys_add` | Add a memory (LLM-structured) |
 | `gnosys_add_structured` | Add with explicit fields (no LLM) |
@@ -370,6 +376,45 @@ gnosys import large.json --limit 500 --offset 1000
 
 ---
 
+## Freeform Asking
+
+Ask natural-language questions and get synthesized answers with citations from the entire vault. Gnosys retrieves relevant memories via hybrid search, then uses your LLM to synthesize a cited response.
+
+```bash
+# First, build the semantic index (downloads ~80 MB model on first run)
+gnosys reindex
+
+# Ask a question about your USDA data
+gnosys ask "What are the best high-protein low-sodium food alternatives?"
+
+# Ask about CVEs
+gnosys ask "Which vulnerabilities allow remote code execution?"
+
+# Use keyword-only mode (no embeddings needed)
+gnosys ask "What do we know about cheddar cheese?" --mode keyword
+```
+
+Answers include Obsidian wikilink citations like `[[almond-butter-creamy.md]]` so you can click through to the source memories. If the initial search doesn't find enough context, a "deep query" follow-up search automatically expands the context.
+
+### Hybrid Search
+
+Three search modes available:
+
+```bash
+# Hybrid (default): combines keyword + semantic with RRF fusion
+gnosys hybrid-search "high protein low sodium"
+
+# Semantic only: finds conceptually related memories
+gnosys semantic-search "healthy meal alternatives"
+
+# Keyword only: classic FTS5 full-text search
+gnosys hybrid-search "cheddar cheese protein" --mode keyword
+```
+
+The embedding model (`all-MiniLM-L6-v2`) is lazy-loaded — it's only downloaded the first time you run `gnosys reindex` or a semantic search. Embeddings are stored as a regeneratable sidecar in SQLite, never the source of truth.
+
+---
+
 ## Layered Stores
 
 Multiple stores stacked by precedence:
@@ -402,7 +447,8 @@ export GNOSYS_STORES="/path/to/reference-data"
 | CLI | ✅ Full-featured | ❌ | ❌ | ❌ |
 | Layered stores | ✅ 4 layers | ❌ | ❌ | ❌ |
 | Wikilinks | ✅ Auto-generated | ❌ | ❌ | ❌ |
-| Search | FTS5 keyword + relevance clouds | Proprietary | Basic SQL | None |
+| Search | Hybrid: FTS5 + semantic + RRF | Proprietary | Basic SQL | None |
+| Freeform Q&A | ✅ gnosys_ask with citations | ✅ Built-in | ❌ | ❌ |
 | Self-hosted | ✅ | ❌ | ✅ | ✅ |
 | LLM required | Optional (structured mode) | Required | No | No |
 | Docker support | ✅ | ❌ | ❌ | ❌ |
@@ -419,6 +465,10 @@ gnosys add "raw input"       # Add memory via LLM
 gnosys add-structured ...    # Add memory with explicit fields
 gnosys discover "keywords"   # Find relevant memories (metadata only)
 gnosys search "query"        # Full-text search with snippets
+gnosys hybrid-search "q"     # Hybrid keyword + semantic search
+gnosys semantic-search "q"   # Semantic similarity search
+gnosys ask "question"        # Ask a question, get cited answer
+gnosys reindex               # Build/rebuild semantic embeddings
 gnosys read <path>           # Read a specific memory
 gnosys list                  # List all memories
 gnosys update <path> ...     # Update a memory
@@ -452,6 +502,9 @@ src/
   lib/
     store.ts        # Core: read/write/update memory files
     search.ts       # FTS5 search and discovery
+    embeddings.ts   # Lazy semantic embeddings (all-MiniLM-L6-v2)
+    hybridSearch.ts # Hybrid search with RRF fusion
+    ask.ts          # Freeform Q&A with LLM synthesis + citations
     tags.ts         # Tag registry management
     ingest.ts       # LLM-powered structuring (with retry logic)
     import.ts       # Bulk import engine (CSV, JSON, JSONL)
@@ -463,6 +516,8 @@ src/
     timeline.ts     # Knowledge evolution timeline
     wikilinks.ts    # Obsidian wikilink graph
     bootstrap.ts    # Bootstrap from source code
+  prompts/
+    synthesize.md   # System prompt template for ask engine
 ```
 
 ---

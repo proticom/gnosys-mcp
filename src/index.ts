@@ -27,6 +27,9 @@ import { groupByPeriod, computeStats, TimePeriod } from "./lib/timeline.js";
 import { buildLinkGraph, getBacklinks, getOutgoingLinks, formatGraphSummary } from "./lib/wikilinks.js";
 import { bootstrap, discoverFiles } from "./lib/bootstrap.js";
 import { loadConfig, GnosysConfig, DEFAULT_CONFIG } from "./lib/config.js";
+import { GnosysEmbeddings } from "./lib/embeddings.js";
+import { GnosysHybridSearch } from "./lib/hybridSearch.js";
+import { GnosysAsk } from "./lib/ask.js";
 
 // Initialize resolver (discovers all layered stores)
 const resolver = new GnosysResolver();
@@ -35,13 +38,15 @@ let config: GnosysConfig = DEFAULT_CONFIG;
 // Create MCP server
 const server = new McpServer({
   name: "gnosys",
-  version: "0.4.0",
+  version: "0.5.0",
 });
 
 // These are initialized in main() after resolver runs
 let search: GnosysSearch | null = null;
 let tagRegistry: GnosysTagRegistry | null = null;
 let ingestion: GnosysIngestion | null = null;
+let hybridSearch: GnosysHybridSearch | null = null;
+let askEngine: GnosysAsk | null = null;
 
 // ─── Tool: gnosys_discover ──────────────────────────────────────────────
 server.tool(
@@ -1453,6 +1458,195 @@ server.tool(
   }
 );
 
+// ─── Tool: gnosys_hybrid_search ──────────────────────────────────────────
+server.tool(
+  "gnosys_hybrid_search",
+  "Search memories using hybrid keyword + semantic search with Reciprocal Rank Fusion. Combines FTS5 keyword matching with embedding-based semantic similarity for best results. Run gnosys_reindex first if embeddings don't exist yet.",
+  {
+    query: z.string().describe("Natural language search query"),
+    limit: z.number().optional().describe("Max results (default 15)"),
+    mode: z.enum(["keyword", "semantic", "hybrid"]).optional().describe("Search mode (default: hybrid)"),
+  },
+  async ({ query, limit, mode }) => {
+    if (!hybridSearch) {
+      return {
+        content: [{ type: "text", text: "Hybrid search not initialized. No stores found." }],
+        isError: true,
+      };
+    }
+
+    try {
+      const results = await hybridSearch.hybridSearch(
+        query,
+        limit || 15,
+        (mode as "keyword" | "semantic" | "hybrid") || "hybrid"
+      );
+
+      if (results.length === 0) {
+        return {
+          content: [{ type: "text", text: `No results for "${query}". Try gnosys_reindex to build embeddings, or different keywords.` }],
+        };
+      }
+
+      const formatted = results
+        .map(
+          (r) =>
+            `**${r.title}** (score: ${r.score.toFixed(4)}, via: ${r.sources.join("+")})\n  Path: ${r.relativePath}\n  ${r.snippet.substring(0, 150)}...`
+        )
+        .join("\n\n");
+
+      const embCount = hybridSearch.embeddingCount();
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Found ${results.length} results for "${query}" (${embCount} embeddings indexed):\n\n${formatted}`,
+          },
+        ],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Search failed: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// ─── Tool: gnosys_semantic_search ────────────────────────────────────────
+server.tool(
+  "gnosys_semantic_search",
+  "Search memories using semantic similarity only (no keyword matching). Finds conceptually related memories even without exact keyword matches. Requires embeddings — run gnosys_reindex first.",
+  {
+    query: z.string().describe("Natural language search query"),
+    limit: z.number().optional().describe("Max results (default 15)"),
+  },
+  async ({ query, limit }) => {
+    if (!hybridSearch) {
+      return {
+        content: [{ type: "text", text: "Search not initialized. No stores found." }],
+        isError: true,
+      };
+    }
+
+    try {
+      const results = await hybridSearch.hybridSearch(query, limit || 15, "semantic");
+
+      if (results.length === 0) {
+        return {
+          content: [{ type: "text", text: `No semantic results for "${query}". Run gnosys_reindex first to build embeddings.` }],
+        };
+      }
+
+      const formatted = results
+        .map(
+          (r) =>
+            `**${r.title}** (similarity: ${r.score.toFixed(4)})\n  Path: ${r.relativePath}\n  ${r.snippet.substring(0, 150)}...`
+        )
+        .join("\n\n");
+
+      return {
+        content: [{ type: "text", text: `Found ${results.length} semantic results for "${query}":\n\n${formatted}` }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Semantic search failed: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// ─── Tool: gnosys_reindex ────────────────────────────────────────────────
+server.tool(
+  "gnosys_reindex",
+  "Rebuild all semantic embeddings from every memory file. Downloads the embedding model (~80 MB) on first run. Required before hybrid/semantic search can be used. Safe to re-run — fully regenerates the index.",
+  {},
+  async () => {
+    if (!hybridSearch) {
+      return {
+        content: [{ type: "text", text: "No stores found. Initialize a store with gnosys_init first." }],
+        isError: true,
+      };
+    }
+
+    try {
+      // Also rebuild FTS5 index
+      await reindexAllStores();
+
+      const count = await hybridSearch.reindex();
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Reindex complete: ${count} memories embedded. Hybrid search is now available.`,
+          },
+        ],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Reindex failed: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// ─── Tool: gnosys_ask ────────────────────────────────────────────────────
+server.tool(
+  "gnosys_ask",
+  "Ask a natural-language question and get a synthesized answer with citations from the entire vault. Uses hybrid search to find relevant memories, then LLM to synthesize a cited response. Citations are Obsidian wikilinks [[filename.md]]. Requires ANTHROPIC_API_KEY and embeddings (run gnosys_reindex first).",
+  {
+    question: z.string().describe("Natural language question to answer from the vault"),
+    limit: z.number().optional().describe("Max memories to retrieve (default 15)"),
+    mode: z.enum(["keyword", "semantic", "hybrid"]).optional().describe("Search mode (default: hybrid)"),
+  },
+  async ({ question, limit, mode }) => {
+    if (!askEngine) {
+      return {
+        content: [{ type: "text", text: "Ask engine not initialized. Ensure stores exist and ANTHROPIC_API_KEY is set." }],
+        isError: true,
+      };
+    }
+
+    try {
+      const result = await askEngine.ask(question, {
+        limit: limit || 15,
+        mode: (mode as "keyword" | "semantic" | "hybrid") || "hybrid",
+      });
+
+      const sourcesText = result.sources.length > 0
+        ? "\n\n---\n**Sources:**\n" +
+          result.sources
+            .map((s) => `- [[${s.relativePath.split("/").pop()}]] — ${s.title}`)
+            .join("\n")
+        : "";
+
+      const meta = [
+        `Search mode: ${result.searchMode}`,
+        result.deepQueryUsed ? "Deep query: yes (follow-up search performed)" : null,
+        `Sources: ${result.sources.length}`,
+      ]
+        .filter(Boolean)
+        .join(" | ");
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `${result.answer}${sourcesText}\n\n_${meta}_`,
+          },
+        ],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Ask failed: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
 // ─── Tool: gnosys_stores ─────────────────────────────────────────────────
 server.tool(
   "gnosys_stores",
@@ -1506,8 +1700,20 @@ async function main() {
     // Build search index across all stores
     await reindexAllStores();
 
+    // Initialize hybrid search + ask engine (embeddings loaded lazily)
+    const embeddings = new GnosysEmbeddings(writeTarget.store.getStorePath());
+    hybridSearch = new GnosysHybridSearch(search, embeddings, resolver, writeTarget.store.getStorePath());
+    askEngine = new GnosysAsk(hybridSearch, config);
+
+    const embCount = embeddings.hasEmbeddings() ? embeddings.count() : 0;
     console.error(
       `LLM ingestion: ${ingestion.isLLMAvailable ? "enabled" : "disabled (set ANTHROPIC_API_KEY)"}`
+    );
+    console.error(
+      `Hybrid search: ${embCount > 0 ? `ready (${embCount} embeddings)` : "available (run gnosys_reindex to build embeddings)"}`
+    );
+    console.error(
+      `Ask engine: ${askEngine.isLLMAvailable ? "ready" : "disabled (set ANTHROPIC_API_KEY)"}`
     );
   }
 

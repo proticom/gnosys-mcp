@@ -20,6 +20,9 @@ import { buildLinkGraph, getBacklinks, getOutgoingLinks, formatGraphSummary } fr
 import { bootstrap, discoverFiles } from "./lib/bootstrap.js";
 import { performImport, formatImportSummary, estimateDuration } from "./lib/import.js";
 import { loadConfig, generateConfigTemplate, GnosysConfig } from "./lib/config.js";
+import { GnosysEmbeddings } from "./lib/embeddings.js";
+import { GnosysHybridSearch } from "./lib/hybridSearch.js";
+import { GnosysAsk } from "./lib/ask.js";
 
 // Load API keys from ~/.config/gnosys/.env (same as MCP server)
 const home = process.env.HOME || process.env.USERPROFILE || "/tmp";
@@ -1315,6 +1318,207 @@ program
       }
     }
   );
+
+// ─── gnosys reindex ──────────────────────────────────────────────────────
+program
+  .command("reindex")
+  .description(
+    "Rebuild all semantic embeddings from every memory file. Downloads the model (~80 MB) on first run."
+  )
+  .action(async () => {
+    const resolver = await getResolver();
+    const stores = resolver.getStores();
+    if (stores.length === 0) {
+      console.error("No stores found. Run gnosys init first.");
+      process.exit(1);
+    }
+
+    const storePath = stores[0].path;
+    const search = new GnosysSearch(storePath);
+    search.clearIndex();
+    for (const s of stores) {
+      await search.addStoreMemories(s.store, s.label);
+    }
+
+    const embeddings = new GnosysEmbeddings(storePath);
+    const hybridSearch = new GnosysHybridSearch(search, embeddings, resolver, storePath);
+
+    console.log("Building semantic embeddings (downloading model on first run)...");
+    const count = await hybridSearch.reindex((current, total, filePath) => {
+      process.stdout.write(`\r  Indexing: ${current}/${total} — ${filePath.substring(0, 60)}`);
+    });
+    console.log(`\n\nReindex complete: ${count} memories embedded.`);
+    console.log("Hybrid and semantic search are now available.");
+    search.close();
+    embeddings.close();
+  });
+
+// ─── gnosys hybrid-search <query> ───────────────────────────────────────
+program
+  .command("hybrid-search <query>")
+  .description("Search using hybrid keyword + semantic fusion (RRF)")
+  .option("-l, --limit <n>", "Max results", "15")
+  .option("-m, --mode <mode>", "Search mode: keyword | semantic | hybrid", "hybrid")
+  .action(async (query: string, opts: { limit: string; mode: string }) => {
+    const resolver = await getResolver();
+    const stores = resolver.getStores();
+    if (stores.length === 0) {
+      console.error("No stores found.");
+      process.exit(1);
+    }
+
+    const storePath = stores[0].path;
+    const search = new GnosysSearch(storePath);
+    search.clearIndex();
+    for (const s of stores) {
+      await search.addStoreMemories(s.store, s.label);
+    }
+
+    const embeddings = new GnosysEmbeddings(storePath);
+    const hybridSearch = new GnosysHybridSearch(search, embeddings, resolver, storePath);
+
+    const mode = opts.mode as "keyword" | "semantic" | "hybrid";
+    const results = await hybridSearch.hybridSearch(query, parseInt(opts.limit), mode);
+
+    if (results.length === 0) {
+      console.log(`No results for "${query}". Try gnosys reindex to build embeddings.`);
+    } else {
+      console.log(`Found ${results.length} results for "${query}" (mode: ${mode}):\n`);
+      for (const r of results) {
+        console.log(`  ${r.title}`);
+        console.log(`    Path: ${r.relativePath}`);
+        console.log(`    Score: ${r.score.toFixed(4)} (via: ${r.sources.join("+")})`);
+        console.log(`    ${r.snippet.substring(0, 120)}...\n`);
+      }
+    }
+    search.close();
+    embeddings.close();
+  });
+
+// ─── gnosys semantic-search <query> ─────────────────────────────────────
+program
+  .command("semantic-search <query>")
+  .description("Search using semantic similarity only (requires embeddings)")
+  .option("-l, --limit <n>", "Max results", "15")
+  .action(async (query: string, opts: { limit: string }) => {
+    const resolver = await getResolver();
+    const stores = resolver.getStores();
+    if (stores.length === 0) {
+      console.error("No stores found.");
+      process.exit(1);
+    }
+
+    const storePath = stores[0].path;
+    const search = new GnosysSearch(storePath);
+    search.clearIndex();
+    for (const s of stores) {
+      await search.addStoreMemories(s.store, s.label);
+    }
+
+    const embeddings = new GnosysEmbeddings(storePath);
+    const hybridSearch = new GnosysHybridSearch(search, embeddings, resolver, storePath);
+
+    const results = await hybridSearch.hybridSearch(query, parseInt(opts.limit), "semantic");
+
+    if (results.length === 0) {
+      console.log(`No semantic results for "${query}". Run gnosys reindex first.`);
+    } else {
+      console.log(`Found ${results.length} semantic results for "${query}":\n`);
+      for (const r of results) {
+        console.log(`  ${r.title}`);
+        console.log(`    Path: ${r.relativePath}`);
+        console.log(`    Similarity: ${r.score.toFixed(4)}`);
+        console.log(`    ${r.snippet.substring(0, 120)}...\n`);
+      }
+    }
+    search.close();
+    embeddings.close();
+  });
+
+// ─── gnosys ask <question> ──────────────────────────────────────────────
+program
+  .command("ask <question>")
+  .description(
+    "Ask a natural-language question and get a synthesized answer with citations"
+  )
+  .option("-l, --limit <n>", "Max memories to retrieve", "15")
+  .option("-m, --mode <mode>", "Search mode: keyword | semantic | hybrid", "hybrid")
+  .option("--no-stream", "Disable streaming output")
+  .action(async (question: string, opts: { limit: string; mode: string; stream: boolean }) => {
+    const resolver = await getResolver();
+    const stores = resolver.getStores();
+    if (stores.length === 0) {
+      console.error("No stores found. Run gnosys init first.");
+      process.exit(1);
+    }
+
+    const storePath = stores[0].path;
+    let cliConfig: GnosysConfig;
+    try {
+      cliConfig = await loadConfig(storePath);
+    } catch {
+      cliConfig = (await import("./lib/config.js")).DEFAULT_CONFIG;
+    }
+
+    const search = new GnosysSearch(storePath);
+    search.clearIndex();
+    for (const s of stores) {
+      await search.addStoreMemories(s.store, s.label);
+    }
+
+    const embeddings = new GnosysEmbeddings(storePath);
+    const hybridSearch = new GnosysHybridSearch(search, embeddings, resolver, storePath);
+    const ask = new GnosysAsk(hybridSearch, cliConfig);
+
+    if (!ask.isLLMAvailable) {
+      console.error("ANTHROPIC_API_KEY not set. gnosys ask requires an LLM for synthesis.");
+      process.exit(1);
+    }
+
+    const mode = opts.mode as "keyword" | "semantic" | "hybrid";
+    const useStream = opts.stream !== false;
+
+    try {
+      const result = await ask.ask(question, {
+        limit: parseInt(opts.limit),
+        mode,
+        stream: useStream,
+        callbacks: useStream
+          ? {
+              onToken: (token) => process.stdout.write(token),
+              onSearchComplete: (count, searchMode) => {
+                console.log(`\n🔍 Found ${count} relevant memories (${searchMode} search)\n`);
+              },
+              onDeepQuery: (refined) => {
+                console.log(`\n🔄 Deep query: searching for "${refined}"...\n`);
+              },
+            }
+          : undefined,
+      });
+
+      if (!useStream) {
+        console.log(result.answer);
+      }
+
+      // Print sources
+      if (result.sources.length > 0) {
+        console.log("\n\n--- Sources ---");
+        for (const s of result.sources) {
+          console.log(`  [[${s.relativePath.split("/").pop()}]] — ${s.title}`);
+        }
+      }
+
+      if (result.deepQueryUsed) {
+        console.log("\n(Deep query was used — a follow-up search expanded the context)");
+      }
+    } catch (err) {
+      console.error(`Ask failed: ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
+
+    search.close();
+    embeddings.close();
+  });
 
 // ─── gnosys stores ───────────────────────────────────────────────────────
 program

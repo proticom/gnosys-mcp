@@ -1,4 +1,4 @@
-# Gnosys v0.4 — Real-World Demo
+# Gnosys v0.5 — Real-World Demo
 
 This document shows Gnosys importing real data from two production APIs: **USDA FoodData Central** and **NVD (National Vulnerability Database)**.
 
@@ -174,6 +174,8 @@ The debug command in Sendmail is enabled, allowing attackers to execute commands
 
 ## Querying the Vault
 
+### Keyword Search (FTS5)
+
 ```bash
 # Find high-protein foods
 gnosys search "protein"
@@ -183,6 +185,66 @@ gnosys search "sendmail"
 
 # Discover nutrition-related memories
 gnosys discover "nutrition diet protein"
+```
+
+### Hybrid Search (v0.5+)
+
+Hybrid search combines FTS5 keyword search with semantic embeddings via Reciprocal Rank Fusion (RRF). First, build the embedding index:
+
+```bash
+gnosys reindex
+```
+
+```
+✓ Reindex complete
+  Indexed: 120 memories in 12.3s
+```
+
+Then search across both keyword and semantic signals:
+
+```bash
+# Hybrid search (keyword + semantic, default)
+gnosys hybrid-search "high protein low sodium foods"
+
+# Semantic-only search (meaning-based)
+gnosys semantic-search "foods good for heart health"
+
+# Keyword-only mode
+gnosys hybrid-search "cheddar cheese protein" --mode keyword
+```
+
+### Freeform Ask (v0.5+)
+
+Ask natural-language questions and get synthesized answers with citations:
+
+```bash
+# Ask about nutrition
+gnosys ask "Which foods in this vault have the most protein per 100g?"
+
+# Ask about security
+gnosys ask "What are the most critical vulnerabilities and what do they affect?"
+
+# Stream the answer in real-time (default)
+gnosys ask "Compare the calcium content of dairy vs non-dairy foods"
+
+# Disable streaming
+gnosys ask "What sendmail vulnerabilities exist?" --no-stream
+```
+
+Example output:
+
+```
+Based on the vault data, the highest-protein foods per 100g are:
+
+**Chicken breast** at 31.0g protein [[chicken-breast-without-skin-raw.md]]
+is the leader, followed by **beef ground 93% lean** at 26.1g
+[[beef-ground-93-lean-meat-7-fat-raw.md]] and **tuna, yellowfin** at
+24.4g [[tuna-yellowfin-fresh-raw.md]].
+
+Sources:
+  - chicken-breast-without-skin-raw.md
+  - beef-ground-93-lean-meat-7-fat-raw.md
+  - tuna-yellowfin-fresh-raw.md
 ```
 
 ---
