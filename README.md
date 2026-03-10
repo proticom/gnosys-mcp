@@ -123,7 +123,7 @@ npm install -g gnosys-mcp
 cd your-project
 gnosys init
 
-# Add a memory (uses LLM to structure it — needs ANTHROPIC_API_KEY)
+# Add a memory (uses LLM to structure it — needs Anthropic key or Ollama)
 gnosys add "We chose PostgreSQL over MySQL for its JSON support and mature ecosystem"
 
 # Or add without an LLM
@@ -309,14 +309,68 @@ Key fields:
 
 ---
 
-## Configuration
+## LLM Providers & Configuration
+
+Gnosys supports multiple LLM providers. Switch between cloud and local with one command:
+
+```bash
+# Use Ollama (offline, local)
+gnosys config set provider ollama
+
+# Use Anthropic (cloud)
+gnosys config set provider anthropic
+
+# Check current config
+gnosys config show
+
+# Check connectivity
+gnosys doctor
+```
+
+### Ollama Setup (Local/Offline)
+
+```bash
+# Install Ollama: https://ollama.ai
+ollama pull llama3.2
+
+# Point Gnosys at it
+gnosys config set provider ollama
+gnosys config set ollama-model llama3.2
+
+# Now all commands use local LLM
+gnosys ask "What are the highest protein foods?"
+```
+
+### Task-Based Model Routing
+
+Use different models for different tasks — a cheap/fast model for structuring imports and a powerful model for synthesis:
+
+```json
+{
+  "llm": {
+    "defaultProvider": "anthropic",
+    "anthropic": { "model": "claude-sonnet-4-20250514" },
+    "ollama": { "model": "llama3.2", "baseUrl": "http://localhost:11434" }
+  },
+  "taskModels": {
+    "structuring": { "provider": "ollama", "model": "llama3.2" },
+    "synthesis": { "provider": "anthropic", "model": "claude-sonnet-4-20250514" }
+  }
+}
+```
+
+### Full Configuration
 
 Gnosys reads `gnosys.json` from the `.gnosys/` directory. All fields are optional with sensible defaults:
 
 ```json
 {
-  "defaultLLMProvider": "anthropic",
-  "defaultModel": "claude-haiku-4-5-20251001",
+  "llm": {
+    "defaultProvider": "anthropic",
+    "anthropic": { "model": "claude-sonnet-4-20250514" },
+    "ollama": { "model": "llama3.2", "baseUrl": "http://localhost:11434" }
+  },
+  "taskModels": {},
   "bulkIngestionBatchSize": 500,
   "importConcurrency": 5,
   "autoCommit": true,
@@ -328,7 +382,7 @@ Gnosys reads `gnosys.json` from the `.gnosys/` directory. All fields are optiona
 }
 ```
 
-A default `gnosys.json` is created during `gnosys init`. Validation is handled by Zod — invalid configs produce clear error messages.
+A default `gnosys.json` is created during `gnosys init`. Validation is handled by Zod — invalid configs produce clear error messages. Legacy `defaultLLMProvider` and `defaultModel` fields are auto-migrated to the new `llm` structure.
 
 ---
 
@@ -450,7 +504,7 @@ export GNOSYS_STORES="/path/to/reference-data"
 | Search | Hybrid: FTS5 + semantic + RRF | Proprietary | Basic SQL | None |
 | Freeform Q&A | ✅ gnosys_ask with citations | ✅ Built-in | ❌ | ❌ |
 | Self-hosted | ✅ | ❌ | ✅ | ✅ |
-| LLM required | Optional (structured mode) | Required | No | No |
+| LLM required | Optional (Anthropic or Ollama) | Required | No | No |
 | Docker support | ✅ | ❌ | ❌ | ❌ |
 | Price | Free / MIT | Free tier, then paid | Free | Free |
 
@@ -476,6 +530,9 @@ gnosys reinforce <id> ...    # Signal memory usefulness
 gnosys stale                 # Find stale memories
 gnosys commit-context "..."  # Extract memories from conversation
 gnosys import <file> ...     # Bulk import data
+gnosys config show           # Show LLM configuration
+gnosys config set <k> <v>    # Set config (provider, model, ollama-url...)
+gnosys doctor                # Check stores, LLM connectivity, embeddings
 gnosys tags                  # List tag registry
 gnosys stores                # Show active stores
 gnosys serve                 # Start MCP server (stdio)
@@ -505,6 +562,7 @@ src/
     embeddings.ts   # Lazy semantic embeddings (all-MiniLM-L6-v2)
     hybridSearch.ts # Hybrid search with RRF fusion
     ask.ts          # Freeform Q&A with LLM synthesis + citations
+    llm.ts          # LLM abstraction layer (Anthropic + Ollama providers)
     tags.ts         # Tag registry management
     ingest.ts       # LLM-powered structuring (with retry logic)
     import.ts       # Bulk import engine (CSV, JSON, JSONL)

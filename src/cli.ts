@@ -19,10 +19,11 @@ import { groupByPeriod, computeStats, TimePeriod } from "./lib/timeline.js";
 import { buildLinkGraph, getBacklinks, getOutgoingLinks, formatGraphSummary } from "./lib/wikilinks.js";
 import { bootstrap, discoverFiles } from "./lib/bootstrap.js";
 import { performImport, formatImportSummary, estimateDuration } from "./lib/import.js";
-import { loadConfig, generateConfigTemplate, GnosysConfig } from "./lib/config.js";
+import { loadConfig, generateConfigTemplate, GnosysConfig, DEFAULT_CONFIG, writeConfig, updateConfig, resolveTaskModel } from "./lib/config.js";
 import { GnosysEmbeddings } from "./lib/embeddings.js";
 import { GnosysHybridSearch } from "./lib/hybridSearch.js";
 import { GnosysAsk } from "./lib/ask.js";
+import { getLLMProvider, isProviderAvailable, LLMProvider } from "./lib/llm.js";
 
 // Load API keys from ~/.config/gnosys/.env (same as MCP server)
 const home = process.env.HOME || process.env.USERPROFILE || "/tmp";
@@ -228,7 +229,7 @@ program
 
       if (!ingestion.isLLMAvailable) {
         console.error(
-          "Error: ANTHROPIC_API_KEY not set. Smart ingestion requires an LLM."
+          "Error: No LLM provider available. Set ANTHROPIC_API_KEY or switch to Ollama: gnosys config set provider ollama"
         );
         process.exit(1);
       }
@@ -699,7 +700,7 @@ program
     const ingestion = new GnosysIngestion(writeTarget.store, tagRegistry);
 
     if (!ingestion.isLLMAvailable) {
-      console.error("Error: ANTHROPIC_API_KEY not set. commit-context requires an LLM.");
+      console.error("Error: No LLM provider available. Set ANTHROPIC_API_KEY or switch to Ollama: gnosys config set provider ollama");
       process.exit(1);
     }
 
@@ -711,15 +712,24 @@ program
       await search.addStoreMemories(s.store, s.label);
     }
 
-    // Step 1: Extract candidates via LLM
+    // Step 1: Extract candidates via LLM abstraction
     console.log("Extracting knowledge candidates from context...");
-    const Anthropic = (await import("@anthropic-ai/sdk")).default;
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
-    const extractResponse = await client.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 4000,
-      system: `You extract atomic knowledge items from conversations. Each item should be ONE decision, fact, insight, or observation — not compound.
+    // Load config for the write target store
+    const ccConfig = await loadConfig(writeTarget.store.getStorePath());
+    let extractProvider: LLMProvider;
+    try {
+      extractProvider = getLLMProvider(ccConfig, "structuring");
+    } catch (err) {
+      console.error(`LLM not available: ${err instanceof Error ? err.message : String(err)}`);
+      search.close();
+      process.exit(1);
+    }
+
+    const extractText = await extractProvider.generate(
+      `Extract atomic knowledge items from this context:\n\n${context}`,
+      {
+        system: `You extract atomic knowledge items from conversations. Each item should be ONE decision, fact, insight, or observation — not compound.
 
 Output a JSON array of objects, each with:
 - summary: One-sentence description of the knowledge
@@ -729,18 +739,9 @@ Output a JSON array of objects, each with:
 Be selective. Only extract things worth remembering long-term. Skip small talk, debugging steps, and transient details. Focus on decisions made, architecture choices, requirements established, and insights gained.
 
 Output ONLY the JSON array, no markdown fences.`,
-      messages: [
-        {
-          role: "user",
-          content: `Extract atomic knowledge items from this context:\n\n${context}`,
-        },
-      ],
-    });
-
-    const extractText =
-      extractResponse.content[0].type === "text"
-        ? extractResponse.content[0].text
-        : "[]";
+        maxTokens: 4000,
+      }
+    );
 
     let candidates: Array<{ summary: string; type: string; search_terms: string[] }>;
     try {
@@ -1471,7 +1472,7 @@ program
     const ask = new GnosysAsk(hybridSearch, cliConfig);
 
     if (!ask.isLLMAvailable) {
-      console.error("ANTHROPIC_API_KEY not set. gnosys ask requires an LLM for synthesis.");
+      console.error("No LLM provider available. Set ANTHROPIC_API_KEY or switch to Ollama: gnosys config set provider ollama");
       process.exit(1);
     }
 
@@ -1527,6 +1528,203 @@ program
   .action(async () => {
     const resolver = await getResolver();
     console.log(resolver.getSummary());
+  });
+
+// ─── gnosys config ──────────────────────────────────────────────────────
+const configCmd = program
+  .command("config")
+  .description("View and manage LLM provider configuration");
+
+configCmd
+  .command("show")
+  .description("Show current LLM configuration")
+  .action(async () => {
+    const resolver = await getResolver();
+    const stores = resolver.getStores();
+    if (stores.length === 0) {
+      console.error("No stores found. Run gnosys init first.");
+      process.exit(1);
+    }
+
+    const cfg = await loadConfig(stores[0].path);
+
+    console.log("LLM Configuration:");
+    console.log(`  Default provider: ${cfg.llm.defaultProvider}`);
+    console.log(`  Anthropic model:  ${cfg.llm.anthropic.model}`);
+    console.log(`  Anthropic API key: ${cfg.llm.anthropic.apiKey ? "set in config" : (process.env.ANTHROPIC_API_KEY ? "set via env" : "not set")}`);
+    console.log(`  Ollama model:     ${cfg.llm.ollama.model}`);
+    console.log(`  Ollama URL:       ${cfg.llm.ollama.baseUrl}`);
+    console.log("");
+
+    const structuring = resolveTaskModel(cfg, "structuring");
+    const synthesis = resolveTaskModel(cfg, "synthesis");
+    console.log("Task Models:");
+    console.log(`  Structuring: ${structuring.provider}/${structuring.model}${cfg.taskModels?.structuring ? " (override)" : " (default)"}`);
+    console.log(`  Synthesis:   ${synthesis.provider}/${synthesis.model}${cfg.taskModels?.synthesis ? " (override)" : " (default)"}`);
+  });
+
+configCmd
+  .command("set <key> <value>")
+  .description("Set a config value (provider, model, ollama-url, ollama-model, anthropic-model)")
+  .action(async (key: string, value: string) => {
+    const resolver = await getResolver();
+    const writeTarget = resolver.getWriteTarget();
+    if (!writeTarget) {
+      console.error("No writable store found.");
+      process.exit(1);
+    }
+
+    const storePath = writeTarget.store.getStorePath();
+    const cfg = await loadConfig(storePath);
+
+    switch (key) {
+      case "provider":
+        if (value !== "anthropic" && value !== "ollama") {
+          console.error(`Invalid provider: "${value}". Supported: anthropic, ollama`);
+          process.exit(1);
+        }
+        cfg.llm.defaultProvider = value;
+        console.log(`Default provider set to: ${value}`);
+        break;
+
+      case "model":
+        // Set model for current default provider
+        if (cfg.llm.defaultProvider === "anthropic") {
+          cfg.llm.anthropic.model = value;
+        } else {
+          cfg.llm.ollama.model = value;
+        }
+        console.log(`Model set to: ${value} (for ${cfg.llm.defaultProvider})`);
+        break;
+
+      case "ollama-url":
+        cfg.llm.ollama.baseUrl = value;
+        console.log(`Ollama base URL set to: ${value}`);
+        break;
+
+      case "ollama-model":
+        cfg.llm.ollama.model = value;
+        console.log(`Ollama model set to: ${value}`);
+        break;
+
+      case "anthropic-model":
+        cfg.llm.anthropic.model = value;
+        console.log(`Anthropic model set to: ${value}`);
+        break;
+
+      default:
+        console.error(`Unknown config key: "${key}". Valid: provider, model, ollama-url, ollama-model, anthropic-model`);
+        process.exit(1);
+    }
+
+    await writeConfig(storePath, cfg);
+    console.log("Configuration saved to gnosys.json");
+  });
+
+configCmd
+  .command("init")
+  .description("Generate a default gnosys.json with LLM settings")
+  .action(async () => {
+    const resolver = await getResolver();
+    const writeTarget = resolver.getWriteTarget();
+    if (!writeTarget) {
+      console.error("No writable store found.");
+      process.exit(1);
+    }
+
+    const storePath = writeTarget.store.getStorePath();
+    const configPath = path.join(storePath, "gnosys.json");
+
+    try {
+      await fs.access(configPath);
+      console.error("gnosys.json already exists. Use 'gnosys config set' to modify.");
+      process.exit(1);
+    } catch {
+      // File doesn't exist — good
+    }
+
+    await fs.writeFile(configPath, generateConfigTemplate() + "\n", "utf-8");
+    console.log(`Created ${configPath}`);
+  });
+
+// ─── gnosys doctor ──────────────────────────────────────────────────────
+program
+  .command("doctor")
+  .description("Check system health: stores, LLM connectivity, embeddings")
+  .action(async () => {
+    const resolver = await getResolver();
+    const stores = resolver.getStores();
+
+    console.log("Gnosys Doctor");
+    console.log("=============\n");
+
+    // Check stores
+    console.log("Stores:");
+    if (stores.length === 0) {
+      console.log("  No stores found. Run gnosys init first.");
+    } else {
+      for (const s of stores) {
+        const memories = await s.store.getAllMemories();
+        console.log(`  ${s.label}: ${memories.length} memories (${s.path})`);
+      }
+    }
+    console.log("");
+
+    // Check config
+    const cfg = stores.length > 0 ? await loadConfig(stores[0].path) : DEFAULT_CONFIG;
+    console.log("LLM Configuration:");
+    console.log(`  Default provider: ${cfg.llm.defaultProvider}`);
+
+    const structuring = resolveTaskModel(cfg, "structuring");
+    const synthesis = resolveTaskModel(cfg, "synthesis");
+    console.log(`  Structuring: ${structuring.provider}/${structuring.model}`);
+    console.log(`  Synthesis:   ${synthesis.provider}/${synthesis.model}`);
+    console.log("");
+
+    // Check LLM connectivity
+    console.log("LLM Connectivity:");
+
+    // Check Anthropic
+    const anthropicStatus = isProviderAvailable(cfg, "anthropic");
+    if (anthropicStatus.available) {
+      console.log("  Anthropic: API key found");
+      try {
+        const provider = getLLMProvider({ ...cfg, llm: { ...cfg.llm, defaultProvider: "anthropic" } });
+        await provider.testConnection();
+        console.log("  Anthropic: connected (test call successful)");
+      } catch (err) {
+        console.log(`  Anthropic: API key found but connection failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    } else {
+      console.log(`  Anthropic: ${anthropicStatus.error}`);
+    }
+
+    // Check Ollama
+    try {
+      const ollamaProvider = getLLMProvider({ ...cfg, llm: { ...cfg.llm, defaultProvider: "ollama" } });
+      await ollamaProvider.testConnection();
+      console.log(`  Ollama: connected (model ${cfg.llm.ollama.model} available at ${cfg.llm.ollama.baseUrl})`);
+    } catch (err) {
+      console.log(`  Ollama: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    console.log("");
+
+    // Check embeddings
+    if (stores.length > 0) {
+      console.log("Embeddings:");
+      const embeddings = new GnosysEmbeddings(stores[0].path);
+      try {
+        const stats = embeddings.getStats();
+        if (stats.count > 0) {
+          console.log(`  Index: ${stats.count} embeddings (${stats.dbSizeMB.toFixed(1)} MB)`);
+        } else {
+          console.log("  Index: empty (run gnosys reindex to build)");
+        }
+      } catch {
+        console.log("  Index: not initialized (run gnosys reindex to build)");
+      }
+    }
   });
 
 // ─── gnosys serve ────────────────────────────────────────────────────────

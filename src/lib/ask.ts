@@ -3,15 +3,15 @@
  * Pipeline: hybridSearch → context assembly → LLM synthesis → cited answer.
  *
  * Supports streaming and "deep query" mode (auto follow-up on insufficient context).
+ * Uses the LLM abstraction layer — works with Anthropic, Ollama, or any future provider.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 import { GnosysHybridSearch, HybridSearchResult } from "./hybridSearch.js";
 import { GnosysConfig, DEFAULT_CONFIG } from "./config.js";
-import { withRetry, isTransientError } from "./retry.js";
+import { LLMProvider, getLLMProvider } from "./llm.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -45,7 +45,7 @@ const NEED_MORE_INFO_PHRASES = [
 ];
 
 export class GnosysAsk {
-  private client: Anthropic | null = null;
+  private provider: LLMProvider | null = null;
   private hybridSearch: GnosysHybridSearch;
   private config: GnosysConfig;
   private promptTemplate: string | null = null;
@@ -57,14 +57,25 @@ export class GnosysAsk {
     this.hybridSearch = hybridSearch;
     this.config = config || DEFAULT_CONFIG;
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (apiKey) {
-      this.client = new Anthropic({ apiKey });
+    // Initialize LLM provider via abstraction layer
+    try {
+      this.provider = getLLMProvider(this.config, "synthesis");
+    } catch {
+      // Provider not available (e.g., no API key for Anthropic)
+      this.provider = null;
     }
   }
 
   get isLLMAvailable(): boolean {
-    return this.client !== null;
+    return this.provider !== null;
+  }
+
+  get providerName(): string {
+    return this.provider?.name || "none";
+  }
+
+  get modelName(): string {
+    return this.provider?.model || "none";
   }
 
   /**
@@ -118,15 +129,7 @@ export class GnosysAsk {
   /**
    * Extract a refined search query from a partial answer that needs more info.
    */
-  private extractRefinedQuery(question: string, partialAnswer: string): string {
-    // Simple heuristic: extract key nouns/phrases from the question
-    // that weren't well-covered in the partial answer
-    const words = question
-      .toLowerCase()
-      .replace(/[?.,!]/g, "")
-      .split(/\s+/)
-      .filter((w) => w.length > 3);
-
+  private extractRefinedQuery(question: string, _partialAnswer: string): string {
     // Take the original question but add "related" to broaden the search
     return `${question} related details`;
   }
@@ -143,10 +146,13 @@ export class GnosysAsk {
       callbacks?: AskStreamCallbacks;
     }
   ): Promise<AskResult> {
-    if (!this.client) {
+    if (!this.provider) {
+      const providerName = this.config.llm.defaultProvider;
       throw new Error(
-        "No ANTHROPIC_API_KEY set. gnosys_ask requires an LLM for synthesis. " +
-          "Set the ANTHROPIC_API_KEY environment variable."
+        providerName === "anthropic"
+          ? "No ANTHROPIC_API_KEY set. gnosys_ask requires an LLM for synthesis. " +
+            "Set the ANTHROPIC_API_KEY environment variable or switch to Ollama: gnosys config set provider ollama"
+          : `LLM provider "${providerName}" is not available. Check your configuration.`
       );
     }
 
@@ -177,13 +183,17 @@ export class GnosysAsk {
       .replace("{{CONTEXT}}", context)
       .replace("{{QUESTION}}", question);
 
-    // Step 4: LLM synthesis
+    // Step 4: LLM synthesis via abstraction layer
     let answer: string;
 
     if (options?.stream && callbacks?.onToken) {
-      answer = await this.streamSynthesis(systemPrompt, question, callbacks.onToken);
+      answer = await this.provider.generate(
+        question,
+        { system: systemPrompt, stream: true },
+        { onToken: callbacks.onToken }
+      );
     } else {
-      answer = await this.synthesize(systemPrompt, question);
+      answer = await this.provider.generate(question, { system: systemPrompt });
     }
 
     // Step 5: Check for deep query trigger
@@ -222,13 +232,15 @@ export class GnosysAsk {
             .replace("{{QUESTION}}", question);
 
           if (options?.stream && callbacks?.onToken) {
-            answer = await this.streamSynthesis(
-              expandedPrompt,
+            answer = await this.provider.generate(
               question,
-              callbacks.onToken
+              { system: expandedPrompt, stream: true },
+              { onToken: callbacks.onToken }
             );
           } else {
-            answer = await this.synthesize(expandedPrompt, question);
+            answer = await this.provider.generate(question, {
+              system: expandedPrompt,
+            });
           }
 
           results = allResults;
@@ -247,62 +259,6 @@ export class GnosysAsk {
       deepQueryUsed,
       searchMode: mode,
     };
-  }
-
-  /**
-   * Run LLM synthesis (non-streaming).
-   */
-  private async synthesize(
-    systemPrompt: string,
-    question: string
-  ): Promise<string> {
-    const response = await withRetry(
-      () =>
-        this.client!.messages.create({
-          model: this.config.defaultModel,
-          max_tokens: 4096,
-          system: systemPrompt,
-          messages: [{ role: "user", content: question }],
-        }),
-      {
-        maxAttempts: this.config.llmRetryAttempts,
-        baseDelayMs: this.config.llmRetryBaseDelayMs,
-        isRetryable: isTransientError,
-      }
-    );
-
-    return response.content[0].type === "text" ? response.content[0].text : "";
-  }
-
-  /**
-   * Run LLM synthesis with streaming.
-   */
-  private async streamSynthesis(
-    systemPrompt: string,
-    question: string,
-    onToken: (token: string) => void
-  ): Promise<string> {
-    const stream = this.client!.messages.stream({
-      model: this.config.defaultModel,
-      max_tokens: 4096,
-      system: systemPrompt,
-      messages: [{ role: "user", content: question }],
-    });
-
-    let fullText = "";
-
-    for await (const event of stream) {
-      if (
-        event.type === "content_block_delta" &&
-        event.delta.type === "text_delta"
-      ) {
-        const token = event.delta.text;
-        fullText += token;
-        onToken(token);
-      }
-    }
-
-    return fullText;
   }
 
   /**

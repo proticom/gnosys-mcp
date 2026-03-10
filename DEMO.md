@@ -1,4 +1,4 @@
-# Gnosys v0.5 — Real-World Demo
+# Gnosys v0.6 — Real-World Demo
 
 This document shows Gnosys importing real data from two production APIs: **USDA FoodData Central** and **NVD (National Vulnerability Database)**.
 
@@ -170,6 +170,61 @@ The debug command in Sendmail is enabled, allowing attackers to execute commands
 ├── .config/
 │   └── tags.yml
 └── .git/                # Auto-versioned
+```
+
+## LLM Provider Configuration (v0.6+)
+
+Gnosys supports Anthropic (cloud) and Ollama (local) out of the box.
+
+```bash
+# Check current setup
+gnosys config show
+```
+
+```
+LLM Configuration:
+  Default provider: anthropic
+  Anthropic model:  claude-sonnet-4-20250514
+  Anthropic API key: set via env
+  Ollama model:     llama3.2
+  Ollama URL:       http://localhost:11434
+
+Task Models:
+  Structuring: anthropic/claude-sonnet-4-20250514 (default)
+  Synthesis:   anthropic/claude-sonnet-4-20250514 (default)
+```
+
+Switch to Ollama for fully offline operation:
+
+```bash
+gnosys config set provider ollama
+gnosys ask "What are the highest protein foods in this vault?"
+```
+
+Run `gnosys doctor` to verify connectivity:
+
+```bash
+gnosys doctor
+```
+
+```
+Gnosys Doctor
+=============
+
+Stores:
+  project: 120 memories
+
+LLM Configuration:
+  Default provider: ollama
+  Structuring: ollama/llama3.2
+  Synthesis:   ollama/llama3.2
+
+LLM Connectivity:
+  Anthropic: No ANTHROPIC_API_KEY set.
+  Ollama: connected (model llama3.2 available at http://localhost:11434)
+
+Embeddings:
+  Index: 120 embeddings (0.0 MB)
 ```
 
 ## Querying the Vault

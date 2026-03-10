@@ -219,6 +219,23 @@ export class GnosysEmbeddings {
     return hash.toString(36);
   }
 
+  /**
+   * Get embedding index statistics.
+   */
+  getStats(): { count: number; dbSizeMB: number } {
+    const db = this.openDb();
+    const row = db.prepare("SELECT COUNT(*) as count FROM embeddings").get() as { count: number };
+    const dbPath = path.join(this.storePath, ".config", "embeddings.db");
+    let dbSizeMB = 0;
+    try {
+      const stat = require("fs").statSync(dbPath);
+      dbSizeMB = stat.size / (1024 * 1024);
+    } catch {
+      // File might not exist yet
+    }
+    return { count: row.count, dbSizeMB };
+  }
+
   close(): void {
     try {
       this.db?.close();
