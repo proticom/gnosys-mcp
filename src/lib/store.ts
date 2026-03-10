@@ -25,6 +25,8 @@ export interface MemoryFrontmatter {
   status: "active" | "archived" | "superseded";
   supersedes?: string | null;
   superseded_by?: string | null;
+  reinforcement_count?: number;
+  last_reinforced?: string | null;
   [key: string]: unknown;
 }
 

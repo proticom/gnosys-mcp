@@ -31,6 +31,7 @@ import { GnosysEmbeddings } from "./lib/embeddings.js";
 import { GnosysHybridSearch } from "./lib/hybridSearch.js";
 import { GnosysAsk } from "./lib/ask.js";
 import { getLLMProvider, isProviderAvailable, LLMProvider } from "./lib/llm.js";
+import { GnosysMaintenanceEngine, formatMaintenanceReport } from "./lib/maintenance.js";
 
 // Initialize resolver (discovers all layered stores)
 const resolver = new GnosysResolver();
@@ -39,7 +40,7 @@ let config: GnosysConfig = DEFAULT_CONFIG;
 // Create MCP server
 const server = new McpServer({
   name: "gnosys",
-  version: "0.6.0",
+  version: "1.0.0",
 });
 
 // These are initialized in main() after resolver runs
@@ -1487,6 +1488,15 @@ server.tool(
         )
         .join("\n\n");
 
+      // Reinforce used memories (best-effort, non-blocking)
+      const writeTarget = resolver.getWriteTarget();
+      if (writeTarget) {
+        GnosysMaintenanceEngine.reinforceBatch(
+          writeTarget.store,
+          results.map((r) => r.relativePath)
+        ).catch(() => {}); // Fire-and-forget
+      }
+
       const embCount = hybridSearch.embeddingCount();
       return {
         content: [
@@ -1607,6 +1617,15 @@ server.tool(
         mode: (mode as "keyword" | "semantic" | "hybrid") || "hybrid",
       });
 
+      // Reinforce used memories (best-effort, non-blocking)
+      const writeTarget = resolver.getWriteTarget();
+      if (writeTarget && result.sources.length > 0) {
+        GnosysMaintenanceEngine.reinforceBatch(
+          writeTarget.store,
+          result.sources.map((s) => s.relativePath)
+        ).catch(() => {}); // Fire-and-forget
+      }
+
       const sourcesText = result.sources.length > 0
         ? "\n\n---\n**Sources:**\n" +
           result.sources
@@ -1633,6 +1652,34 @@ server.tool(
     } catch (err) {
       return {
         content: [{ type: "text", text: `Ask failed: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// ─── Tool: gnosys_maintain ────────────────────────────────────────────────
+server.tool(
+  "gnosys_maintain",
+  "Run vault maintenance: detect duplicate memories, apply confidence decay, consolidate similar memories. Use --dry-run mode first to see what would change. Requires embeddings (run gnosys_reindex first).",
+  {
+    dryRun: z.boolean().optional().describe("Show what would change without modifying anything (default: true)"),
+    autoApply: z.boolean().optional().describe("Automatically apply all changes (default: false)"),
+  },
+  async ({ dryRun, autoApply }) => {
+    try {
+      const engine = new GnosysMaintenanceEngine(resolver, config);
+      const report = await engine.maintain({
+        dryRun: dryRun ?? true,
+        autoApply: autoApply ?? false,
+      });
+
+      return {
+        content: [{ type: "text", text: formatMaintenanceReport(report) }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Maintenance failed: ${err instanceof Error ? err.message : String(err)}` }],
         isError: true,
       };
     }

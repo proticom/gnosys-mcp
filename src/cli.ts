@@ -1391,6 +1391,16 @@ program
         console.log(`    Score: ${r.score.toFixed(4)} (via: ${r.sources.join("+")})`);
         console.log(`    ${r.snippet.substring(0, 120)}...\n`);
       }
+
+      // Reinforce used memories (best-effort)
+      const writeTarget = resolver.getWriteTarget();
+      if (writeTarget) {
+        const { GnosysMaintenanceEngine } = await import("./lib/maintenance.js");
+        await GnosysMaintenanceEngine.reinforceBatch(
+          writeTarget.store,
+          results.map((r) => r.relativePath)
+        ).catch(() => {});
+      }
     }
     search.close();
     embeddings.close();
@@ -1506,6 +1516,16 @@ program
         console.log("\n\n--- Sources ---");
         for (const s of result.sources) {
           console.log(`  [[${s.relativePath.split("/").pop()}]] — ${s.title}`);
+        }
+
+        // Reinforce used memories (best-effort)
+        const writeTarget = resolver.getWriteTarget();
+        if (writeTarget) {
+          const { GnosysMaintenanceEngine } = await import("./lib/maintenance.js");
+          await GnosysMaintenanceEngine.reinforceBatch(
+            writeTarget.store,
+            result.sources.map((s) => s.relativePath)
+          ).catch(() => {});
         }
       }
 
@@ -1647,6 +1667,48 @@ configCmd
     console.log(`Created ${configPath}`);
   });
 
+// ─── gnosys maintain ─────────────────────────────────────────────────────
+program
+  .command("maintain")
+  .description("Run vault maintenance: detect duplicates, apply confidence decay, consolidate similar memories")
+  .option("--dry-run", "Show what would change without modifying anything")
+  .option("--auto-apply", "Automatically apply all changes (no prompts)")
+  .action(async (opts: { dryRun?: boolean; autoApply?: boolean }) => {
+    const { GnosysMaintenanceEngine, formatMaintenanceReport } = await import("./lib/maintenance.js");
+
+    const resolver = await getResolver();
+    const stores = resolver.getStores();
+
+    if (stores.length === 0) {
+      console.error("No Gnosys stores found. Run gnosys init first.");
+      process.exit(1);
+    }
+
+    const cfg = await loadConfig(stores[0].path);
+
+    const engine = new GnosysMaintenanceEngine(resolver, cfg);
+    const report = await engine.maintain({
+      dryRun: opts.dryRun,
+      autoApply: opts.autoApply,
+      onLog: (level, message) => {
+        if (level === "warn") {
+          console.error(`⚠ ${message}`);
+        } else if (level === "action") {
+          console.log(`→ ${message}`);
+        } else {
+          console.log(message);
+        }
+      },
+      onProgress: (step, current, total) => {
+        process.stdout.write(`\r[${current}/${total}] ${step}...`);
+        if (current === total) process.stdout.write("\n");
+      },
+    });
+
+    console.log("");
+    console.log(formatMaintenanceReport(report));
+  });
+
 // ─── gnosys doctor ──────────────────────────────────────────────────────
 program
   .command("doctor")
@@ -1724,6 +1786,22 @@ program
       } catch {
         console.log("  Index: not initialized (run gnosys reindex to build)");
       }
+
+      // Maintenance health
+      console.log("");
+      console.log("Maintenance Health:");
+      try {
+        const { GnosysMaintenanceEngine } = await import("./lib/maintenance.js");
+        const engine = new GnosysMaintenanceEngine(resolver, cfg);
+        const health = await engine.getHealthReport();
+        console.log(`  Active memories: ${health.totalActive}`);
+        console.log(`  Stale (confidence < 0.3): ${health.staleCount}`);
+        console.log(`  Average confidence: ${health.avgConfidence.toFixed(3)} (decayed: ${health.avgDecayedConfidence.toFixed(3)})`);
+        console.log(`  Never reinforced: ${health.neverReinforced}`);
+        console.log(`  Total reinforcements: ${health.totalReinforcements}`);
+      } catch (err) {
+        console.log(`  Error: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
   });
 
@@ -1731,7 +1809,34 @@ program
 program
   .command("serve")
   .description("Start the MCP server (stdio mode)")
-  .action(async () => {
+  .option("--with-maintenance", "Run maintenance every 6 hours in background")
+  .action(async (opts: { withMaintenance?: boolean }) => {
+    if (opts.withMaintenance) {
+      // Start background maintenance loop
+      const SIX_HOURS = 6 * 60 * 60 * 1000;
+      const runMaintenance = async () => {
+        try {
+          const { GnosysMaintenanceEngine } = await import("./lib/maintenance.js");
+          const resolver = new (await import("./lib/resolver.js")).GnosysResolver();
+          await resolver.resolve();
+          const stores = resolver.getStores();
+          if (stores.length > 0) {
+            const cfg = await loadConfig(stores[0].path);
+            const engine = new GnosysMaintenanceEngine(resolver, cfg);
+            const report = await engine.maintain({ autoApply: true });
+            console.error(`[maintenance] Completed: ${report.actions.length} action(s), ${report.duplicates.length} duplicate(s), ${report.staleMemories.length} stale`);
+          }
+        } catch (err) {
+          console.error(`[maintenance] Error: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      };
+
+      // Run immediately on start, then every 6 hours
+      setTimeout(runMaintenance, 30000); // 30s after server start
+      setInterval(runMaintenance, SIX_HOURS);
+      console.error("[maintenance] Background maintenance enabled (every 6 hours)");
+    }
+
     await import("./index.js");
   });
 

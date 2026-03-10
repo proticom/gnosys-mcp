@@ -1,4 +1,4 @@
-# Gnosys v0.6 — Real-World Demo
+# Gnosys v1.0 — Real-World Demo
 
 This document shows Gnosys importing real data from two production APIs: **USDA FoodData Central** and **NVD (National Vulnerability Database)**.
 
@@ -324,4 +324,67 @@ For NVD, the full database has 200k+ CVEs. Use `--limit` and `--offset` for incr
 
 ```bash
 gnosys import nvd-all.json --format json --mapping '...' --mode structured --skip-existing --limit 1000 --offset 0
+```
+
+---
+
+## Vault Maintenance (v1.0+)
+
+After importing data and using the vault over time, run maintenance to keep things clean:
+
+### Dry Run (preview changes)
+
+```bash
+gnosys maintain --dry-run
+```
+
+```
+Starting maintenance (dry run)...
+Found 120 active memories across 1 store(s)
+Step 1/3: Detecting duplicates...
+  Found 2 duplicate pair(s)
+Step 2/3: Calculating confidence decay...
+  3 stale memorie(s) (confidence < 0.3)
+  Average confidence: 0.800 → decayed: 0.721
+Step 3/3: Applying changes...
+→ [DRY RUN] Would consolidate: "Almond Butter, Creamy" + "Almond Butter" (similarity: 0.912)
+→ [DRY RUN] Would consolidate: "CVE-1999-0095" + "CVE-1999-0095 Sendmail" (similarity: 0.874)
+→ [DRY RUN] Would update decay: "Old unused memory" (0.80 → 0.24, 240 days since reinforced)
+
+Gnosys Maintenance Report
+========================================
+
+Total memories scanned: 120
+Average confidence: 0.800 (decayed: 0.721)
+
+Duplicates found: 2
+Stale memories: 3 (confidence < 0.3)
+
+Actions (5):
+  [DRY RUN] Would consolidate: ...
+  [DRY RUN] Would update decay: ...
+```
+
+### Auto-Apply (apply all changes)
+
+```bash
+gnosys maintain --auto-apply
+```
+
+All changes are safe Git commits with automatic rollback on failure.
+
+### Doctor with Maintenance Health
+
+```bash
+gnosys doctor
+```
+
+```
+...
+Maintenance Health:
+  Active memories: 120
+  Stale (confidence < 0.3): 3
+  Average confidence: 0.800 (decayed: 0.721)
+  Never reinforced: 15
+  Total reinforcements: 342
 ```

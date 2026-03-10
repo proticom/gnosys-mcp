@@ -488,6 +488,57 @@ export GNOSYS_STORES="/path/to/reference-data"
 
 ---
 
+## Auto Memory Maintenance
+
+The vault stays clean and useful forever without manual babysitting. Agents can run for months without the memory turning into a mess.
+
+### How It Works
+
+**Confidence Decay:** Every memory's confidence decays exponentially over time based on how recently it was used. The formula: `decayed = base_confidence × e^(-0.005 × days_since_reinforced)`. At this rate, an unreinforced memory loses ~50% confidence after 139 days.
+
+**Automatic Reinforcement:** Every time a memory appears in search results, ask synthesis, or import — its `reinforcement_count` increments and `last_reinforced` resets. This happens automatically in `gnosys_ask`, `gnosys_hybrid_search`, and all search-based tools.
+
+**Duplicate Detection:** Uses semantic similarity (cosine > 0.85) combined with title word overlap (Jaccard > 0.4) to flag potential duplicates. Both conditions must pass to reduce false positives.
+
+**Auto-Consolidation:** When duplicates are confirmed, the LLM merges both memories into a single comprehensive one. Originals are marked `status: superseded` with a pointer to the merged version.
+
+### Running Maintenance
+
+```bash
+# See what would change (safe, no modifications)
+gnosys maintain --dry-run
+
+# Apply all changes automatically
+gnosys maintain --auto-apply
+
+# Background mode: runs every 6 hours alongside the MCP server
+gnosys serve --with-maintenance
+```
+
+### Scheduling with cron (Linux/Mac)
+
+```bash
+# Run maintenance daily at 3am
+0 3 * * * cd /path/to/project && npx gnosys maintain --auto-apply >> /var/log/gnosys-maintain.log 2>&1
+```
+
+### Scheduling with Task Scheduler (Windows)
+
+Create a basic task that runs daily:
+- Program: `npx`
+- Arguments: `gnosys maintain --auto-apply`
+- Start in: `C:\path\to\project`
+
+### MCP Tool
+
+The `gnosys_maintain` MCP tool lets agents trigger maintenance programmatically with dry-run and auto-apply options.
+
+### Doctor Health Report
+
+`gnosys doctor` now includes a Maintenance Health section showing stale count, average confidence (raw and decayed), reinforcement stats, and never-reinforced memories.
+
+---
+
 ## Comparison
 
 | Feature | **Gnosys** | NotebookLM | gnosis-mcp | Official MCP Memory |
@@ -505,6 +556,7 @@ export GNOSYS_STORES="/path/to/reference-data"
 | Freeform Q&A | ✅ gnosys_ask with citations | ✅ Built-in | ❌ | ❌ |
 | Self-hosted | ✅ | ❌ | ✅ | ✅ |
 | LLM required | Optional (Anthropic or Ollama) | Required | No | No |
+| Auto maintenance | ✅ Decay, dedup, consolidation | ❌ | ❌ | ❌ |
 | Docker support | ✅ | ❌ | ❌ | ❌ |
 | Price | Free / MIT | Free tier, then paid | Free | Free |
 
@@ -530,12 +582,16 @@ gnosys reinforce <id> ...    # Signal memory usefulness
 gnosys stale                 # Find stale memories
 gnosys commit-context "..."  # Extract memories from conversation
 gnosys import <file> ...     # Bulk import data
+gnosys maintain              # Run vault maintenance (dry run by default)
+gnosys maintain --dry-run    # Preview changes without modifying
+gnosys maintain --auto-apply # Apply all maintenance automatically
 gnosys config show           # Show LLM configuration
 gnosys config set <k> <v>    # Set config (provider, model, ollama-url...)
-gnosys doctor                # Check stores, LLM connectivity, embeddings
+gnosys doctor                # Check stores, LLM, embeddings, maintenance health
 gnosys tags                  # List tag registry
 gnosys stores                # Show active stores
 gnosys serve                 # Start MCP server (stdio)
+gnosys serve --with-maintenance  # MCP server + maintenance every 6h
 ```
 
 ---
@@ -563,6 +619,7 @@ src/
     hybridSearch.ts # Hybrid search with RRF fusion
     ask.ts          # Freeform Q&A with LLM synthesis + citations
     llm.ts          # LLM abstraction layer (Anthropic + Ollama providers)
+    maintenance.ts  # Auto-maintenance: decay, dedup, consolidation, reinforcement
     tags.ts         # Tag registry management
     ingest.ts       # LLM-powered structuring (with retry logic)
     import.ts       # Bulk import engine (CSV, JSON, JSONL)
