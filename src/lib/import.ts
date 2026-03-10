@@ -260,7 +260,7 @@ export async function performImport(
   // Phase 3 & 4: Ingest + Write
   if (options.mode === "llm" && !ingestion.isLLMAvailable) {
     throw new Error(
-      "LLM mode requires ANTHROPIC_API_KEY. Set it or use --mode structured."
+      "LLM mode requires a configured LLM provider. Set ANTHROPIC_API_KEY, configure Ollama, or use --mode structured."
     );
   }
 

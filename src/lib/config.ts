@@ -7,16 +7,58 @@ import { z } from "zod";
 import fs from "fs/promises";
 import path from "path";
 
-// ─── Schema ──────────────────────────────────────────────────────────────
+// ─── LLM Provider Schemas ───────────────────────────────────────────────
+
+const LLMProviderEnum = z.enum(["anthropic", "ollama"]);
+export type LLMProviderName = z.infer<typeof LLMProviderEnum>;
+
+const AnthropicConfigSchema = z.object({
+  model: z.string().default("claude-sonnet-4-20250514"),
+  apiKey: z.string().optional(), // Falls back to ANTHROPIC_API_KEY env var
+});
+
+const OllamaConfigSchema = z.object({
+  model: z.string().default("llama3.2"),
+  baseUrl: z.string().default("http://localhost:11434"),
+});
+
+const TaskModelSchema = z.object({
+  provider: LLMProviderEnum,
+  model: z.string(),
+});
+
+const LLMConfigSchema = z.object({
+  defaultProvider: LLMProviderEnum.default("anthropic"),
+  anthropic: AnthropicConfigSchema.default({ model: "claude-sonnet-4-20250514" }),
+  ollama: OllamaConfigSchema.default({ model: "llama3.2", baseUrl: "http://localhost:11434" }),
+});
+
+const TaskModelsSchema = z.object({
+  structuring: TaskModelSchema.optional(),
+  synthesis: TaskModelSchema.optional(),
+});
+
+// ─── Main Config Schema ─────────────────────────────────────────────────
 
 export const GnosysConfigSchema = z.object({
-  /** LLM provider for smart ingestion: anthropic, ollama, openai, groq */
+  /** LLM configuration */
+  llm: LLMConfigSchema.default({
+    defaultProvider: "anthropic",
+    anthropic: { model: "claude-sonnet-4-20250514" },
+    ollama: { model: "llama3.2", baseUrl: "http://localhost:11434" },
+  }),
+
+  /** Task-specific model overrides */
+  taskModels: TaskModelsSchema.default({}),
+
+  // Legacy fields — kept for backward compat, mapped to llm.defaultProvider/anthropic.model
+  /** @deprecated Use llm.defaultProvider instead */
   defaultLLMProvider: z
     .enum(["anthropic", "ollama", "openai", "groq"])
-    .default("anthropic"),
+    .optional(),
 
-  /** Model name to use for ingestion */
-  defaultModel: z.string().default("claude-haiku-4-5-20251001"),
+  /** @deprecated Use llm.anthropic.model or llm.ollama.model instead */
+  defaultModel: z.string().optional(),
 
   /** Max records per batch commit during bulk import */
   bulkIngestionBatchSize: z.number().int().min(1).max(10000).default(500),
@@ -56,6 +98,80 @@ export type GnosysConfig = z.infer<typeof GnosysConfigSchema>;
 
 export const DEFAULT_CONFIG: GnosysConfig = GnosysConfigSchema.parse({});
 
+// ─── Helpers ─────────────────────────────────────────────────────────────
+
+/**
+ * Resolve the effective LLM provider and model for a given task.
+ * Priority: taskModels override > llm config > legacy fields > defaults.
+ */
+export function resolveTaskModel(
+  config: GnosysConfig,
+  task: "structuring" | "synthesis"
+): { provider: LLMProviderName; model: string } {
+  // 1. Task-specific override
+  const taskOverride = config.taskModels?.[task];
+  if (taskOverride) {
+    return { provider: taskOverride.provider, model: taskOverride.model };
+  }
+
+  // 2. Default provider from llm config
+  const provider = config.llm.defaultProvider;
+
+  // 3. Model from provider-specific config
+  const model = provider === "anthropic"
+    ? config.llm.anthropic.model
+    : config.llm.ollama.model;
+
+  return { provider, model };
+}
+
+/**
+ * Get the Anthropic API key, checking config first then env var.
+ */
+export function getAnthropicApiKey(config: GnosysConfig): string | undefined {
+  return config.llm.anthropic.apiKey || process.env.ANTHROPIC_API_KEY;
+}
+
+/**
+ * Get the Ollama base URL from config.
+ */
+export function getOllamaBaseUrl(config: GnosysConfig): string {
+  return config.llm.ollama.baseUrl;
+}
+
+// ─── Migration ───────────────────────────────────────────────────────────
+
+/**
+ * Migrate legacy config fields to the new llm structure.
+ * Called during loading to ensure backward compatibility.
+ */
+function migrateConfig(raw: Record<string, unknown>): Record<string, unknown> {
+  const migrated = { ...raw };
+
+  // Migrate legacy defaultLLMProvider → llm.defaultProvider
+  if (migrated.defaultLLMProvider && !migrated.llm) {
+    const provider = migrated.defaultLLMProvider as string;
+    if (provider === "anthropic" || provider === "ollama") {
+      migrated.llm = {
+        defaultProvider: provider,
+        ...(typeof migrated.llm === "object" && migrated.llm !== null ? migrated.llm : {}),
+      };
+    }
+  }
+
+  // Migrate legacy defaultModel → provider-specific model
+  if (migrated.defaultModel && !migrated.llm) {
+    migrated.llm = { anthropic: { model: migrated.defaultModel } };
+  } else if (migrated.defaultModel && typeof migrated.llm === "object" && migrated.llm !== null) {
+    const llm = migrated.llm as Record<string, unknown>;
+    if (!llm.anthropic) {
+      llm.anthropic = { model: migrated.defaultModel };
+    }
+  }
+
+  return migrated;
+}
+
 // ─── Loader ──────────────────────────────────────────────────────────────
 
 /**
@@ -69,7 +185,8 @@ export async function loadConfig(storePath: string): Promise<GnosysConfig> {
   try {
     const raw = await fs.readFile(configPath, "utf-8");
     const parsed = JSON.parse(raw);
-    return GnosysConfigSchema.parse(parsed);
+    const migrated = migrateConfig(parsed);
+    return GnosysConfigSchema.parse(migrated);
   } catch (err: unknown) {
     if (err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT") {
       // No config file — use defaults
@@ -108,13 +225,32 @@ export async function writeConfig(
 }
 
 /**
- * Generate a default gnosys.json with comments (as a documented template).
+ * Update specific fields in gnosys.json without overwriting the whole file.
+ */
+export async function updateConfig(
+  storePath: string,
+  updates: Record<string, unknown>
+): Promise<GnosysConfig> {
+  const existing = await loadConfig(storePath);
+  const merged = { ...existing, ...updates };
+  const validated = GnosysConfigSchema.parse(merged);
+  const configPath = path.join(storePath, "gnosys.json");
+  await fs.writeFile(configPath, JSON.stringify(validated, null, 2) + "\n", "utf-8");
+  return validated;
+}
+
+/**
+ * Generate a default gnosys.json with the new llm config structure.
  */
 export function generateConfigTemplate(): string {
   return JSON.stringify(
     {
-      defaultLLMProvider: "anthropic",
-      defaultModel: "claude-haiku-4-5-20251001",
+      llm: {
+        defaultProvider: "anthropic",
+        anthropic: { model: "claude-sonnet-4-20250514" },
+        ollama: { model: "llama3.2", baseUrl: "http://localhost:11434" },
+      },
+      taskModels: {},
       bulkIngestionBatchSize: 500,
       importConcurrency: 5,
       autoCommit: true,

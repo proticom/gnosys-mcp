@@ -1,13 +1,13 @@
 /**
  * Gnosys Smart Ingestion — Uses LLM to structure raw input into atomic memories.
  * Accepts messy human input, produces clean markdown files with YAML frontmatter.
+ * Uses the LLM abstraction layer — works with Anthropic, Ollama, or any future provider.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
 import { GnosysTagRegistry } from "./tags.js";
-import { GnosysStore, MemoryFrontmatter } from "./store.js";
-import { withRetry, isTransientError } from "./retry.js";
+import { GnosysStore } from "./store.js";
 import { GnosysConfig, DEFAULT_CONFIG } from "./config.js";
+import { LLMProvider, getLLMProvider } from "./llm.js";
 
 interface IngestResult {
   title: string;
@@ -21,7 +21,7 @@ interface IngestResult {
 }
 
 export class GnosysIngestion {
-  private client: Anthropic | null = null;
+  private provider: LLMProvider | null = null;
   private tagRegistry: GnosysTagRegistry;
   private store: GnosysStore;
   private config: GnosysConfig;
@@ -31,15 +31,21 @@ export class GnosysIngestion {
     this.tagRegistry = tagRegistry;
     this.config = config || DEFAULT_CONFIG;
 
-    // Initialize Anthropic client if API key is available
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (apiKey) {
-      this.client = new Anthropic({ apiKey });
+    // Initialize LLM provider via abstraction layer
+    try {
+      this.provider = getLLMProvider(this.config, "structuring");
+    } catch {
+      // Provider not available (e.g., no API key for Anthropic)
+      this.provider = null;
     }
   }
 
   get isLLMAvailable(): boolean {
-    return this.client !== null;
+    return this.provider !== null;
+  }
+
+  get providerName(): string {
+    return this.provider?.name || "none";
   }
 
   /**
@@ -47,10 +53,13 @@ export class GnosysIngestion {
    * Uses LLM if available, otherwise requires structured input.
    */
   async ingest(rawInput: string): Promise<IngestResult> {
-    if (!this.client) {
+    if (!this.provider) {
+      const providerName = this.config.llm.defaultProvider;
       throw new Error(
-        "No ANTHROPIC_API_KEY set. Smart ingestion requires an LLM. " +
-          "Set the ANTHROPIC_API_KEY environment variable or use gnosys_add_structured."
+        providerName === "anthropic"
+          ? "No ANTHROPIC_API_KEY set. Smart ingestion requires an LLM. " +
+            "Set the ANTHROPIC_API_KEY environment variable, switch to Ollama (gnosys config set provider ollama), or use gnosys_add_structured."
+          : `LLM provider "${providerName}" is not available. Check your configuration or use gnosys_add_structured.`
       );
     }
 
@@ -83,29 +92,10 @@ Rules:
 5. Write in third person or neutral voice, not first person.
 6. The relevance field is critical for discovery. Include all terms an agent might use to find this memory — think about what someone working on a related task would search for.`;
 
-    const response = await withRetry(
-      () =>
-        this.client!.messages.create({
-          model: this.config.defaultModel,
-          max_tokens: 2000,
-          system: systemPrompt,
-          messages: [
-            {
-              role: "user",
-              content: `Structure this into an atomic memory:\n\n${rawInput}`,
-            },
-          ],
-        }),
-      {
-        maxAttempts: this.config.llmRetryAttempts,
-        baseDelayMs: this.config.llmRetryBaseDelayMs,
-        isRetryable: isTransientError,
-      }
+    const text = await this.provider.generate(
+      `Structure this into an atomic memory:\n\n${rawInput}`,
+      { system: systemPrompt, maxTokens: 2000 }
     );
-
-    // Extract text from response
-    const text =
-      response.content[0].type === "text" ? response.content[0].text : "";
 
     // Parse JSON from response (handle markdown code blocks)
     const jsonMatch = text.match(/```json\s*([\s\S]*?)```/) ||

@@ -30,6 +30,7 @@ import { loadConfig, GnosysConfig, DEFAULT_CONFIG } from "./lib/config.js";
 import { GnosysEmbeddings } from "./lib/embeddings.js";
 import { GnosysHybridSearch } from "./lib/hybridSearch.js";
 import { GnosysAsk } from "./lib/ask.js";
+import { getLLMProvider, isProviderAvailable, LLMProvider } from "./lib/llm.js";
 
 // Initialize resolver (discovers all layered stores)
 const resolver = new GnosysResolver();
@@ -38,7 +39,7 @@ let config: GnosysConfig = DEFAULT_CONFIG;
 // Create MCP server
 const server = new McpServer({
   name: "gnosys",
-  version: "0.5.0",
+  version: "0.6.0",
 });
 
 // These are initialized in main() after resolver runs
@@ -855,7 +856,7 @@ server.tool(
         content: [
           {
             type: "text",
-            text: "Commit context requires LLM (ANTHROPIC_API_KEY). Set the key and restart.",
+            text: "Commit context requires an LLM. Configure a provider in gnosys.json or set ANTHROPIC_API_KEY.",
           },
         ],
         isError: true,
@@ -871,20 +872,20 @@ server.tool(
     }
 
     // Step 1: Use LLM to extract candidate memories from the context
-    const Anthropic = (await import("@anthropic-ai/sdk")).default;
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
+    let extractProvider: LLMProvider;
+    try {
+      extractProvider = getLLMProvider(config, "structuring");
+    } catch (err) {
       return {
-        content: [{ type: "text", text: "ANTHROPIC_API_KEY not set." }],
+        content: [{ type: "text", text: `LLM not available: ${err instanceof Error ? err.message : String(err)}` }],
         isError: true,
       };
     }
-    const client = new Anthropic({ apiKey });
 
-    const extractResponse = await client.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 4000,
-      system: `You extract atomic knowledge items from conversations. Each item should be ONE decision, fact, insight, or observation — not compound.
+    const extractText = await extractProvider.generate(
+      `Extract atomic knowledge items from this context:\n\n${context}`,
+      {
+        system: `You extract atomic knowledge items from conversations. Each item should be ONE decision, fact, insight, or observation — not compound.
 
 Output a JSON array of objects, each with:
 - summary: One-sentence description of the knowledge
@@ -894,18 +895,9 @@ Output a JSON array of objects, each with:
 Be selective. Only extract things worth remembering long-term. Skip small talk, debugging steps, and transient details. Focus on decisions made, architecture choices, requirements established, and insights gained.
 
 Output ONLY the JSON array, no markdown fences.`,
-      messages: [
-        {
-          role: "user",
-          content: `Extract atomic knowledge items from this context:\n\n${context}`,
-        },
-      ],
-    });
-
-    const extractText =
-      extractResponse.content[0].type === "text"
-        ? extractResponse.content[0].text
-        : "[]";
+        maxTokens: 4000,
+      }
+    );
 
     let candidates: Array<{
       summary: string;
@@ -1595,7 +1587,7 @@ server.tool(
 // ─── Tool: gnosys_ask ────────────────────────────────────────────────────
 server.tool(
   "gnosys_ask",
-  "Ask a natural-language question and get a synthesized answer with citations from the entire vault. Uses hybrid search to find relevant memories, then LLM to synthesize a cited response. Citations are Obsidian wikilinks [[filename.md]]. Requires ANTHROPIC_API_KEY and embeddings (run gnosys_reindex first).",
+  "Ask a natural-language question and get a synthesized answer with citations from the entire vault. Uses hybrid search to find relevant memories, then LLM to synthesize a cited response. Citations are Obsidian wikilinks [[filename.md]]. Requires an LLM provider (Anthropic or Ollama) and embeddings (run gnosys_reindex first).",
   {
     question: z.string().describe("Natural language question to answer from the vault"),
     limit: z.number().optional().describe("Max memories to retrieve (default 15)"),
@@ -1604,7 +1596,7 @@ server.tool(
   async ({ question, limit, mode }) => {
     if (!askEngine) {
       return {
-        content: [{ type: "text", text: "Ask engine not initialized. Ensure stores exist and ANTHROPIC_API_KEY is set." }],
+        content: [{ type: "text", text: "Ask engine not initialized. Ensure stores exist and an LLM provider is configured." }],
         isError: true,
       };
     }
@@ -1707,13 +1699,13 @@ async function main() {
 
     const embCount = embeddings.hasEmbeddings() ? embeddings.count() : 0;
     console.error(
-      `LLM ingestion: ${ingestion.isLLMAvailable ? "enabled" : "disabled (set ANTHROPIC_API_KEY)"}`
+      `LLM ingestion: ${ingestion.isLLMAvailable ? `enabled (${ingestion.providerName})` : "disabled (configure LLM provider)"}`
     );
     console.error(
       `Hybrid search: ${embCount > 0 ? `ready (${embCount} embeddings)` : "available (run gnosys_reindex to build embeddings)"}`
     );
     console.error(
-      `Ask engine: ${askEngine.isLLMAvailable ? "ready" : "disabled (set ANTHROPIC_API_KEY)"}`
+      `Ask engine: ${askEngine.isLLMAvailable ? `ready (${askEngine.providerName}/${askEngine.modelName})` : "disabled (configure LLM provider)"}`
     );
   }
 
