@@ -11,6 +11,11 @@ import {
   resolveTaskModel,
   getAnthropicApiKey,
   getOllamaBaseUrl,
+  getGroqApiKey,
+  getOpenAIApiKey,
+  getOpenAIBaseUrl,
+  getLMStudioBaseUrl,
+  getProviderModel,
 } from "./config.js";
 import { withRetry, isTransientError } from "./retry.js";
 
@@ -288,6 +293,147 @@ export class OllamaProvider implements LLMProvider {
   }
 }
 
+// ─── OpenAI-Compatible Provider (Groq, OpenAI, LM Studio) ──────────────
+
+/**
+ * Generic OpenAI-compatible provider. Works with any service that implements
+ * the OpenAI /v1/chat/completions API: OpenAI, Groq, LM Studio, etc.
+ */
+export class OpenAICompatibleProvider implements LLMProvider {
+  readonly name: LLMProviderName;
+  readonly model: string;
+  private baseUrl: string;
+  private apiKey: string;
+  private config: GnosysConfig;
+
+  constructor(
+    name: LLMProviderName,
+    model: string,
+    baseUrl: string,
+    apiKey: string,
+    config?: GnosysConfig
+  ) {
+    this.name = name;
+    this.model = model;
+    this.baseUrl = baseUrl.replace(/\/$/, "");
+    this.apiKey = apiKey;
+    this.config = config || DEFAULT_CONFIG;
+  }
+
+  async generate(
+    prompt: string,
+    options?: LLMGenerateOptions,
+    streamCallbacks?: LLMStreamCallbacks
+  ): Promise<string> {
+    const shouldStream = options?.stream && streamCallbacks?.onToken;
+    const maxTokens = options?.maxTokens || 4096;
+
+    const messages: Array<{ role: string; content: string }> = [];
+    if (options?.system) {
+      messages.push({ role: "system", content: options.system });
+    }
+    messages.push({ role: "user", content: prompt });
+
+    const body: Record<string, unknown> = {
+      model: this.model,
+      messages,
+      max_tokens: maxTokens,
+      stream: !!shouldStream,
+    };
+
+    const response = await withRetry(
+      () =>
+        fetch(`${this.baseUrl}/chat/completions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
+          },
+          body: JSON.stringify(body),
+        }),
+      {
+        maxAttempts: this.config.llmRetryAttempts,
+        baseDelayMs: this.config.llmRetryBaseDelayMs,
+        isRetryable: isTransientError,
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `${this.name} request failed (${response.status}): ${errorText}`
+      );
+    }
+
+    if (shouldStream && streamCallbacks) {
+      return this.readSSEStream(response, streamCallbacks);
+    }
+
+    const data = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    return data.choices?.[0]?.message?.content || "";
+  }
+
+  private async readSSEStream(
+    response: Response,
+    callbacks: LLMStreamCallbacks
+  ): Promise<string> {
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("No response body for streaming");
+
+    const decoder = new TextDecoder();
+    let fullText = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value, { stream: true });
+      const lines = chunk.split("\n").filter((l) => l.startsWith("data: "));
+
+      for (const line of lines) {
+        const data = line.slice(6).trim();
+        if (data === "[DONE]") continue;
+        try {
+          const parsed = JSON.parse(data) as {
+            choices?: Array<{ delta?: { content?: string } }>;
+          };
+          const token = parsed.choices?.[0]?.delta?.content || "";
+          if (token) {
+            fullText += token;
+            callbacks.onToken(token);
+          }
+        } catch {
+          // Skip malformed SSE lines
+        }
+      }
+    }
+
+    return fullText;
+  }
+
+  async testConnection(): Promise<boolean> {
+    try {
+      const response = await fetch(`${this.baseUrl}/models`, {
+        headers: {
+          ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      return true;
+    } catch (err) {
+      throw new Error(
+        `${this.name} connection failed at ${this.baseUrl}: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }
+}
+
 // ─── Factory ─────────────────────────────────────────────────────────────
 
 /**
@@ -329,9 +475,35 @@ export function createProvider(
       return new OllamaProvider(model, baseUrl, config);
     }
 
+    case "groq": {
+      const apiKey = getGroqApiKey(config);
+      if (!apiKey) {
+        throw new Error(
+          "No Groq API key found. Set GROQ_API_KEY environment variable or add llm.groq.apiKey to gnosys.json."
+        );
+      }
+      return new OpenAICompatibleProvider("groq", model, "https://api.groq.com/openai/v1", apiKey, config);
+    }
+
+    case "openai": {
+      const apiKey = getOpenAIApiKey(config);
+      if (!apiKey) {
+        throw new Error(
+          "No OpenAI API key found. Set OPENAI_API_KEY environment variable or add llm.openai.apiKey to gnosys.json."
+        );
+      }
+      const baseUrl = getOpenAIBaseUrl(config);
+      return new OpenAICompatibleProvider("openai", model, baseUrl, apiKey, config);
+    }
+
+    case "lmstudio": {
+      const baseUrl = getLMStudioBaseUrl(config);
+      return new OpenAICompatibleProvider("lmstudio", model, baseUrl, "", config);
+    }
+
     default:
       throw new Error(
-        `Unsupported LLM provider: "${provider}". Supported: anthropic, ollama.`
+        `Unsupported LLM provider: "${provider}". Supported: anthropic, ollama, groq, openai, lmstudio.`
       );
   }
 }
@@ -340,10 +512,7 @@ export function createProvider(
  * Get the default model for the default provider.
  */
 function getDefaultModel(config: GnosysConfig): string {
-  const provider = config.llm.defaultProvider;
-  return provider === "anthropic"
-    ? config.llm.anthropic.model
-    : config.llm.ollama.model;
+  return getProviderModel(config, config.llm.defaultProvider);
 }
 
 /**
@@ -368,9 +537,31 @@ export function isProviderAvailable(
       return { available: true };
     }
 
+    case "groq": {
+      const apiKey = getGroqApiKey(config);
+      if (!apiKey) {
+        return {
+          available: false,
+          error: "No GROQ_API_KEY set. Add to environment or gnosys.json.",
+        };
+      }
+      return { available: true };
+    }
+
+    case "openai": {
+      const apiKey = getOpenAIApiKey(config);
+      if (!apiKey) {
+        return {
+          available: false,
+          error: "No OPENAI_API_KEY set. Add to environment or gnosys.json.",
+        };
+      }
+      return { available: true };
+    }
+
     case "ollama":
-      // Ollama availability requires a network check, but for sync checks
-      // we assume it's available if configured.
+    case "lmstudio":
+      // Local providers: assume available if configured (network check requires async)
       return { available: true };
 
     default:

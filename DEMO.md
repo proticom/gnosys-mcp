@@ -1,4 +1,4 @@
-# Gnosys v1.0 — Real-World Demo
+# Gnosys v1.1 — Real-World Demo
 
 This document shows Gnosys importing real data from two production APIs: **USDA FoodData Central** and **NVD (National Vulnerability Database)**.
 
@@ -388,3 +388,79 @@ Maintenance Health:
   Never reinforced: 15
   Total reinforcements: 342
 ```
+
+---
+
+## Wikilink Graph (v1.1+)
+
+Build a persistent JSON graph from all `[[wikilinks]]` in your memories:
+
+```bash
+gnosys reindex-graph
+```
+
+```
+Scanning 120 memories for [[wikilinks]]...
+Found 45 edges across 120 nodes
+Graph written to .gnosys/graph.json
+
+Wikilink Graph:
+  Nodes: 120
+  Edges: 45
+  Orphan nodes (no links): 68
+  Orphan links (unresolved): 12
+  Avg edges/node: 0.75
+  Most connected: CVE-1999-0095 (8 edges)
+```
+
+The `graph.json` is fully regeneratable — delete it anytime, then re-run `gnosys reindex-graph`.
+
+---
+
+## System Dashboard (v1.1+)
+
+Get a complete view of your Gnosys installation:
+
+```bash
+gnosys dashboard
+```
+
+```
+╔══════════════════════════════════════════════════════╗
+║          GNOSYS DASHBOARD  v1.1.0                   ║
+╠══════════════════════════════════════════════════════╣
+║  MEMORY STORES                                      ║
+╟──────────────────────────────────────────────────────╢
+║  project: 120 memories                              ║
+║  Total: 120 memories                                ║
+╟──────────────────────────────────────────────────────╢
+║  MAINTENANCE HEALTH                                 ║
+╟──────────────────────────────────────────────────────╢
+║  Confidence: 0.800 raw / 0.721 decayed              ║
+║  Stale: 3 | Never reinforced: 15                    ║
+║  Total reinforcements: 342                          ║
+╟──────────────────────────────────────────────────────╢
+║  EMBEDDINGS                                         ║
+╟──────────────────────────────────────────────────────╢
+║  120 vectors (0.3 MB)                               ║
+╟──────────────────────────────────────────────────────╢
+║  WIKILINK GRAPH                                     ║
+╟──────────────────────────────────────────────────────╢
+║  120 nodes, 45 edges, 68 orphans                    ║
+║  Most connected: CVE-1999-0095                      ║
+╟──────────────────────────────────────────────────────╢
+║  SYSTEM OF COGNITION (SOC)                          ║
+╟──────────────────────────────────────────────────────╢
+║  Default: anthropic                                 ║
+║  Structuring → anthropic/claude-sonnet-4-20250514   ║
+║  Synthesis   → anthropic/claude-sonnet-4-20250514   ║
+║                                                     ║
+║  ✓ anthropic: ready                                 ║
+║  ✓ ollama: ready                                    ║
+║  — groq: No GROQ_API_KEY set                        ║
+║  — openai: No OPENAI_API_KEY set                    ║
+║  ✓ lmstudio: ready                                  ║
+╚══════════════════════════════════════════════════════╝
+```
+
+For JSON output (useful for MCP tools and scripts): `gnosys dashboard --json`

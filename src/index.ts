@@ -40,7 +40,7 @@ let config: GnosysConfig = DEFAULT_CONFIG;
 // Create MCP server
 const server = new McpServer({
   name: "gnosys",
-  version: "1.0.0",
+  version: "1.1.0",
 });
 
 // These are initialized in main() after resolver runs
@@ -1680,6 +1680,48 @@ server.tool(
     } catch (err) {
       return {
         content: [{ type: "text", text: `Maintenance failed: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// ─── Tool: gnosys_reindex_graph ──────────────────────────────────────────
+server.tool(
+  "gnosys_reindex_graph",
+  "Build or rebuild the wikilink graph (.gnosys/graph.json). Parses all [[wikilinks]] across memories and generates a persistent JSON graph with nodes, edges, and stats.",
+  {},
+  async () => {
+    try {
+      const { reindexGraph, formatGraphStats } = await import("./lib/graph.js");
+      const stats = await reindexGraph(resolver);
+      return {
+        content: [{ type: "text", text: formatGraphStats(stats) }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Graph reindex failed: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// ─── Tool: gnosys_dashboard ──────────────────────────────────────────────
+server.tool(
+  "gnosys_dashboard",
+  "Show the Gnosys system dashboard: memory counts, maintenance health, graph stats, LLM provider status. Returns structured JSON.",
+  {},
+  async () => {
+    try {
+      const { collectDashboardData, formatDashboardJSON } = await import("./lib/dashboard.js");
+      const data = await collectDashboardData(resolver, config, "1.1.0");
+      return {
+        content: [{ type: "text", text: formatDashboardJSON(data) }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Dashboard failed: ${err instanceof Error ? err.message : String(err)}` }],
         isError: true,
       };
     }

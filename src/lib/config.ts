@@ -9,7 +9,7 @@ import path from "path";
 
 // ─── LLM Provider Schemas ───────────────────────────────────────────────
 
-const LLMProviderEnum = z.enum(["anthropic", "ollama"]);
+const LLMProviderEnum = z.enum(["anthropic", "ollama", "groq", "openai", "lmstudio"]);
 export type LLMProviderName = z.infer<typeof LLMProviderEnum>;
 
 const AnthropicConfigSchema = z.object({
@@ -22,6 +22,22 @@ const OllamaConfigSchema = z.object({
   baseUrl: z.string().default("http://localhost:11434"),
 });
 
+const GroqConfigSchema = z.object({
+  model: z.string().default("llama-3.3-70b-versatile"),
+  apiKey: z.string().optional(), // Falls back to GROQ_API_KEY env var
+});
+
+const OpenAIConfigSchema = z.object({
+  model: z.string().default("gpt-4o-mini"),
+  apiKey: z.string().optional(), // Falls back to OPENAI_API_KEY env var
+  baseUrl: z.string().default("https://api.openai.com/v1"),
+});
+
+const LMStudioConfigSchema = z.object({
+  model: z.string().default("default"),
+  baseUrl: z.string().default("http://localhost:1234/v1"),
+});
+
 const TaskModelSchema = z.object({
   provider: LLMProviderEnum,
   model: z.string(),
@@ -31,6 +47,9 @@ const LLMConfigSchema = z.object({
   defaultProvider: LLMProviderEnum.default("anthropic"),
   anthropic: AnthropicConfigSchema.default({ model: "claude-sonnet-4-20250514" }),
   ollama: OllamaConfigSchema.default({ model: "llama3.2", baseUrl: "http://localhost:11434" }),
+  groq: GroqConfigSchema.default({ model: "llama-3.3-70b-versatile" }),
+  openai: OpenAIConfigSchema.default({ model: "gpt-4o-mini", baseUrl: "https://api.openai.com/v1" }),
+  lmstudio: LMStudioConfigSchema.default({ model: "default", baseUrl: "http://localhost:1234/v1" }),
 });
 
 const TaskModelsSchema = z.object({
@@ -46,6 +65,9 @@ export const GnosysConfigSchema = z.object({
     defaultProvider: "anthropic",
     anthropic: { model: "claude-sonnet-4-20250514" },
     ollama: { model: "llama3.2", baseUrl: "http://localhost:11434" },
+    groq: { model: "llama-3.3-70b-versatile" },
+    openai: { model: "gpt-4o-mini", baseUrl: "https://api.openai.com/v1" },
+    lmstudio: { model: "default", baseUrl: "http://localhost:1234/v1" },
   }),
 
   /** Task-specific model overrides */
@@ -118,11 +140,51 @@ export function resolveTaskModel(
   const provider = config.llm.defaultProvider;
 
   // 3. Model from provider-specific config
-  const model = provider === "anthropic"
-    ? config.llm.anthropic.model
-    : config.llm.ollama.model;
+  const model = getProviderModel(config, provider);
 
   return { provider, model };
+}
+
+/**
+ * Get the configured model for a specific provider.
+ */
+export function getProviderModel(config: GnosysConfig, provider: LLMProviderName): string {
+  switch (provider) {
+    case "anthropic": return config.llm.anthropic.model;
+    case "ollama": return config.llm.ollama.model;
+    case "groq": return config.llm.groq.model;
+    case "openai": return config.llm.openai.model;
+    case "lmstudio": return config.llm.lmstudio.model;
+    default: return config.llm.anthropic.model;
+  }
+}
+
+/**
+ * Get the Groq API key, checking config first then env var.
+ */
+export function getGroqApiKey(config: GnosysConfig): string | undefined {
+  return config.llm.groq.apiKey || process.env.GROQ_API_KEY;
+}
+
+/**
+ * Get the OpenAI API key, checking config first then env var.
+ */
+export function getOpenAIApiKey(config: GnosysConfig): string | undefined {
+  return config.llm.openai.apiKey || process.env.OPENAI_API_KEY;
+}
+
+/**
+ * Get the OpenAI base URL from config.
+ */
+export function getOpenAIBaseUrl(config: GnosysConfig): string {
+  return config.llm.openai.baseUrl;
+}
+
+/**
+ * Get the LM Studio base URL from config.
+ */
+export function getLMStudioBaseUrl(config: GnosysConfig): string {
+  return config.llm.lmstudio.baseUrl;
 }
 
 /**
@@ -249,6 +311,9 @@ export function generateConfigTemplate(): string {
         defaultProvider: "anthropic",
         anthropic: { model: "claude-sonnet-4-20250514" },
         ollama: { model: "llama3.2", baseUrl: "http://localhost:11434" },
+        groq: { model: "llama-3.3-70b-versatile" },
+        openai: { model: "gpt-4o-mini", baseUrl: "https://api.openai.com/v1" },
+        lmstudio: { model: "default", baseUrl: "http://localhost:1234/v1" },
       },
       taskModels: {},
       bulkIngestionBatchSize: 500,
@@ -264,3 +329,8 @@ export function generateConfigTemplate(): string {
     2
   );
 }
+
+/**
+ * All supported provider names.
+ */
+export const ALL_PROVIDERS: LLMProviderName[] = ["anthropic", "ollama", "groq", "openai", "lmstudio"];

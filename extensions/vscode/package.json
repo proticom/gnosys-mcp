@@ -1,0 +1,32 @@
+{
+  "name": "gnosys-vscode",
+  "displayName": "Gnosys — Memory Reinforcement",
+  "description": "Reinforce Gnosys memories from your editor. Marks the current memory file as useful, boosting its confidence score.",
+  "version": "0.1.0",
+  "publisher": "proticom",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": [
+    "workspaceContains:.gnosys"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "gnosys.reinforceMemory",
+        "title": "Gnosys: Reinforce Memory"
+      },
+      {
+        "command": "gnosys.runDashboard",
+        "title": "Gnosys: Show Dashboard"
+      }
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/proticom/gnosys-mcp"
+  },
+  "license": "MIT"
+}

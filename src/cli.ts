@@ -19,7 +19,7 @@ import { groupByPeriod, computeStats, TimePeriod } from "./lib/timeline.js";
 import { buildLinkGraph, getBacklinks, getOutgoingLinks, formatGraphSummary } from "./lib/wikilinks.js";
 import { bootstrap, discoverFiles } from "./lib/bootstrap.js";
 import { performImport, formatImportSummary, estimateDuration } from "./lib/import.js";
-import { loadConfig, generateConfigTemplate, GnosysConfig, DEFAULT_CONFIG, writeConfig, updateConfig, resolveTaskModel } from "./lib/config.js";
+import { loadConfig, generateConfigTemplate, GnosysConfig, DEFAULT_CONFIG, writeConfig, updateConfig, resolveTaskModel, ALL_PROVIDERS, LLMProviderName, getProviderModel } from "./lib/config.js";
 import { GnosysEmbeddings } from "./lib/embeddings.js";
 import { GnosysHybridSearch } from "./lib/hybridSearch.js";
 import { GnosysAsk } from "./lib/ask.js";
@@ -1568,25 +1568,28 @@ configCmd
 
     const cfg = await loadConfig(stores[0].path);
 
-    console.log("LLM Configuration:");
+    console.log("System of Cognition (SOC) — LLM Configuration:");
     console.log(`  Default provider: ${cfg.llm.defaultProvider}`);
-    console.log(`  Anthropic model:  ${cfg.llm.anthropic.model}`);
-    console.log(`  Anthropic API key: ${cfg.llm.anthropic.apiKey ? "set in config" : (process.env.ANTHROPIC_API_KEY ? "set via env" : "not set")}`);
-    console.log(`  Ollama model:     ${cfg.llm.ollama.model}`);
-    console.log(`  Ollama URL:       ${cfg.llm.ollama.baseUrl}`);
+    console.log("");
+    console.log("  Providers:");
+    console.log(`    Anthropic:  model=${cfg.llm.anthropic.model}, apiKey=${cfg.llm.anthropic.apiKey ? "config" : (process.env.ANTHROPIC_API_KEY ? "env" : "—")}`);
+    console.log(`    Ollama:     model=${cfg.llm.ollama.model}, url=${cfg.llm.ollama.baseUrl}`);
+    console.log(`    Groq:       model=${cfg.llm.groq.model}, apiKey=${cfg.llm.groq.apiKey ? "config" : (process.env.GROQ_API_KEY ? "env" : "—")}`);
+    console.log(`    OpenAI:     model=${cfg.llm.openai.model}, apiKey=${cfg.llm.openai.apiKey ? "config" : (process.env.OPENAI_API_KEY ? "env" : "—")}, url=${cfg.llm.openai.baseUrl}`);
+    console.log(`    LM Studio:  model=${cfg.llm.lmstudio.model}, url=${cfg.llm.lmstudio.baseUrl}`);
     console.log("");
 
     const structuring = resolveTaskModel(cfg, "structuring");
     const synthesis = resolveTaskModel(cfg, "synthesis");
-    console.log("Task Models:");
-    console.log(`  Structuring: ${structuring.provider}/${structuring.model}${cfg.taskModels?.structuring ? " (override)" : " (default)"}`);
-    console.log(`  Synthesis:   ${synthesis.provider}/${synthesis.model}${cfg.taskModels?.synthesis ? " (override)" : " (default)"}`);
+    console.log("  Task Routing:");
+    console.log(`    Structuring: ${structuring.provider}/${structuring.model}${cfg.taskModels?.structuring ? " (override)" : " (default)"}`);
+    console.log(`    Synthesis:   ${synthesis.provider}/${synthesis.model}${cfg.taskModels?.synthesis ? " (override)" : " (default)"}`);
   });
 
 configCmd
-  .command("set <key> <value>")
-  .description("Set a config value (provider, model, ollama-url, ollama-model, anthropic-model)")
-  .action(async (key: string, value: string) => {
+  .command("set <key> <value> [extra...]")
+  .description("Set a config value. Keys: provider, model, ollama-url, groq-model, openai-model, lmstudio-url, task <task> <provider> <model>")
+  .action(async (key: string, value: string, extra: string[]) => {
     const resolver = await getResolver();
     const writeTarget = resolver.getWriteTarget();
     if (!writeTarget) {
@@ -1596,26 +1599,52 @@ configCmd
 
     const storePath = writeTarget.store.getStorePath();
     const cfg = await loadConfig(storePath);
+    const validProviders = ALL_PROVIDERS.join(", ");
 
     switch (key) {
       case "provider":
-        if (value !== "anthropic" && value !== "ollama") {
-          console.error(`Invalid provider: "${value}". Supported: anthropic, ollama`);
+        if (!ALL_PROVIDERS.includes(value as LLMProviderName)) {
+          console.error(`Invalid provider: "${value}". Supported: ${validProviders}`);
           process.exit(1);
         }
-        cfg.llm.defaultProvider = value;
+        cfg.llm.defaultProvider = value as LLMProviderName;
         console.log(`Default provider set to: ${value}`);
         break;
 
-      case "model":
+      case "model": {
         // Set model for current default provider
-        if (cfg.llm.defaultProvider === "anthropic") {
-          cfg.llm.anthropic.model = value;
-        } else {
-          cfg.llm.ollama.model = value;
-        }
-        console.log(`Model set to: ${value} (for ${cfg.llm.defaultProvider})`);
+        const p = cfg.llm.defaultProvider;
+        if (p === "anthropic") cfg.llm.anthropic.model = value;
+        else if (p === "ollama") cfg.llm.ollama.model = value;
+        else if (p === "groq") cfg.llm.groq.model = value;
+        else if (p === "openai") cfg.llm.openai.model = value;
+        else if (p === "lmstudio") cfg.llm.lmstudio.model = value;
+        console.log(`Model set to: ${value} (for ${p})`);
         break;
+      }
+
+      case "task": {
+        // gnosys config set task <taskName> <provider> <model>
+        const taskName = value as "structuring" | "synthesis";
+        const taskProvider = extra[0] as LLMProviderName;
+        const taskModel = extra[1];
+        if (!taskName || !taskProvider || !taskModel) {
+          console.error("Usage: gnosys config set task <structuring|synthesis> <provider> <model>");
+          process.exit(1);
+        }
+        if (taskName !== "structuring" && taskName !== "synthesis") {
+          console.error(`Invalid task: "${taskName}". Valid: structuring, synthesis`);
+          process.exit(1);
+        }
+        if (!ALL_PROVIDERS.includes(taskProvider)) {
+          console.error(`Invalid provider: "${taskProvider}". Supported: ${validProviders}`);
+          process.exit(1);
+        }
+        if (!cfg.taskModels) cfg.taskModels = {};
+        (cfg.taskModels as Record<string, { provider: LLMProviderName; model: string }>)[taskName] = { provider: taskProvider, model: taskModel };
+        console.log(`Task "${taskName}" routed to: ${taskProvider}/${taskModel}`);
+        break;
+      }
 
       case "ollama-url":
         cfg.llm.ollama.baseUrl = value;
@@ -1632,8 +1661,33 @@ configCmd
         console.log(`Anthropic model set to: ${value}`);
         break;
 
+      case "groq-model":
+        cfg.llm.groq.model = value;
+        console.log(`Groq model set to: ${value}`);
+        break;
+
+      case "openai-model":
+        cfg.llm.openai.model = value;
+        console.log(`OpenAI model set to: ${value}`);
+        break;
+
+      case "openai-url":
+        cfg.llm.openai.baseUrl = value;
+        console.log(`OpenAI base URL set to: ${value}`);
+        break;
+
+      case "lmstudio-url":
+        cfg.llm.lmstudio.baseUrl = value;
+        console.log(`LM Studio base URL set to: ${value}`);
+        break;
+
+      case "lmstudio-model":
+        cfg.llm.lmstudio.model = value;
+        console.log(`LM Studio model set to: ${value}`);
+        break;
+
       default:
-        console.error(`Unknown config key: "${key}". Valid: provider, model, ollama-url, ollama-model, anthropic-model`);
+        console.error(`Unknown config key: "${key}". Valid: provider, model, task, ollama-url, ollama-model, anthropic-model, groq-model, openai-model, openai-url, lmstudio-url, lmstudio-model`);
         process.exit(1);
     }
 
@@ -1665,6 +1719,52 @@ configCmd
 
     await fs.writeFile(configPath, generateConfigTemplate() + "\n", "utf-8");
     console.log(`Created ${configPath}`);
+  });
+
+// ─── gnosys reindex-graph ───────────────────────────────────────────────
+program
+  .command("reindex-graph")
+  .description("Build or rebuild the wikilink graph (.gnosys/graph.json)")
+  .action(async () => {
+    const { reindexGraph, formatGraphStats } = await import("./lib/graph.js");
+
+    const resolver = await getResolver();
+    const stores = resolver.getStores();
+
+    if (stores.length === 0) {
+      console.error("No Gnosys stores found. Run gnosys init first.");
+      process.exit(1);
+    }
+
+    const stats = await reindexGraph(resolver, (msg) => console.log(msg));
+    console.log("");
+    console.log(formatGraphStats(stats));
+  });
+
+// ─── gnosys dashboard ───────────────────────────────────────────────────
+program
+  .command("dashboard")
+  .description("Show system dashboard: memory count, health, graph stats, LLM status")
+  .option("--json", "Output as JSON instead of pretty table")
+  .action(async (opts: { json?: boolean }) => {
+    const { collectDashboardData, formatDashboard, formatDashboardJSON } = await import("./lib/dashboard.js");
+
+    const resolver = await getResolver();
+    const stores = resolver.getStores();
+
+    if (stores.length === 0) {
+      console.error("No Gnosys stores found. Run gnosys init first.");
+      process.exit(1);
+    }
+
+    const cfg = await loadConfig(stores[0].path);
+    const data = await collectDashboardData(resolver, cfg, pkg.version);
+
+    if (opts.json) {
+      console.log(formatDashboardJSON(data));
+    } else {
+      console.log(formatDashboard(data));
+    }
   });
 
 // ─── gnosys maintain ─────────────────────────────────────────────────────
@@ -1732,42 +1832,78 @@ program
     }
     console.log("");
 
-    // Check config
+    // Check config — SOC routing
     const cfg = stores.length > 0 ? await loadConfig(stores[0].path) : DEFAULT_CONFIG;
-    console.log("LLM Configuration:");
+    console.log("System of Cognition (SOC):");
     console.log(`  Default provider: ${cfg.llm.defaultProvider}`);
 
     const structuring = resolveTaskModel(cfg, "structuring");
     const synthesis = resolveTaskModel(cfg, "synthesis");
-    console.log(`  Structuring: ${structuring.provider}/${structuring.model}`);
-    console.log(`  Synthesis:   ${synthesis.provider}/${synthesis.model}`);
+    console.log(`  Structuring → ${structuring.provider}/${structuring.model}`);
+    console.log(`  Synthesis   → ${synthesis.provider}/${synthesis.model}`);
     console.log("");
 
-    // Check LLM connectivity
+    // Check all LLM providers
     console.log("LLM Connectivity:");
 
     // Check Anthropic
     const anthropicStatus = isProviderAvailable(cfg, "anthropic");
     if (anthropicStatus.available) {
-      console.log("  Anthropic: API key found");
       try {
         const provider = getLLMProvider({ ...cfg, llm: { ...cfg.llm, defaultProvider: "anthropic" } });
         await provider.testConnection();
-        console.log("  Anthropic: connected (test call successful)");
+        console.log(`  Anthropic: ✓ connected (${cfg.llm.anthropic.model})`);
       } catch (err) {
-        console.log(`  Anthropic: API key found but connection failed: ${err instanceof Error ? err.message : String(err)}`);
+        console.log(`  Anthropic: ✗ ${err instanceof Error ? err.message : String(err)}`);
       }
     } else {
-      console.log(`  Anthropic: ${anthropicStatus.error}`);
+      console.log(`  Anthropic: — ${anthropicStatus.error}`);
     }
 
     // Check Ollama
     try {
       const ollamaProvider = getLLMProvider({ ...cfg, llm: { ...cfg.llm, defaultProvider: "ollama" } });
       await ollamaProvider.testConnection();
-      console.log(`  Ollama: connected (model ${cfg.llm.ollama.model} available at ${cfg.llm.ollama.baseUrl})`);
+      console.log(`  Ollama: ✓ connected (${cfg.llm.ollama.model} at ${cfg.llm.ollama.baseUrl})`);
     } catch (err) {
-      console.log(`  Ollama: ${err instanceof Error ? err.message : String(err)}`);
+      console.log(`  Ollama: ✗ ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    // Check Groq
+    const groqStatus = isProviderAvailable(cfg, "groq");
+    if (groqStatus.available) {
+      try {
+        const provider = getLLMProvider({ ...cfg, llm: { ...cfg.llm, defaultProvider: "groq" } });
+        await provider.testConnection();
+        console.log(`  Groq: ✓ connected (${cfg.llm.groq.model})`);
+      } catch (err) {
+        console.log(`  Groq: ✗ ${err instanceof Error ? err.message : String(err)}`);
+      }
+    } else {
+      console.log(`  Groq: — ${groqStatus.error}`);
+    }
+
+    // Check OpenAI
+    const openaiStatus = isProviderAvailable(cfg, "openai");
+    if (openaiStatus.available) {
+      try {
+        const provider = getLLMProvider({ ...cfg, llm: { ...cfg.llm, defaultProvider: "openai" } });
+        await provider.testConnection();
+        console.log(`  OpenAI: ✓ connected (${cfg.llm.openai.model})`);
+      } catch (err) {
+        console.log(`  OpenAI: ✗ ${err instanceof Error ? err.message : String(err)}`);
+      }
+    } else {
+      console.log(`  OpenAI: — ${openaiStatus.error}`);
+    }
+
+    // Check LM Studio
+    try {
+      const lmsProvider = getLLMProvider({ ...cfg, llm: { ...cfg.llm, defaultProvider: "lmstudio" } });
+      await lmsProvider.testConnection();
+      console.log(`  LM Studio: ✓ connected (${cfg.llm.lmstudio.model} at ${cfg.llm.lmstudio.baseUrl})`);
+    } catch (err) {
+      console.log(`  LM Studio: ✗ ${err instanceof Error ? err.message : String(err)}`);
     }
 
     console.log("");
