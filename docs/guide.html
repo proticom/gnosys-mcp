@@ -1,0 +1,2205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gnosys User Guide — CLI & MCP Reference</title>
+<meta name="description" content="Complete CLI and MCP reference for Gnosys. Learn how to use every command, option, and feature.">
+<meta property="og:title" content="Gnosys User Guide">
+<meta property="og:description" content="Complete CLI and MCP reference documentation for Gnosys.">
+<meta property="og:type" content="website">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='280 0 200 180'%3E%3Cpath fill='%23C04C4C' d='M450.14,76.86l-27.25-47.2c-4.5-7.8-12.9-12.65-21.9-12.65h-54.5c-9.01,0-17.4,4.85-21.9,12.65l-27.25,47.2c-4.5,7.8-4.5,17.49,0,25.29l27.25,47.2c4.5,7.8,12.9,12.65,21.9,12.65h54.5c9.01,0,17.4-4.85,21.9-12.65l27.25-47.2c4.51-7.8,4.51-17.49,0-25.29ZM442.69,97.85l-27.25,47.2c-2.98,5.16-8.49,8.34-14.45,8.34h-54.5c-5.96,0-11.47-3.18-14.45-8.34l-27.25-47.2c-2.98-5.16-2.98-11.52,0-16.68l27.25-47.2c2.98-5.16,8.49-8.34,14.45-8.34h54.5c5.96,0,11.47,3.18,14.45,8.34l27.25,47.2c2.98,5.16,2.98,11.52,0,16.68Z'/%3E%3Cpath fill='%23C04C4C' d='M442.65,36.15L385.49,3.15c-7.27-4.2-16.23-4.2-23.5,0l-57.16,33c-7.27,4.2-11.75,11.96-11.75,20.36v66c0,8.4,4.48,16.16,11.75,20.36l57.16,33c7.27,4.2,16.23,4.2,23.5,0l57.16-33c7.27-4.2,11.75-11.96,11.75-20.36V56.51c0-8.4-4.48-16.16-11.75-20.36ZM445.79,122.51c0,5.3-2.85,10.24-7.45,12.9l-57.16,33c-2.26,1.3-4.84,1.99-7.45,1.99s-5.19-.69-7.45-1.99l-57.16-33c-4.59-2.65-7.45-7.59-7.45-12.9V56.51c0-5.3,2.85-10.24,7.45-12.9l57.16-33c2.26-1.31,4.83-2,7.45-2s5.18.69,7.45,2l57.16,33c4.59,2.65,7.45,7.59,7.45,12.9v66Z'/%3E%3C/svg%3E">
+<link rel="canonical" href="https://gnosys.ai/docs/guide">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --accent: #C04C4C;
+  --accent-light: #D46A6A;
+  --accent-lighter: #E08888;
+  --accent-faint: #F5EAEA;
+  --accent-glow: rgba(192, 76, 76, 0.12);
+  --slate: #3F434D;
+
+  --bg: #FAFAFA;
+  --bg-card: #FFFFFF;
+  --bg-code: #F6F3F3;
+  --text: #1A1A22;
+  --text-secondary: #555560;
+  --text-muted: #888890;
+  --border: #E8E4E4;
+  --border-light: #F0ECEC;
+}
+
+[data-theme="dark"],
+[data-theme="system"].sys-dark {
+  --accent-faint: rgba(192, 76, 76, 0.15);
+  --accent-glow: rgba(212, 106, 106, 0.10);
+
+  --bg: #12141A;
+  --bg-card: #1A1C24;
+  --bg-code: #1E2028;
+  --text: #E4E2E8;
+  --text-secondary: #A8A6B0;
+  --text-muted: #6E6C78;
+  --border: #2A2C34;
+  --border-light: #22242C;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Nav ── */
+nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+@supports (backdrop-filter: blur(12px)) {
+  nav { background: color-mix(in srgb, var(--bg) 85%, transparent); }
+}
+
+nav .container {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 64px;
+}
+
+.nav-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 16px;
+  height: 28px;
+  width: auto;
+}
+
+.nav-logo svg {
+  height: 28px;
+  width: 28px;
+}
+
+.nav-logo .logo-text { fill: var(--text); }
+.nav-logo .logo-mark { fill: var(--accent); }
+
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+}
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  list-style: none;
+}
+
+.nav-links a {
+  text-decoration: none;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  transition: color 0.2s;
+}
+
+.nav-links a:hover {
+  color: var(--text);
+}
+
+.nav-links a.active {
+  color: var(--accent);
+}
+
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 4px;
+  position: relative;
+}
+
+.theme-toggle-pill {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  background: var(--accent-faint);
+  border-radius: 8px;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  left: 4px;
+}
+
+.theme-toggle[data-active="1"] .theme-toggle-pill { transform: translateX(0); }
+.theme-toggle[data-active="2"] .theme-toggle-pill { transform: translateX(24px); }
+.theme-toggle[data-active="3"] .theme-toggle-pill { transform: translateX(48px); }
+
+.theme-toggle button {
+  position: relative;
+  z-index: 2;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  transition: color 0.2s;
+}
+
+.theme-toggle button:hover { color: var(--text); }
+.theme-toggle button.active { color: var(--accent); }
+
+.theme-toggle button svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+}
+
+/* ── Main Layout ── */
+.main-wrapper {
+  display: flex;
+  max-width: 1440px;
+  margin: 0 auto;
+  gap: 40px;
+  padding: 40px 24px;
+  min-height: calc(100vh - 64px);
+}
+
+/* ── Sidebar ── */
+.sidebar {
+  position: sticky;
+  top: 64px;
+  width: 220px;
+  max-height: calc(100vh - 64px);
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.sidebar-section {
+  margin-bottom: 32px;
+}
+
+.sidebar-title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  padding: 0 8px;
+}
+
+.sidebar-link {
+  display: block;
+  padding: 8px 12px;
+  margin: 4px 0;
+  border-radius: 6px;
+  text-decoration: none;
+  color: var(--text-secondary);
+  font-size: 13px;
+  transition: all 0.2s;
+  border-left: 2px solid transparent;
+}
+
+.sidebar-link:hover {
+  color: var(--text);
+  background: var(--accent-faint);
+}
+
+.sidebar-link.active {
+  color: var(--accent);
+  background: var(--accent-faint);
+  border-left-color: var(--accent);
+  font-weight: 500;
+}
+
+/* ── Main Content ── */
+.main-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.hero {
+  margin-bottom: 48px;
+}
+
+.hero-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--accent);
+  margin-bottom: 12px;
+}
+
+.hero-title {
+  font-size: 36px;
+  font-weight: 700;
+  line-height: 1.2;
+  margin-bottom: 16px;
+  color: var(--text);
+}
+
+.hero-meta {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.version-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  background: var(--accent-faint);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.toggle-markdown-btn {
+  padding: 4px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.toggle-markdown-btn:hover {
+  background: var(--accent-faint);
+}
+
+/* ── Markdown View ── */
+.markdown-view {
+  display: none;
+}
+
+.markdown-view.active {
+  display: block;
+  position: fixed;
+  top: 64px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 200;
+  background: var(--bg);
+  overflow-y: auto;
+  padding: 40px 24px;
+}
+
+.markdown-container {
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+.markdown-view pre {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 24px;
+  overflow-x: auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+  margin-bottom: 24px;
+}
+
+.markdown-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.markdown-header h2 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.copy-all-btn {
+  padding: 8px 16px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.copy-all-btn:hover {
+  background: var(--accent-light);
+}
+
+.copy-all-btn.copied {
+  background: #48BB78;
+}
+
+/* ── Commands Section ── */
+.commands-section {
+  display: none;
+}
+
+.commands-section.active {
+  display: block;
+}
+
+.command-group {
+  margin-bottom: 64px;
+}
+
+.command-group-title {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 32px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+
+.command {
+  margin-bottom: 48px;
+  scroll-margin-top: 80px;
+}
+
+.command-name {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 8px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.command-description {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+  line-height: 1.6;
+}
+
+.command-block {
+  margin-bottom: 16px;
+}
+
+.block-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  padding: 0 12px;
+}
+
+.code-block {
+  position: relative;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 12px;
+  overflow-x: auto;
+}
+
+.code-block code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.5;
+  white-space: pre;
+}
+
+.copy-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 32px;
+  height: 32px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  z-index: 10;
+}
+
+.copy-btn:hover {
+  background: var(--accent-faint);
+  border-color: var(--accent);
+}
+
+.copy-btn.copied {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.copy-btn svg {
+  width: 16px;
+  height: 16px;
+  stroke: var(--text);
+  fill: none;
+  stroke-width: 2;
+}
+
+.copy-btn.copied svg {
+  stroke: white;
+}
+
+.copy-btn .check-icon {
+  display: none;
+}
+
+.copy-btn.copied .copy-icon {
+  display: none;
+}
+
+.copy-btn.copied .check-icon {
+  display: block;
+}
+
+.options-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+
+.options-table th,
+.options-table td {
+  padding: 12px;
+  text-align: left;
+  border: 1px solid var(--border);
+}
+
+.options-table th {
+  background: var(--bg-code);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.options-table td {
+  color: var(--text-secondary);
+}
+
+.options-table code {
+  background: var(--bg-code);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.mcp-tool {
+  background: var(--accent-faint);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 16px;
+  font-size: 12px;
+}
+
+.mcp-tool strong {
+  color: var(--accent);
+}
+
+/* ── Agent Rules Section ── */
+.agent-rules {
+  margin-top: 80px;
+  padding-top: 48px;
+  border-top: 1px solid var(--border);
+}
+
+.agent-rules h3 {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 16px;
+  color: var(--accent);
+}
+
+.agent-rules > p {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 24px;
+  line-height: 1.6;
+}
+
+.rules-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.rules-tab {
+  padding: 12px 16px;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+}
+
+.rules-tab:hover {
+  color: var(--text);
+}
+
+.rules-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.rules-content {
+  display: none;
+}
+
+.rules-content.active {
+  display: block;
+}
+
+.rules-code {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  position: relative;
+  margin-bottom: 16px;
+}
+
+.rules-code pre {
+  margin: 0;
+  overflow-x: auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.copy-rule-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 8px 16px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+  transition: all 0.2s;
+  z-index: 10;
+}
+
+.copy-rule-btn:hover {
+  background: var(--accent-faint);
+  border-color: var(--accent);
+}
+
+.copy-rule-btn.copied {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+/* ── Footer ── */
+footer {
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+  margin-top: 80px;
+}
+
+.footer-content {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 40px 24px;
+}
+
+.footer-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 40px;
+  margin-bottom: 40px;
+}
+
+.footer-section h4 {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text);
+  margin-bottom: 16px;
+}
+
+.footer-section a {
+  display: block;
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  margin-bottom: 8px;
+  transition: color 0.2s;
+}
+
+.footer-section a:hover {
+  color: var(--accent);
+}
+
+.footer-bottom {
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.footer-links {
+  display: flex;
+  gap: 24px;
+}
+
+.footer-links a {
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.footer-links a:hover {
+  color: var(--accent);
+}
+
+/* ── Mobile Responsive ── */
+@media (max-width: 1024px) {
+  .main-wrapper {
+    flex-direction: column;
+    gap: 24px;
+    padding: 24px;
+  }
+
+  .sidebar {
+    position: static;
+    width: 100%;
+    max-height: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    margin-bottom: 24px;
+  }
+
+  .sidebar-section {
+    flex: 1;
+    min-width: 150px;
+    margin-bottom: 0;
+  }
+
+  .hero-title {
+    font-size: 28px;
+  }
+}
+
+@media (max-width: 640px) {
+  nav .container {
+    padding: 0 16px;
+  }
+
+  .nav-right {
+    gap: 16px;
+  }
+
+  .nav-links {
+    display: none;
+  }
+
+  .hero-title {
+    font-size: 24px;
+  }
+
+  .main-wrapper {
+    padding: 20px 16px;
+  }
+
+  .main-content {
+    padding: 0;
+  }
+
+  .code-block code {
+    font-size: 11px;
+  }
+
+  .options-table {
+    font-size: 12px;
+  }
+
+  .options-table th,
+  .options-table td {
+    padding: 8px;
+  }
+}
+
+/* ── Scrollbar Styling ── */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="container">
+    <a href="/" class="nav-logo">
+      <svg viewBox="280 0 200 180" xmlns="http://www.w3.org/2000/svg">
+        <path class="logo-mark" d="M450.14,76.86l-27.25-47.2c-4.5-7.8-12.9-12.65-21.9-12.65h-54.5c-9.01,0-17.4,4.85-21.9,12.65l-27.25,47.2c-4.5,7.8-4.5,17.49,0,25.29l27.25,47.2c4.5,7.8,12.9,12.65,21.9,12.65h54.5c9.01,0,17.4-4.85,21.9-12.65l27.25-47.2c4.51-7.8,4.51-17.49,0-25.29ZM442.69,97.85l-27.25,47.2c-2.98,5.16-8.49,8.34-14.45,8.34h-54.5c-5.96,0-11.47-3.18-14.45-8.34l-27.25-47.2c-2.98-5.16-2.98-11.52,0-16.68l27.25-47.2c2.98-5.16,8.49-8.34,14.45-8.34h54.5c5.96,0,11.47,3.18,14.45,8.34l27.25,47.2c2.98,5.16,2.98,11.52,0,16.68Z"/>
+        <path class="logo-text" d="M442.65,36.15L385.49,3.15c-7.27-4.2-16.23-4.2-23.5,0l-57.16,33c-7.27,4.2-11.75,11.96-11.75,20.36v66c0,8.4,4.48,16.16,11.75,20.36l57.16,33c7.27,4.2,16.23,4.2,23.5,0l57.16-33c7.27-4.2,11.75-11.96,11.75-20.36V56.51c0-8.4-4.48-16.16-11.75-20.36ZM445.79,122.51c0,5.3-2.85,10.24-7.45,12.9l-57.16,33c-2.26,1.3-4.84,1.99-7.45,1.99s-5.19-.69-7.45-1.99l-57.16-33c-4.59-2.65-7.45-7.59-7.45-12.9V56.51c0-5.3,2.85-10.24,7.45-12.9l57.16-33c2.26-1.31,4.83-2,7.45-2s5.18.69,7.45,2l57.16,33c4.59,2.65,7.45,7.59,7.45,12.9v66Z"/>
+      </svg>
+      Gnosys
+    </a>
+    <div class="nav-right">
+      <ul class="nav-links">
+        <li><a href="/">Home</a></li>
+        <li><a href="/docs/guide" class="active">Docs</a></li>
+        <li><a href="https://github.com/gnosys-ai/gnosys" target="_blank" rel="noopener noreferrer">GitHub</a></li>
+      </ul>
+      <div class="theme-toggle" data-active="1" role="group" aria-label="Theme">
+        <div class="theme-toggle-pill"></div>
+        <button aria-label="Light theme" title="Light">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
+        <button aria-label="System theme" title="System">
+          <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="2" y1="20" x2="22" y2="20"/><line x1="6" y1="20" x2="6" y2="23"/><line x1="10" y1="20" x2="10" y2="23"/><line x1="14" y1="20" x2="14" y2="23"/><line x1="18" y1="20" x2="18" y2="23"/></svg>
+        </button>
+        <button aria-label="Dark theme" title="Dark">
+          <svg viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<div class="main-wrapper">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-section">
+      <h3 class="sidebar-title">Getting Started</h3>
+      <a href="#cmd-init" class="sidebar-link">init</a>
+      <a href="#cmd-config" class="sidebar-link">config</a>
+      <a href="#cmd-stores" class="sidebar-link">stores</a>
+      <a href="#cmd-doctor" class="sidebar-link">doctor</a>
+      <a href="#cmd-serve" class="sidebar-link">serve</a>
+      <a href="#cmd-dashboard" class="sidebar-link">dashboard</a>
+    </div>
+
+    <div class="sidebar-section">
+      <h3 class="sidebar-title">Writing Memories</h3>
+      <a href="#cmd-add" class="sidebar-link">add</a>
+      <a href="#cmd-add-structured" class="sidebar-link">add-structured</a>
+      <a href="#cmd-commit-context" class="sidebar-link">commit-context</a>
+      <a href="#cmd-bootstrap" class="sidebar-link">bootstrap</a>
+      <a href="#cmd-import" class="sidebar-link">import</a>
+    </div>
+
+    <div class="sidebar-section">
+      <h3 class="sidebar-title">Reading & Search</h3>
+      <a href="#cmd-read" class="sidebar-link">read</a>
+      <a href="#cmd-discover" class="sidebar-link">discover</a>
+      <a href="#cmd-search" class="sidebar-link">search</a>
+      <a href="#cmd-hybrid-search" class="sidebar-link">hybrid-search</a>
+      <a href="#cmd-semantic-search" class="sidebar-link">semantic-search</a>
+      <a href="#cmd-ask" class="sidebar-link">ask</a>
+    </div>
+
+    <div class="sidebar-section">
+      <h3 class="sidebar-title">Organization</h3>
+      <a href="#cmd-list" class="sidebar-link">list</a>
+      <a href="#cmd-lens" class="sidebar-link">lens</a>
+      <a href="#cmd-tags" class="sidebar-link">tags</a>
+      <a href="#cmd-tags-add" class="sidebar-link">tags-add</a>
+      <a href="#cmd-links" class="sidebar-link">links</a>
+      <a href="#cmd-graph" class="sidebar-link">graph</a>
+    </div>
+
+    <div class="sidebar-section">
+      <h3 class="sidebar-title">History & Maintenance</h3>
+      <a href="#cmd-update" class="sidebar-link">update</a>
+      <a href="#cmd-reinforce" class="sidebar-link">reinforce</a>
+      <a href="#cmd-stale" class="sidebar-link">stale</a>
+      <a href="#cmd-history" class="sidebar-link">history</a>
+      <a href="#cmd-rollback" class="sidebar-link">rollback</a>
+      <a href="#cmd-timeline" class="sidebar-link">timeline</a>
+      <a href="#cmd-stats" class="sidebar-link">stats</a>
+      <a href="#cmd-maintain" class="sidebar-link">maintain</a>
+      <a href="#cmd-reindex" class="sidebar-link">reindex</a>
+      <a href="#cmd-reindex-graph" class="sidebar-link">reindex-graph</a>
+    </div>
+
+    <div class="sidebar-section">
+      <h3 class="sidebar-title">Agent Rules</h3>
+      <a href="#agent-rules" class="sidebar-link">Agent Rules</a>
+    </div>
+  </aside>
+
+  <!-- Main Content -->
+  <div class="main-content">
+    <!-- Hero -->
+    <div class="hero">
+      <div class="hero-label">Reference</div>
+      <h1 class="hero-title">Complete CLI & MCP Reference</h1>
+      <div class="hero-meta">
+        <span class="version-badge">v1.1.0</span>
+        <button class="toggle-markdown-btn" onclick="toggleMarkdown()">View as Markdown</button>
+      </div>
+    </div>
+
+    <!-- Commands -->
+    <div class="commands-section active">
+      <!-- Getting Started -->
+      <div class="command-group">
+        <h2 class="command-group-title">Getting Started</h2>
+
+        <div class="command" id="cmd-init">
+          <h3 class="command-name">gnosys init</h3>
+          <p class="command-description">Initialize a new .gnosys store in the current directory</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys init [options]
+
+Options:
+  -d, --directory &lt;dir&gt;  Target directory (default: cwd)</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_init</div>
+        </div>
+
+        <div class="command" id="cmd-config">
+          <h3 class="command-name">gnosys config</h3>
+          <p class="command-description">View and manage LLM provider configuration</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys config [command]
+
+Commands:
+  show                          Show current LLM configuration
+  set &lt;key&gt; &lt;value&gt; [extra...]  Set a config value
+  init                          Generate default gnosys.json
+
+Keys: provider, model, ollama-url, groq-model,
+      openai-model, lmstudio-url, task &lt;task&gt; &lt;provider&gt; &lt;model&gt;</code>
+            </div>
+          </div>
+        </div>
+
+        <div class="command" id="cmd-stores">
+          <h3 class="command-name">gnosys stores</h3>
+          <p class="command-description">Show all active stores, their layers, paths, and permissions</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys stores</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_stores</div>
+        </div>
+
+        <div class="command" id="cmd-doctor">
+          <h3 class="command-name">gnosys doctor</h3>
+          <p class="command-description">Check system health: stores, LLM connectivity, embeddings</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys doctor</code>
+            </div>
+          </div>
+        </div>
+
+        <div class="command" id="cmd-serve">
+          <h3 class="command-name">gnosys serve</h3>
+          <p class="command-description">Start the MCP server (stdio mode)</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys serve [options]
+
+Options:
+  --with-maintenance  Run maintenance every 6 hours in background</code>
+            </div>
+          </div>
+        </div>
+
+        <div class="command" id="cmd-dashboard">
+          <h3 class="command-name">gnosys dashboard</h3>
+          <p class="command-description">Show system dashboard: memory count, health, graph stats, LLM status</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys dashboard [options]
+
+Options:
+  --json  Output as JSON instead of pretty table</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_dashboard</div>
+        </div>
+      </div>
+
+      <!-- Writing Memories -->
+      <div class="command-group">
+        <h2 class="command-group-title">Writing Memories</h2>
+
+        <div class="command" id="cmd-add">
+          <h3 class="command-name">gnosys add</h3>
+          <p class="command-description">Add a new memory (uses LLM to structure raw input)</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys add [options] &lt;input&gt;
+
+Options:
+  -a, --author &lt;author&gt;        Author (human|ai|human+ai) (default: "human")
+  --authority &lt;authority&gt;       Authority (declared|observed|imported|inferred) (default: "declared")
+  -s, --store &lt;store&gt;           Target store (project|personal|global)</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_add</div>
+        </div>
+
+        <div class="command" id="cmd-add-structured">
+          <h3 class="command-name">gnosys add-structured</h3>
+          <p class="command-description">Add a memory with structured input (no LLM needed)</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys add-structured [options]
+
+Options:
+  --title &lt;title&gt;              Memory title
+  --category &lt;category&gt;        Category directory name
+  --content &lt;content&gt;          Memory content as markdown
+  --tags &lt;json&gt;                Tags as JSON object (default: "{}")
+  --relevance &lt;keywords&gt;       Keyword cloud for discovery (default: "")
+  -a, --author &lt;author&gt;        Author (default: "human")
+  --authority &lt;authority&gt;       Authority level (default: "declared")
+  --confidence &lt;n&gt;             Confidence 0-1 (default: "0.8")
+  -s, --store &lt;store&gt;          Target store</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_add_structured</div>
+        </div>
+
+        <div class="command" id="cmd-commit-context">
+          <h3 class="command-name">gnosys commit-context</h3>
+          <p class="command-description">Pre-compaction sweep: extract atomic memories from a context string, check novelty, commit novel ones</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys commit-context [options] &lt;context&gt;
+
+Options:
+  --dry-run            Show what would be committed without writing
+  -s, --store &lt;store&gt;  Target store (project|personal|global)</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_commit_context</div>
+        </div>
+
+        <div class="command" id="cmd-bootstrap">
+          <h3 class="command-name">gnosys bootstrap</h3>
+          <p class="command-description">Batch-import existing documents into the memory store</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys bootstrap [options] &lt;sourceDir&gt;
+
+Options:
+  -p, --pattern &lt;patterns...&gt;  File patterns to match (default: **/*.md)
+  --skip-existing              Skip files whose titles already exist
+  -c, --category &lt;category&gt;    Default category (default: "imported")
+  -a, --author &lt;author&gt;        Default author (default: "human")
+  --authority &lt;authority&gt;       Default authority (default: "imported")
+  --confidence &lt;n&gt;             Default confidence 0-1 (default: "0.7")
+  --preserve-frontmatter       Preserve existing YAML frontmatter if present
+  --dry-run                    Show what would be imported without writing
+  -s, --store &lt;store&gt;          Target store (project|personal|global)</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_bootstrap</div>
+        </div>
+
+        <div class="command" id="cmd-import">
+          <h3 class="command-name">gnosys import</h3>
+          <p class="command-description">Bulk import structured data (CSV, JSON, JSONL) into Gnosys memories</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys import [options] &lt;fileOrUrl&gt;
+
+Options:
+  --format &lt;format&gt;    Data format: csv, json, jsonl
+  --mapping &lt;json&gt;     Field mapping as JSON
+  --mode &lt;mode&gt;        Processing mode: llm or structured (default: "structured")
+  --limit &lt;n&gt;          Max records to import
+  --offset &lt;n&gt;         Skip first N records
+  --skip-existing      Skip records whose titles already exist
+  --batch-commit       Single git commit for all imports (default: true)
+  --no-batch-commit    Commit each record individually
+  --concurrency &lt;n&gt;    Parallel LLM calls (default: 5)
+  --dry-run            Preview without writing
+  --store &lt;store&gt;      Target store (default: "project")</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_import</div>
+        </div>
+      </div>
+
+      <!-- Reading & Search -->
+      <div class="command-group">
+        <h2 class="command-group-title">Reading & Search</h2>
+
+        <div class="command" id="cmd-read">
+          <h3 class="command-name">gnosys read</h3>
+          <p class="command-description">Read a specific memory. Supports layer prefix (e.g., project:decisions/auth.md)</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys read &lt;memoryPath&gt;</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_read</div>
+        </div>
+
+        <div class="command" id="cmd-discover">
+          <h3 class="command-name">gnosys discover</h3>
+          <p class="command-description">Discover relevant memories by keyword. Searches relevance clouds, titles, and tags — returns metadata only, no content.</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys discover [options] &lt;query&gt;
+
+Options:
+  -n, --limit &lt;number&gt;  Max results (default: "20")</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_discover</div>
+        </div>
+
+        <div class="command" id="cmd-search">
+          <h3 class="command-name">gnosys search</h3>
+          <p class="command-description">Search memories by keyword across all stores</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys search [options] &lt;query&gt;
+
+Options:
+  -n, --limit &lt;number&gt;  Max results (default: "20")</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_search</div>
+        </div>
+
+        <div class="command" id="cmd-hybrid-search">
+          <h3 class="command-name">gnosys hybrid-search</h3>
+          <p class="command-description">Search using hybrid keyword + semantic fusion (RRF)</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys hybrid-search [options] &lt;query&gt;
+
+Options:
+  -l, --limit &lt;n&gt;    Max results (default: "15")
+  -m, --mode &lt;mode&gt;  Search mode: keyword | semantic | hybrid (default: "hybrid")</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_hybrid_search</div>
+        </div>
+
+        <div class="command" id="cmd-semantic-search">
+          <h3 class="command-name">gnosys semantic-search</h3>
+          <p class="command-description">Search using semantic similarity only (requires embeddings)</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys semantic-search [options] &lt;query&gt;
+
+Options:
+  -l, --limit &lt;n&gt;  Max results (default: "15")</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_semantic_search</div>
+        </div>
+
+        <div class="command" id="cmd-ask">
+          <h3 class="command-name">gnosys ask</h3>
+          <p class="command-description">Ask a natural-language question and get a synthesized answer with citations</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys ask [options] &lt;question&gt;
+
+Options:
+  -l, --limit &lt;n&gt;    Max memories to retrieve (default: "15")
+  -m, --mode &lt;mode&gt;  Search mode: keyword | semantic | hybrid (default: "hybrid")
+  --no-stream        Disable streaming output</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_ask</div>
+        </div>
+      </div>
+
+      <!-- Organization -->
+      <div class="command-group">
+        <h2 class="command-group-title">Organization</h2>
+
+        <div class="command" id="cmd-list">
+          <h3 class="command-name">gnosys list</h3>
+          <p class="command-description">List all memories across all stores</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys list [options]
+
+Options:
+  -c, --category &lt;category&gt;  Filter by category
+  -t, --tag &lt;tag&gt;            Filter by tag
+  -s, --store &lt;store&gt;        Filter by store layer</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_list</div>
+        </div>
+
+        <div class="command" id="cmd-lens">
+          <h3 class="command-name">gnosys lens</h3>
+          <p class="command-description">Filtered view of memories. Combine criteria to focus on what matters.</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys lens [options]
+
+Options:
+  -c, --category &lt;category&gt;     Filter by category
+  -t, --tag &lt;tags...&gt;           Filter by tag(s)
+  --match &lt;mode&gt;                Tag match mode: any or all (default: "any")
+  --status &lt;statuses...&gt;        Filter by status (active, archived, superseded)
+  --author &lt;authors...&gt;         Filter by author (human, ai, human+ai)
+  --authority &lt;authorities...&gt;  Filter by authority (declared, observed, imported, inferred)
+  --min-confidence &lt;n&gt;          Minimum confidence (0-1)
+  --max-confidence &lt;n&gt;          Maximum confidence (0-1)
+  --created-after &lt;date&gt;        Created after ISO date
+  --created-before &lt;date&gt;       Created before ISO date
+  --modified-after &lt;date&gt;       Modified after ISO date
+  --modified-before &lt;date&gt;      Modified before ISO date
+  --or                          Combine filters with OR instead of AND</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_lens</div>
+        </div>
+
+        <div class="command" id="cmd-tags">
+          <h3 class="command-name">gnosys tags</h3>
+          <p class="command-description">List all tags in the registry</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys tags</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_tags</div>
+        </div>
+
+        <div class="command" id="cmd-tags-add">
+          <h3 class="command-name">gnosys tags-add</h3>
+          <p class="command-description">Add a new tag to the registry</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys tags-add [options]
+
+Options:
+  --category &lt;category&gt;  Tag category (domain, type, concern, status_tag)
+  --tag &lt;tag&gt;            The new tag to add</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_tags_add</div>
+        </div>
+
+        <div class="command" id="cmd-links">
+          <h3 class="command-name">gnosys links</h3>
+          <p class="command-description">Show wikilinks for a memory — both outgoing [[links]] and backlinks from other memories</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys links &lt;memoryPath&gt;</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_links</div>
+        </div>
+
+        <div class="command" id="cmd-graph">
+          <h3 class="command-name">gnosys graph</h3>
+          <p class="command-description">Show the full cross-reference graph across all memories</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys graph</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_graph</div>
+        </div>
+      </div>
+
+      <!-- History & Maintenance -->
+      <div class="command-group">
+        <h2 class="command-group-title">History & Maintenance</h2>
+
+        <div class="command" id="cmd-update">
+          <h3 class="command-name">gnosys update</h3>
+          <p class="command-description">Update an existing memory's frontmatter and/or content</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys update [options] &lt;memoryPath&gt;
+
+Options:
+  --title &lt;title&gt;         New title
+  --status &lt;status&gt;       New status (active|archived|superseded)
+  --confidence &lt;n&gt;        New confidence (0-1)
+  --relevance &lt;keywords&gt;  Updated relevance keyword cloud
+  --supersedes &lt;id&gt;       ID of memory this supersedes
+  --superseded-by &lt;id&gt;    ID of memory that supersedes this one
+  --content &lt;content&gt;     New markdown content (replaces body)</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_update</div>
+        </div>
+
+        <div class="command" id="cmd-reinforce">
+          <h3 class="command-name">gnosys reinforce</h3>
+          <p class="command-description">Signal whether a memory was useful, not relevant, or outdated</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys reinforce [options] &lt;memoryId&gt;
+
+Options:
+  --signal &lt;signal&gt;    Reinforcement signal (useful|not_relevant|outdated)
+  --context &lt;context&gt;  Why this signal was given</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_reinforce</div>
+        </div>
+
+        <div class="command" id="cmd-stale">
+          <h3 class="command-name">gnosys stale</h3>
+          <p class="command-description">Find memories not modified within a given number of days</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys stale [options]
+
+Options:
+  -d, --days &lt;number&gt;   Days threshold (default: "90")
+  -n, --limit &lt;number&gt;  Max results (default: "20")</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_stale</div>
+        </div>
+
+        <div class="command" id="cmd-history">
+          <h3 class="command-name">gnosys history</h3>
+          <p class="command-description">Show version history for a memory (git-backed)</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys history [options] &lt;memoryPath&gt;
+
+Options:
+  -n, --limit &lt;number&gt;  Max entries (default: "20")
+  --diff &lt;hash&gt;         Show diff from this commit to current</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_history</div>
+        </div>
+
+        <div class="command" id="cmd-rollback">
+          <h3 class="command-name">gnosys rollback</h3>
+          <p class="command-description">Rollback a memory to its state at a specific commit</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys rollback &lt;memoryPath&gt; &lt;commitHash&gt;</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_rollback</div>
+        </div>
+
+        <div class="command" id="cmd-timeline">
+          <h3 class="command-name">gnosys timeline</h3>
+          <p class="command-description">Show when memories were created and modified over time</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys timeline [options]
+
+Options:
+  -p, --period &lt;period&gt;  Group by: day, week, month, year (default: "month")</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_timeline</div>
+        </div>
+
+        <div class="command" id="cmd-stats">
+          <h3 class="command-name">gnosys stats</h3>
+          <p class="command-description">Show summary statistics for the memory store</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys stats</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_stats</div>
+        </div>
+
+        <div class="command" id="cmd-maintain">
+          <h3 class="command-name">gnosys maintain</h3>
+          <p class="command-description">Run vault maintenance: detect duplicates, apply confidence decay, consolidate similar memories</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys maintain [options]
+
+Options:
+  --dry-run     Show what would change without modifying
+  --auto-apply  Automatically apply all changes (no prompts)</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_maintain</div>
+        </div>
+
+        <div class="command" id="cmd-reindex">
+          <h3 class="command-name">gnosys reindex</h3>
+          <p class="command-description">Rebuild all semantic embeddings from every memory file. Downloads the model (~80 MB) on first run.</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys reindex</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_reindex</div>
+        </div>
+
+        <div class="command" id="cmd-reindex-graph">
+          <h3 class="command-name">gnosys reindex-graph</h3>
+          <p class="command-description">Build or rebuild the wikilink graph (.gnosys/graph.json)</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys reindex-graph</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_reindex_graph</div>
+        </div>
+      </div>
+
+      <!-- Agent Rules -->
+      <div class="agent-rules" id="agent-rules">
+        <h3>Agent Rules</h3>
+        <p>Agent rules allow you to configure custom behavior and preferences for your AI agent. Rules are context directives that shape how the agent operates within your IDE or application. They're particularly useful for enforcing coding standards, specifying project conventions, and providing the agent with important context about your workflow.</p>
+        <p>Rules are stored as markdown files in your IDE configuration and are automatically included in the agent's context. Here's how to set them up for your preferred IDE:</p>
+
+        <div class="rules-tabs">
+          <button class="rules-tab active" onclick="switchRulesTab('cursor')">Cursor</button>
+          <button class="rules-tab" onclick="switchRulesTab('claude')">Claude Code</button>
+          <button class="rules-tab" onclick="switchRulesTab('windsurf')">Windsurf</button>
+        </div>
+
+        <div id="rules-cursor" class="rules-content active">
+          <p style="margin-bottom: 16px; font-size: 13px; color: var(--text-secondary);">
+            In Cursor, save this rule to <code style="background: var(--bg-code); padding: 2px 6px; border-radius: 3px;">.cursor/rules/gnosys.mdc</code>
+          </p>
+          <div class="rules-code">
+            <pre id="rules-code-cursor"></pre>
+          </div>
+          <button class="copy-rule-btn" onclick="copyRuleCode('rules-code-cursor')">Copy Rule</button>
+        </div>
+
+        <div id="rules-claude" class="rules-content">
+          <p style="margin-bottom: 16px; font-size: 13px; color: var(--text-secondary);">
+            In Claude Code, save this rule to <code style="background: var(--bg-code); padding: 2px 6px; border-radius: 3px;">CLAUDE.md</code> at your project root
+          </p>
+          <div class="rules-code">
+            <pre id="rules-code-claude"></pre>
+          </div>
+          <button class="copy-rule-btn" onclick="copyRuleCode('rules-code-claude')">Copy Rule</button>
+        </div>
+
+        <div id="rules-claude" class="rules-content">
+          <p style="margin-bottom: 16px; font-size: 13px; color: var(--text-secondary);">
+            In Claude Code, save this rule to <code style="background: var(--bg-code); padding: 2px 6px; border-radius: 3px;">CLAUDE.md</code> at your project root
+          </p>
+          <div class="rules-code">
+            <pre id="rules-code-claude"></pre>
+          </div>
+          <button class="copy-rule-btn" onclick="copyRuleCode('rules-code-claude')">Copy Rule</button>
+        </div>
+
+        <div id="rules-windsurf" class="rules-content">
+          <p style="margin-bottom: 16px; font-size: 13px; color: var(--text-secondary);">
+            In Windsurf, save this rule to <code style="background: var(--bg-code); padding: 2px 6px; border-radius: 3px;">.windsurfrules</code>
+          </p>
+          <div class="rules-code">
+            <pre id="rules-code-windsurf"></pre>
+          </div>
+          <button class="copy-rule-btn" onclick="copyRuleCode('rules-code-windsurf')">Copy Rule</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Markdown View -->
+    <div class="markdown-view" id="markdown-view">
+      <div class="markdown-container">
+        <div class="markdown-header">
+          <h2>Complete Guide (Markdown)</h2>
+          <button class="copy-all-btn" onclick="copyAllMarkdown()">Copy All</button>
+        </div>
+        <pre id="markdown-content"></pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <div class="footer-content">
+    <div class="footer-grid">
+      <div class="footer-section">
+        <h4>Product</h4>
+        <a href="/">Home</a>
+        <a href="/docs/guide">Documentation</a>
+        <a href="https://github.com/gnosys-ai/gnosys" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </div>
+      <div class="footer-section">
+        <h4>Resources</h4>
+        <a href="https://github.com/gnosys-ai/gnosys/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+        <a href="https://github.com/gnosys-ai/gnosys/discussions" target="_blank" rel="noopener noreferrer">Discussions</a>
+        <a href="https://github.com/gnosys-ai/gnosys/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">License (MIT)</a>
+      </div>
+      <div class="footer-section">
+        <h4>Community</h4>
+        <a href="https://twitter.com/gnosys_ai" target="_blank" rel="noopener noreferrer">Twitter</a>
+        <a href="https://discord.gg/gnosys" target="_blank" rel="noopener noreferrer">Discord</a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <p>Gnosys — Persistent Memory for AI Agents</p>
+      <div class="footer-links">
+        <a href="https://github.com/gnosys-ai/gnosys/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">MIT License</a>
+        <a href="#">Privacy Policy</a>
+        <a href="#">Terms of Service</a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script>
+// Theme Toggle
+const themeToggle = document.querySelector('.theme-toggle');
+const themeButtons = themeToggle.querySelectorAll('button');
+const html = document.documentElement;
+
+const themes = ['light', 'system', 'dark'];
+let currentTheme = localStorage.getItem('theme') || 'light';
+
+function setTheme(theme) {
+  currentTheme = theme;
+  localStorage.setItem('theme', theme);
+  const themeIndex = themes.indexOf(theme) + 1;
+  themeToggle.setAttribute('data-active', themeIndex);
+
+  if (theme === 'system') {
+    html.removeAttribute('data-theme');
+    const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    html.classList.toggle('sys-dark', isDark);
+  } else {
+    html.setAttribute('data-theme', theme);
+  }
+}
+
+themeButtons.forEach((btn, idx) => {
+  btn.addEventListener('click', () => setTheme(themes[idx]));
+});
+
+setTheme(currentTheme);
+
+// System preference change
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  if (currentTheme === 'system') setTheme('system');
+});
+
+// Sidebar Active State
+const sidebarLinks = document.querySelectorAll('.sidebar-link');
+const commandSections = document.querySelectorAll('[id^="cmd-"]');
+
+function updateActiveLink() {
+  let activeLink = null;
+  commandSections.forEach(section => {
+    const rect = section.getBoundingClientRect();
+    if (rect.top < 150) {
+      const id = section.getAttribute('id');
+      activeLink = document.querySelector(`.sidebar-link[href="#${id}"]`);
+    }
+  });
+  sidebarLinks.forEach(link => link.classList.remove('active'));
+  if (activeLink) activeLink.classList.add('active');
+}
+
+window.addEventListener('scroll', updateActiveLink);
+
+// Copy Code
+function copyCode(btn) {
+  const codeBlock = btn.parentElement;
+  const code = codeBlock.querySelector('code').textContent;
+  navigator.clipboard.writeText(code).then(() => {
+    btn.classList.add('copied');
+    setTimeout(() => btn.classList.remove('copied'), 2000);
+  });
+}
+
+// Markdown View Toggle
+function toggleMarkdown() {
+  const markdownView = document.getElementById('markdown-view');
+  const commandsSection = document.querySelector('.commands-section');
+  const sidebar = document.querySelector('.sidebar');
+
+  markdownView.classList.toggle('active');
+  commandsSection.classList.toggle('active');
+  sidebar.style.display = markdownView.classList.contains('active') ? 'none' : 'flex';
+
+  if (markdownView.classList.contains('active')) {
+    generateMarkdown();
+  }
+}
+
+// Generate Markdown Content
+function generateMarkdown() {
+  const content = document.getElementById('markdown-content');
+  const text = `# Gnosys User Guide v1.1.0
+
+Complete CLI & MCP Reference for the Gnosys persistent memory system.
+
+## Getting Started
+
+### gnosys init
+Initialize a new .gnosys store in the current directory
+
+Usage: \`gnosys init [options]\`
+
+Options:
+- \`-d, --directory <dir>\` - Target directory (default: cwd)
+
+MCP Tool: \`gnosys_init\`
+
+### gnosys config
+View and manage LLM provider configuration
+
+Usage: \`gnosys config [command]\`
+
+Commands:
+- \`show\` - Show current LLM configuration
+- \`set <key> <value> [extra...]\` - Set a config value
+- \`init\` - Generate a default gnosys.json with LLM settings
+
+Keys: provider, model, ollama-url, groq-model, openai-model, lmstudio-url, task <task> <provider> <model>
+
+### gnosys stores
+Show all active stores, their layers, paths, and permissions
+
+Usage: \`gnosys stores\`
+
+MCP Tool: \`gnosys_stores\`
+
+### gnosys doctor
+Check system health: stores, LLM connectivity, embeddings
+
+Usage: \`gnosys doctor\`
+
+### gnosys serve
+Start the MCP server (stdio mode)
+
+Usage: \`gnosys serve [options]\`
+
+Options:
+- \`--with-maintenance\` - Run maintenance every 6 hours in background
+
+### gnosys dashboard
+Show system dashboard: memory count, health, graph stats, LLM status
+
+Usage: \`gnosys dashboard [options]\`
+
+Options:
+- \`--json\` - Output as JSON instead of pretty table
+
+MCP Tool: \`gnosys_dashboard\`
+
+## Writing Memories
+
+### gnosys add
+Add a new memory (uses LLM to structure raw input)
+
+Usage: \`gnosys add [options] <input>\`
+
+Options:
+- \`-a, --author <author>\` - Author (human|ai|human+ai) (default: "human")
+- \`--authority <authority>\` - Authority level (declared|observed|imported|inferred) (default: "declared")
+- \`-s, --store <store>\` - Target store (project|personal|global)
+
+MCP Tool: \`gnosys_add\`
+
+### gnosys add-structured
+Add a memory with structured input (no LLM needed)
+
+Usage: \`gnosys add-structured [options]\`
+
+Options:
+- \`--title <title>\` - Memory title
+- \`--category <category>\` - Category directory name
+- \`--content <content>\` - Memory content as markdown
+- \`--tags <json>\` - Tags as JSON object (default: "{}")
+- \`--relevance <keywords>\` - Keyword cloud for discovery search (default: "")
+- \`-a, --author <author>\` - Author (default: "human")
+- \`--authority <authority>\` - Authority level (default: "declared")
+- \`--confidence <n>\` - Confidence 0-1 (default: "0.8")
+- \`-s, --store <store>\` - Target store
+
+MCP Tool: \`gnosys_add_structured\`
+
+### gnosys commit-context
+Pre-compaction sweep: extract atomic memories from a context string, check novelty, commit novel ones
+
+Usage: \`gnosys commit-context [options] <context>\`
+
+Options:
+- \`--dry-run\` - Show what would be committed without writing
+- \`-s, --store <store>\` - Target store (project|personal|global)
+
+MCP Tool: \`gnosys_commit_context\`
+
+### gnosys bootstrap
+Batch-import existing documents into the memory store
+
+Usage: \`gnosys bootstrap [options] <sourceDir>\`
+
+Options:
+- \`-p, --pattern <patterns...>\` - File patterns to match (default: **/*.md)
+- \`--skip-existing\` - Skip files whose titles already exist
+- \`-c, --category <category>\` - Default category (default: "imported")
+- \`-a, --author <author>\` - Default author (default: "human")
+- \`--authority <authority>\` - Default authority (default: "imported")
+- \`--confidence <n>\` - Default confidence 0-1 (default: "0.7")
+- \`--preserve-frontmatter\` - Preserve existing YAML frontmatter if present
+- \`--dry-run\` - Show what would be imported without writing
+- \`-s, --store <store>\` - Target store (project|personal|global)
+
+MCP Tool: \`gnosys_bootstrap\`
+
+### gnosys import
+Bulk import structured data (CSV, JSON, JSONL) into Gnosys memories
+
+Usage: \`gnosys import [options] <fileOrUrl>\`
+
+Options:
+- \`--format <format>\` - Data format: csv, json, jsonl
+- \`--mapping <json>\` - Field mapping as JSON: '{"source_field":"gnosys_field"}'
+- \`--mode <mode>\` - Processing mode: llm or structured (default: "structured")
+- \`--limit <n>\` - Max records to import
+- \`--offset <n>\` - Skip first N records
+- \`--skip-existing\` - Skip records whose titles already exist
+- \`--batch-commit\` - Single git commit for all imports (default: true)
+- \`--no-batch-commit\` - Commit each record individually
+- \`--concurrency <n>\` - Parallel LLM calls (default: 5)
+- \`--dry-run\` - Preview without writing
+- \`--store <store>\` - Target store (default: "project")
+
+MCP Tool: \`gnosys_import\`
+
+## Reading & Search
+
+### gnosys read
+Read a specific memory. Supports layer prefix (e.g., project:decisions/auth.md)
+
+Usage: \`gnosys read <memoryPath>\`
+
+MCP Tool: \`gnosys_read\`
+
+### gnosys discover
+Discover relevant memories by keyword. Searches relevance clouds, titles, and tags — returns metadata only, no content.
+
+Usage: \`gnosys discover [options] <query>\`
+
+Options:
+- \`-n, --limit <number>\` - Max results (default: "20")
+
+MCP Tool: \`gnosys_discover\`
+
+### gnosys search
+Search memories by keyword across all stores
+
+Usage: \`gnosys search [options] <query>\`
+
+Options:
+- \`-n, --limit <number>\` - Max results (default: "20")
+
+MCP Tool: \`gnosys_search\`
+
+### gnosys hybrid-search
+Search using hybrid keyword + semantic fusion (RRF)
+
+Usage: \`gnosys hybrid-search [options] <query>\`
+
+Options:
+- \`-l, --limit <n>\` - Max results (default: "15")
+- \`-m, --mode <mode>\` - Search mode: keyword | semantic | hybrid (default: "hybrid")
+
+MCP Tool: \`gnosys_hybrid_search\`
+
+### gnosys semantic-search
+Search using semantic similarity only (requires embeddings)
+
+Usage: \`gnosys semantic-search [options] <query>\`
+
+Options:
+- \`-l, --limit <n>\` - Max results (default: "15")
+
+MCP Tool: \`gnosys_semantic_search\`
+
+### gnosys ask
+Ask a natural-language question and get a synthesized answer with citations
+
+Usage: \`gnosys ask [options] <question>\`
+
+Options:
+- \`-l, --limit <n>\` - Max memories to retrieve (default: "15")
+- \`-m, --mode <mode>\` - Search mode: keyword | semantic | hybrid (default: "hybrid")
+- \`--no-stream\` - Disable streaming output
+
+MCP Tool: \`gnosys_ask\`
+
+## Organization
+
+### gnosys list
+List all memories across all stores
+
+Usage: \`gnosys list [options]\`
+
+Options:
+- \`-c, --category <category>\` - Filter by category
+- \`-t, --tag <tag>\` - Filter by tag
+- \`-s, --store <store>\` - Filter by store layer
+
+MCP Tool: \`gnosys_list\`
+
+### gnosys lens
+Filtered view of memories. Combine criteria to focus on what matters.
+
+Usage: \`gnosys lens [options]\`
+
+Options:
+- \`-c, --category <category>\` - Filter by category
+- \`-t, --tag <tags...>\` - Filter by tag(s)
+- \`--match <mode>\` - Tag match mode: any or all (default: "any")
+- \`--status <statuses...>\` - Filter by status (active, archived, superseded)
+- \`--author <authors...>\` - Filter by author (human, ai, human+ai)
+- \`--authority <authorities...>\` - Filter by authority (declared, observed, imported, inferred)
+- \`--min-confidence <n>\` - Minimum confidence (0-1)
+- \`--max-confidence <n>\` - Maximum confidence (0-1)
+- \`--created-after <date>\` - Created after ISO date
+- \`--created-before <date>\` - Created before ISO date
+- \`--modified-after <date>\` - Modified after ISO date
+- \`--modified-before <date>\` - Modified before ISO date
+- \`--or\` - Combine filters with OR instead of AND
+
+MCP Tool: \`gnosys_lens\`
+
+### gnosys tags
+List all tags in the registry
+
+Usage: \`gnosys tags\`
+
+MCP Tool: \`gnosys_tags\`
+
+### gnosys tags-add
+Add a new tag to the registry
+
+Usage: \`gnosys tags-add [options]\`
+
+Options:
+- \`--category <category>\` - Tag category (domain, type, concern, status_tag)
+- \`--tag <tag>\` - The new tag to add
+
+MCP Tool: \`gnosys_tags_add\`
+
+### gnosys links
+Show wikilinks for a memory — both outgoing [[links]] and backlinks from other memories
+
+Usage: \`gnosys links <memoryPath>\`
+
+MCP Tool: \`gnosys_links\`
+
+### gnosys graph
+Show the full cross-reference graph across all memories
+
+Usage: \`gnosys graph\`
+
+MCP Tool: \`gnosys_graph\`
+
+## History & Maintenance
+
+### gnosys update
+Update an existing memory's frontmatter and/or content
+
+Usage: \`gnosys update [options] <memoryPath>\`
+
+Options:
+- \`--title <title>\` - New title
+- \`--status <status>\` - New status (active|archived|superseded)
+- \`--confidence <n>\` - New confidence (0-1)
+- \`--relevance <keywords>\` - Updated relevance keyword cloud
+- \`--supersedes <id>\` - ID of memory this supersedes
+- \`--superseded-by <id>\` - ID of memory that supersedes this one
+- \`--content <content>\` - New markdown content (replaces body)
+
+MCP Tool: \`gnosys_update\`
+
+### gnosys reinforce
+Signal whether a memory was useful, not relevant, or outdated
+
+Usage: \`gnosys reinforce [options] <memoryId>\`
+
+Options:
+- \`--signal <signal>\` - Reinforcement signal (useful|not_relevant|outdated)
+- \`--context <context>\` - Why this signal was given
+
+MCP Tool: \`gnosys_reinforce\`
+
+### gnosys stale
+Find memories not modified within a given number of days
+
+Usage: \`gnosys stale [options]\`
+
+Options:
+- \`-d, --days <number>\` - Days threshold (default: "90")
+- \`-n, --limit <number>\` - Max results (default: "20")
+
+MCP Tool: \`gnosys_stale\`
+
+### gnosys history
+Show version history for a memory (git-backed)
+
+Usage: \`gnosys history [options] <memoryPath>\`
+
+Options:
+- \`-n, --limit <number>\` - Max entries (default: "20")
+- \`--diff <hash>\` - Show diff from this commit to current
+
+MCP Tool: \`gnosys_history\`
+
+### gnosys rollback
+Rollback a memory to its state at a specific commit
+
+Usage: \`gnosys rollback <memoryPath> <commitHash>\`
+
+MCP Tool: \`gnosys_rollback\`
+
+### gnosys timeline
+Show when memories were created and modified over time
+
+Usage: \`gnosys timeline [options]\`
+
+Options:
+- \`-p, --period <period>\` - Group by: day, week, month, year (default: "month")
+
+MCP Tool: \`gnosys_timeline\`
+
+### gnosys stats
+Show summary statistics for the memory store
+
+Usage: \`gnosys stats\`
+
+MCP Tool: \`gnosys_stats\`
+
+### gnosys maintain
+Run vault maintenance: detect duplicates, apply confidence decay, consolidate similar memories
+
+Usage: \`gnosys maintain [options]\`
+
+Options:
+- \`--dry-run\` - Show what would change without modifying
+- \`--auto-apply\` - Automatically apply all changes (no prompts)
+
+MCP Tool: \`gnosys_maintain\`
+
+### gnosys reindex
+Rebuild all semantic embeddings from every memory file. Downloads the model (~80 MB) on first run.
+
+Usage: \`gnosys reindex\`
+
+MCP Tool: \`gnosys_reindex\`
+
+### gnosys reindex-graph
+Build or rebuild the wikilink graph (.gnosys/graph.json)
+
+Usage: \`gnosys reindex-graph\`
+
+MCP Tool: \`gnosys_reindex_graph\``;
+
+  content.textContent = text;
+}
+
+// Copy All Markdown
+function copyAllMarkdown() {
+  const content = document.getElementById('markdown-content');
+  navigator.clipboard.writeText(content.textContent).then(() => {
+    const btn = event.target;
+    btn.classList.add('copied');
+    btn.textContent = 'Copied!';
+    setTimeout(() => {
+      btn.classList.remove('copied');
+      btn.textContent = 'Copy All Markdown';
+    }, 2000);
+  });
+}
+
+// Copy Rule Code
+function copyRuleCode(elementId) {
+  const codeElement = document.getElementById(elementId);
+  const text = codeElement.textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = event.target;
+    btn.classList.add('copied');
+    btn.textContent = 'Copied!';
+    setTimeout(() => {
+      btn.classList.remove('copied');
+      btn.textContent = 'Copy Rule';
+    }, 2000);
+  });
+}
+
+// Switch Rules Tab
+function switchRulesTab(tab) {
+  document.querySelectorAll('.rules-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.rules-tab').forEach(el => el.classList.remove('active'));
+  document.getElementById(`rules-${tab}`).classList.add('active');
+  event.target.classList.add('active');
+}
+
+// Load Agent Rules Content
+document.addEventListener('DOMContentLoaded', async () => {
+  try {
+    const response = await fetch('/rules/cursor.md');
+    const ruleContent = await response.text();
+
+    // Populate all three tabs with the same content
+    document.getElementById('rules-code-cursor').textContent = ruleContent;
+    document.getElementById('rules-code-claude').textContent = ruleContent;
+    document.getElementById('rules-code-windsurf').textContent = ruleContent;
+  } catch (e) {
+    console.log('Could not load rules file');
+    const fallback = '# Gnosys Memory System\n\nYou have access to Gnosys via MCP. Use it to store and retrieve persistent knowledge.\n\nSee: https://gnosys.ai/docs/guide';
+    document.getElementById('rules-code-cursor').textContent = fallback;
+    document.getElementById('rules-code-claude').textContent = fallback;
+    document.getElementById('rules-code-windsurf').textContent = fallback;
+  }
+});
+
+// Generate initial markdown
+generateMarkdown();
+</script>
+</body>
+</html>

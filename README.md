@@ -6,6 +6,7 @@
   <a href="https://www.npmjs.com/package/gnosys-mcp"><img src="https://img.shields.io/npm/v/gnosys-mcp.svg" alt="npm version"></a>
   <a href="https://github.com/proticom/gnosys-mcp/actions"><img src="https://github.com/proticom/gnosys-mcp/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://gnosys.ai"><img src="https://img.shields.io/badge/docs-gnosys.ai-C04C4C" alt="docs"></a>
+  <a href="https://gnosys.ai/guide.html"><img src="https://img.shields.io/badge/user%20guide-gnosys.ai%2Fguide-555560" alt="user guide"></a>
   <a href="https://github.com/proticom/gnosys-mcp/blob/master/LICENSE"><img src="https://img.shields.io/npm/l/gnosys-mcp.svg" alt="license"></a>
 </p>
 
