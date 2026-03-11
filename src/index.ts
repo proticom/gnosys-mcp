@@ -49,6 +49,7 @@ import { initAudit, readAuditLog, formatAuditTimeline } from "./lib/audit.js";
 import { GnosysDB } from "./lib/db.js";
 import { syncMemoryToDb, syncUpdateToDb, syncArchiveToDb, syncDearchiveToDb, syncReinforcementToDb, auditToDb } from "./lib/dbWrite.js";
 import { GnosysDreamEngine, DreamScheduler, formatDreamReport } from "./lib/dream.js";
+import { GnosysExporter, formatExportReport } from "./lib/export.js";
 
 // Initialize resolver (discovers all layered stores)
 const resolver = new GnosysResolver();
@@ -1955,6 +1956,51 @@ server.tool(
         {
           type: "text" as const,
           text: formatDreamReport(report),
+        },
+      ],
+    };
+  }
+);
+
+// ─── Tool: gnosys_export ─────────────────────────────────────────────────
+server.tool(
+  "gnosys_export",
+  "Export gnosys.db to Obsidian-compatible vault — atomic Markdown files with YAML frontmatter, [[wikilinks]], category summaries, and relationship graph. One-way export, never modifies gnosys.db.",
+  {
+    targetDir: z.string().describe("Target directory path for export"),
+    activeOnly: z.boolean().default(true).optional().describe("Only export active memories (default: true)"),
+    overwrite: z.boolean().default(false).optional().describe("Overwrite existing files"),
+    includeSummaries: z.boolean().default(true).optional().describe("Include category summaries"),
+    includeReviews: z.boolean().default(true).optional().describe("Include review suggestions from dream mode"),
+    includeGraph: z.boolean().default(true).optional().describe("Include relationship graph"),
+  },
+  async (params) => {
+    if (!gnosysDb || !gnosysDb.isAvailable() || !gnosysDb.isMigrated()) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: "Export requires gnosys.db (v2.0). Run `gnosys migrate` first.",
+          },
+        ],
+      };
+    }
+
+    const exporter = new GnosysExporter(gnosysDb);
+    const report = await exporter.export({
+      targetDir: params.targetDir,
+      activeOnly: params.activeOnly ?? true,
+      overwrite: params.overwrite ?? false,
+      includeSummaries: params.includeSummaries ?? true,
+      includeReviews: params.includeReviews ?? true,
+      includeGraph: params.includeGraph ?? true,
+    });
+
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: formatExportReport(report),
         },
       ],
     };

@@ -2195,6 +2195,64 @@ program
     db.close();
   });
 
+// ─── gnosys export ───────────────────────────────────────────────────────
+program
+  .command("export")
+  .description("Export gnosys.db to Obsidian-compatible vault (one-way)")
+  .requiredOption("--to <dir>", "Target directory for export")
+  .option("--all", "Export all memories (active + archived)")
+  .option("--overwrite", "Overwrite existing files")
+  .option("--no-summaries", "Skip category summaries")
+  .option("--no-reviews", "Skip review suggestions")
+  .option("--no-graph", "Skip relationship graph")
+  .option("--json", "Output raw JSON report")
+  .action(async (opts: { to: string; all?: boolean; overwrite?: boolean; summaries?: boolean; reviews?: boolean; graph?: boolean; json?: boolean }) => {
+    const resolver = new GnosysResolver();
+    await resolver.resolve();
+    const stores = resolver.getStores();
+    if (stores.length === 0) {
+      console.error("No Gnosys stores found. Run 'gnosys init' first.");
+      process.exit(1);
+    }
+
+    const { GnosysDB: DbClass } = await import("./lib/db.js");
+    const { GnosysExporter, formatExportReport } = await import("./lib/export.js");
+
+    const storePath = stores[0].path;
+    const db = new DbClass(storePath);
+
+    if (!db.isAvailable() || !db.isMigrated()) {
+      console.error("Export requires gnosys.db (v2.0). Run 'gnosys migrate' first.");
+      process.exit(1);
+    }
+
+    const targetDir = path.resolve(opts.to);
+    console.error(`Exporting to: ${targetDir}`);
+
+    const exporter = new GnosysExporter(db);
+    const report = await exporter.export({
+      targetDir,
+      activeOnly: !opts.all,
+      includeSummaries: opts.summaries !== false,
+      includeReviews: opts.reviews !== false,
+      includeGraph: opts.graph !== false,
+      overwrite: opts.overwrite || false,
+      onProgress: (current, total, file) => {
+        if (current % 10 === 0 || current === total) {
+          console.error(`  [${current}/${total}] ${file}`);
+        }
+      },
+    });
+
+    if (opts.json) {
+      console.log(JSON.stringify(report, null, 2));
+    } else {
+      console.log(formatExportReport(report));
+    }
+
+    db.close();
+  });
+
 // ─── gnosys serve ────────────────────────────────────────────────────────
 program
   .command("serve")
