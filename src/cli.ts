@@ -24,6 +24,8 @@ import { GnosysEmbeddings } from "./lib/embeddings.js";
 import { GnosysHybridSearch } from "./lib/hybridSearch.js";
 import { GnosysAsk } from "./lib/ask.js";
 import { getLLMProvider, isProviderAvailable, LLMProvider } from "./lib/llm.js";
+import { GnosysDB } from "./lib/db.js";
+import { migrate, formatMigrationReport } from "./lib/migrate.js";
 
 // Load API keys from ~/.config/gnosys/.env (same as MCP server)
 const home = process.env.HOME || process.env.USERPROFILE || "/tmp";
@@ -1907,6 +1909,37 @@ program
     }
   });
 
+// ─── gnosys migrate ─────────────────────────────────────────────────────
+program
+  .command("migrate")
+  .description("Migrate v1.x data (Markdown + archive.db) into unified gnosys.db (v2.0)")
+  .option("--verbose", "Show detailed progress")
+  .action(async (opts: { verbose?: boolean }) => {
+    const resolver = await getResolver();
+    const stores = resolver.getStores();
+    if (stores.length === 0) {
+      console.error("No stores found. Run gnosys init first.");
+      process.exit(1);
+    }
+
+    const storePath = stores[0].path;
+
+    // Check if already migrated
+    const db = new GnosysDB(storePath);
+    if (db.isMigrated()) {
+      const counts = db.getMemoryCount();
+      console.log(`Already migrated. gnosys.db has ${counts.active} active + ${counts.archived} archived memories.`);
+      console.log("To re-migrate, delete gnosys.db and run this command again.");
+      db.close();
+      return;
+    }
+    db.close();
+
+    console.log("Migrating v1.x data → gnosys.db...\n");
+    const stats = await migrate(storePath, { verbose: opts.verbose });
+    console.log(formatMigrationReport(stats));
+  });
+
 // ─── gnosys doctor ──────────────────────────────────────────────────────
 program
   .command("doctor")
@@ -1917,6 +1950,27 @@ program
 
     console.log("Gnosys Doctor");
     console.log("=============\n");
+
+    // Check gnosys.db (v2.0 agent-native store)
+    if (stores.length > 0) {
+      console.log("Agent-Native Store (gnosys.db):");
+      try {
+        const db = new GnosysDB(stores[0].path);
+        if (db.isAvailable() && db.isMigrated()) {
+          const counts = db.getMemoryCount();
+          console.log(`  Status: ✓ migrated (schema v${db.getSchemaVersion()})`);
+          console.log(`  Active: ${counts.active} | Archived: ${counts.archived} | Total: ${counts.total}`);
+        } else if (db.isAvailable()) {
+          console.log("  Status: ✗ not migrated (run gnosys migrate)");
+        } else {
+          console.log("  Status: — not available (better-sqlite3 not installed)");
+        }
+        db.close();
+      } catch {
+        console.log("  Status: — not initialized");
+      }
+      console.log("");
+    }
 
     // Check stores
     console.log("Stores:");
