@@ -245,18 +245,28 @@ ANTHROPIC_API_KEY = "your-key-here"
 | `gnosys_ask` | Ask a question, get a synthesized answer with citations |
 | `gnosys_reindex` | Rebuild semantic embeddings from all memories |
 | `gnosys_list` | List memories with optional filters |
+| `gnosys_lens` | Filtered views — combine category, tag, status, confidence, date filters |
 | `gnosys_add` | Add a memory (LLM-structured) |
 | `gnosys_add_structured` | Add with explicit fields (no LLM) |
 | `gnosys_update` | Update frontmatter or content |
 | `gnosys_reinforce` | Signal usefulness of a memory |
 | `gnosys_commit_context` | Extract memories from conversation context |
+| `gnosys_bootstrap` | Batch-import existing markdown documents |
 | `gnosys_import` | Bulk import from CSV, JSON, or JSONL |
 | `gnosys_init` | Initialize a new store |
+| `gnosys_stale` | Find memories not modified within N days |
+| `gnosys_history` | Git-backed version history for a memory |
+| `gnosys_rollback` | Rollback a memory to a previous commit |
+| `gnosys_timeline` | Show when memories were created/modified over time |
+| `gnosys_stats` | Summary statistics for the memory store |
+| `gnosys_links` | Show wikilinks and backlinks for a memory |
+| `gnosys_graph` | Full cross-reference graph across all memories |
 | `gnosys_maintain` | Run vault maintenance (decay, dedup, consolidation) |
 | `gnosys_dashboard` | System dashboard (memory count, health, graph, LLM status) |
 | `gnosys_reindex_graph` | Build/rebuild the wikilink graph |
 | `gnosys_stores` | Show active stores |
 | `gnosys_tags` | List tag registry |
+| `gnosys_tags_add` | Add a new tag to the registry |
 
 ---
 
@@ -528,26 +538,43 @@ The `gnosys_maintain` MCP tool lets agents trigger maintenance programmatically 
 
 ## Comparison
 
-| Feature | **Gnosys** | NotebookLM | Official MCP Memory |
-|---------|-----------|------------|-------------------|
-| Storage | Markdown files + Git | Google proprietary | JSON file |
-| Transparent/editable | ✅ Plain `.md` files | ❌ Opaque | ✅ But flat JSON |
-| Version history | ✅ Full Git history | ❌ | ❌ |
-| Obsidian vault | ✅ Native | ❌ | ❌ |
-| Bulk import | ✅ CSV/JSON/JSONL | ❌ Manual | ❌ |
-| MCP server | ✅ Native | ❌ | ✅ |
-| CLI | ✅ Full-featured | ❌ | ❌ |
-| Layered stores | ✅ 4 layers | ❌ | ❌ |
-| Wikilinks | ✅ Auto-generated | ❌ | ❌ |
-| Search | Hybrid: FTS5 + semantic + RRF | Proprietary | None |
-| Freeform Q&A | ✅ gnosys_ask with citations | ✅ Built-in | ❌ |
-| Self-hosted | ✅ | ❌ | ✅ |
-| LLM providers | 5 (Anthropic, Ollama, Groq, OpenAI, LM Studio) | Proprietary | No LLM |
-| Wikilink graph | ✅ Persistent JSON graph | ❌ | ❌ |
-| System dashboard | ✅ Pretty CLI + MCP tool | ❌ | ❌ |
-| Auto maintenance | ✅ Decay, dedup, consolidation | ❌ | ❌ |
-| Docker support | ✅ | ❌ | ❌ |
-| Price | Free / MIT | Free tier, then paid | Free |
+Agent memory is a spectrum — from a single markdown file to full knowledge graphs. Here's an honest look at the trade-offs.
+
+| Aspect | Plain Markdown | RAG (Vector DB) | Knowledge Graph | **Gnosys** |
+|--------|---------------|-----------------|-----------------|-----------|
+| **Examples** | CLAUDE.md, .cursorrules | Mem0, LangChain Memory | Graphiti/Zep, Mem0 Graph | — |
+| **Storage** | `.md` files | Embeddings in vector DB | Nodes/edges in graph DB | `.md` files + SQLite index |
+| **Transparency** | Perfect | Lossy (embeddings) | High (query nodes) | High (readable markdown) |
+| **Version history** | Git native | None built-in | None built-in | Git native |
+| **Keyword search** | Manual / grep | BM25 layer (some) | BM25 layer (some) | FTS5 (built-in) |
+| **Semantic search** | None | Vector similarity | Graph + vectors | Vector + FTS5 hybrid (RRF) |
+| **Relationship traversal** | None | None | Multi-hop graph queries | Wikilinks (manual encoding) |
+| **Automatic extraction** | No | Yes (embeddings) | Yes (entities + edges) | No (explicit structuring) |
+| **Conflict detection** | No | No | Yes (graph rules) | No |
+| **Scale comfort zone** | ~5K memories | 100K+ | 100K+ | 100K+ (FTS5) |
+| **Setup time** | < 5 min | 30 min – 2 hours | 4 – 8 hours | 15 – 30 min |
+| **Infrastructure** | None | Vector DB + embeddings API | Graph DB + LLM | SQLite (embedded) |
+| **Human editability** | Excellent | Poor (re-embed) | Moderate | Excellent |
+| **MCP integration** | Via skill files | Custom server | Mem0 ships MCP | MCP server (included) |
+| **Obsidian compatible** | Partially | No | No | Yes (full vault) |
+| **Cost** | Free | $0–500+/mo (cloud DB + embeddings) | $250+/mo (Mem0 Pro) or self-host | Free (MIT) |
+| **Offline capable** | Yes | Self-hosted only | Self-hosted only | Yes (Ollama/LM Studio) |
+
+### Where others genuinely win
+
+- **Knowledge graphs** (Graphiti, Mem0 Graph) excel at multi-hop reasoning ("Who does Alice report to?") and automatic conflict detection. If your domain has clear entities and relationships — org charts, dependency trees, CRM data — a graph DB is the right tool.
+- **RAG/vector search** handles fuzzy semantic matching without requiring explicit keyword clouds. You don't need to think about relevance fields — the embeddings handle conceptual similarity automatically.
+- **Automatic extraction** in both RAG and graph approaches means the system learns from conversations without you explicitly structuring each fact.
+
+### Where Gnosys wins
+
+- **Zero infrastructure**: No vector DB to deploy, no graph DB to manage. SQLite is embedded.
+- **Full transparency**: Every memory is a readable, editable `.md` file. No opaque embeddings.
+- **Git versioning**: Complete history, rollback, diff, blame. No other memory system versions every write.
+- **Obsidian native**: Browse, edit, graph view, wikilinks — all with your existing Obsidian setup.
+- **Hybrid search without a vector DB**: FTS5 keyword search is built-in. Semantic search is optional (local embeddings via Ollama, no API costs).
+- **Bulk import**: CSV, JSON, JSONL. Turn a dataset into a searchable knowledge base in seconds.
+- **Cost**: Genuinely free. No cloud service, no API costs if using local LLM providers.
 
 ---
 
@@ -558,30 +585,38 @@ gnosys --help               # List all commands
 gnosys init                  # Initialize a new store
 gnosys add "raw input"       # Add memory via LLM
 gnosys add-structured ...    # Add memory with explicit fields
+gnosys commit-context "..."  # Extract memories from conversation
+gnosys bootstrap <dir>       # Batch-import existing markdown files
+gnosys import <file> ...     # Bulk import CSV/JSON/JSONL data
 gnosys discover "keywords"   # Find relevant memories (metadata only)
 gnosys search "query"        # Full-text search with snippets
 gnosys hybrid-search "q"     # Hybrid keyword + semantic search
 gnosys semantic-search "q"   # Semantic similarity search
 gnosys ask "question"        # Ask a question, get cited answer
-gnosys reindex               # Build/rebuild semantic embeddings
 gnosys read <path>           # Read a specific memory
 gnosys list                  # List all memories
+gnosys lens                  # Filtered views (category, tag, status, date...)
 gnosys update <path> ...     # Update a memory
 gnosys reinforce <id> ...    # Signal memory usefulness
 gnosys stale                 # Find stale memories
-gnosys commit-context "..."  # Extract memories from conversation
-gnosys import <file> ...     # Bulk import data
+gnosys history <path>        # Git-backed version history
+gnosys rollback <path> <hash>  # Rollback to a previous commit
+gnosys timeline              # Knowledge evolution over time
+gnosys stats                 # Summary statistics
+gnosys links <path>          # Wikilinks and backlinks for a memory
+gnosys graph                 # Full cross-reference graph
+gnosys tags                  # List tag registry
+gnosys tags-add              # Add a new tag
+gnosys reindex               # Build/rebuild semantic embeddings
+gnosys reindex-graph         # Build/rebuild wikilink graph
 gnosys maintain              # Run vault maintenance (dry run by default)
-gnosys maintain --dry-run    # Preview changes without modifying
 gnosys maintain --auto-apply # Apply all maintenance automatically
 gnosys dashboard             # Pretty system dashboard
 gnosys dashboard --json      # Dashboard as JSON
-gnosys reindex-graph         # Build/rebuild wikilink graph
 gnosys config show           # Show SOC configuration
 gnosys config set provider <name>  # Set default provider
 gnosys config set task <task> <provider> <model>  # Route task
 gnosys doctor                # Full system health check (all providers)
-gnosys tags                  # List tag registry
 gnosys stores                # Show active stores
 gnosys serve                 # Start MCP server (stdio)
 gnosys serve --with-maintenance  # MCP server + maintenance every 6h
@@ -636,22 +671,20 @@ src/
 
 Real numbers from our demo vault (120 memories — 100 USDA foods + 20 NVD CVEs):
 
-| Metric | Gnosys | NotebookLM |
-|--------|--------|------------|
-| Import 100 records | 0.6s (structured) | Manual upload |
-| Cold start (first load) | 0.3s | ~5s (cloud) |
-| Keyword search | <10ms (FTS5) | Cloud-dependent |
-| Hybrid search (keyword + semantic) | ~50ms | N/A |
-| Reindex 120 embeddings | ~8s (first run: model download ~80 MB) | N/A |
-| Maintenance dry-run (120 memories) | ~2s | N/A |
-| Graph reindex (120 memories) | <1s | N/A |
-| Storage per memory | ~1 KB `.md` file | Opaque |
-| Embedding storage | ~0.3 MB for 120 memories | Cloud |
-| LLM providers | 5 (Anthropic, Ollama, Groq, OpenAI, LM Studio) | 1 (Google) |
-| Offline capable | ✅ (Ollama / LM Studio) | ❌ |
-| Test suite | 143 tests, 0 errors | N/A |
+| Metric | Result |
+|--------|--------|
+| Import 100 records (structured) | 0.6s |
+| Cold start (first load) | 0.3s |
+| Keyword search (FTS5) | <10ms |
+| Hybrid search (keyword + semantic) | ~50ms |
+| Reindex 120 embeddings | ~8s (first run downloads ~80 MB model) |
+| Maintenance dry-run (120 memories) | ~2s |
+| Graph reindex (120 memories) | <1s |
+| Storage per memory | ~1 KB `.md` file |
+| Embedding storage (120 memories) | ~0.3 MB |
+| Test suite | 143 tests, 0 errors |
 
-All benchmarks on Apple M-series hardware, Node.js 20+. Import speed depends on mode — `structured` bypasses LLM entirely. LLM-enriched imports depend on provider latency.
+All benchmarks on Apple M-series hardware, Node.js 20+. Structured imports bypass LLM entirely. LLM-enriched imports depend on provider latency.
 
 ---
 
@@ -675,14 +708,6 @@ Gnosys is open source (MIT) and actively developed. Here's how to get involved:
 - Docker Hub published image for one-line deployment
 - Multi-agent memory sharing protocol
 - Graph visualization in the dashboard
-
----
-
-## Roadmap
-
-See the [6-phase roadmap](https://gnosys.ai/roadmap) for what's next.
-
-**Have ideas?** [Join the discussion →](https://github.com/proticom/gnosys-mcp/discussions)
 
 ---
 
