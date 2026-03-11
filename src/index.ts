@@ -58,7 +58,7 @@ let config: GnosysConfig = DEFAULT_CONFIG;
 // Create MCP server
 const server = new McpServer({
   name: "gnosys",
-  version: "1.4.0",
+  version: "2.0.0",
 });
 
 // These are initialized in main() after resolver runs
@@ -72,6 +72,86 @@ let gnosysDb: GnosysDB | null = null;
 /** v2.0: Dream scheduler (idle-time consolidation) */
 let dreamScheduler: DreamScheduler | null = null;
 
+// ─── Multi-Project Support ───────────────────────────────────────────────
+// Each tool call can optionally pass a `projectRoot` to target a specific
+// project's .gnosys store. This is STATELESS — no race conditions when
+// multiple agents call tools in parallel.
+
+/** Common Zod schema fragment for projectRoot parameter */
+const projectRootParam = z.string().optional().describe(
+  "Optional project root path for multi-project support. When provided, this tool operates on projectRoot/.gnosys instead of the default store. Use gnosys_stores to see all available stores."
+);
+
+/**
+ * Per-call context resolution. If projectRoot is provided, creates a scoped
+ * resolver and returns a project-specific context. Otherwise returns the
+ * default (module-level) context. This is STATELESS and thread-safe.
+ */
+interface ToolContext {
+  resolver: GnosysResolver;
+  store: import("./lib/store.js").GnosysStore | null;
+  storePath: string;
+  config: GnosysConfig;
+  search: GnosysSearch | null;
+  gnosysDb: GnosysDB | null;
+}
+
+async function resolveToolContext(projectRoot?: string): Promise<ToolContext> {
+  if (!projectRoot) {
+    // Default context — use module-level state
+    const writeTarget = resolver.getWriteTarget();
+    return {
+      resolver,
+      store: writeTarget?.store || null,
+      storePath: writeTarget?.store.getStorePath() || "",
+      config,
+      search,
+      gnosysDb,
+    };
+  }
+
+  // Scoped context — resolve for this specific project
+  const scopedResolver = await GnosysResolver.resolveForProject(projectRoot);
+  const scopedWriteTarget = scopedResolver.getWriteTarget();
+  const scopedStorePath = scopedWriteTarget?.store.getStorePath() || "";
+  let scopedConfig = DEFAULT_CONFIG;
+  let scopedDb: GnosysDB | null = null;
+  let scopedSearch: GnosysSearch | null = null;
+
+  if (scopedStorePath) {
+    try {
+      scopedConfig = await loadConfig(scopedStorePath);
+    } catch {
+      // Use defaults
+    }
+
+    // Initialize search for the scoped store
+    scopedSearch = new GnosysSearch(scopedStorePath);
+    if (scopedWriteTarget) {
+      await scopedSearch.addStoreMemories(scopedWriteTarget.store);
+    }
+
+    // Initialize GnosysDB for the scoped store
+    try {
+      scopedDb = new GnosysDB(scopedStorePath);
+      if (!scopedDb.isAvailable() || !scopedDb.isMigrated()) {
+        scopedDb = null;
+      }
+    } catch {
+      scopedDb = null;
+    }
+  }
+
+  return {
+    resolver: scopedResolver,
+    store: scopedWriteTarget?.store || null,
+    storePath: scopedStorePath,
+    config: scopedConfig,
+    search: scopedSearch,
+    gnosysDb: scopedDb,
+  };
+}
+
 // ─── Tool: gnosys_discover ──────────────────────────────────────────────
 server.tool(
   "gnosys_discover",
@@ -83,11 +163,13 @@ server.tool(
         "Describe what you're working on or looking for. Use keywords, not sentences. Example: 'auth JWT session tokens' or 'deployment CI/CD pipeline'"
       ),
     limit: z.number().optional().describe("Max results (default 20)"),
+    projectRoot: projectRootParam,
   },
-  async ({ query, limit }) => {
+  async ({ query, limit, projectRoot }) => {
+    const ctx = await resolveToolContext(projectRoot);
     // v2.0 DB-backed fast path
-    if (gnosysDb?.isAvailable() && gnosysDb?.isMigrated()) {
-      const results = gnosysDb.discoverFts(query, limit || 20);
+    if (ctx.gnosysDb?.isAvailable() && ctx.gnosysDb?.isMigrated()) {
+      const results = ctx.gnosysDb.discoverFts(query, limit || 20);
       if (results.length === 0) {
         return {
           content: [{ type: "text", text: `No memories found for "${query}". Try different keywords.` }],
@@ -102,14 +184,14 @@ server.tool(
     }
 
     // v1.x legacy path
-    if (!search) {
+    if (!ctx.search) {
       return {
         content: [{ type: "text", text: "Search index not initialized." }],
         isError: true,
       };
     }
 
-    const results = search.discover(query, limit || 20);
+    const results = ctx.search.discover(query, limit || 20);
     if (results.length === 0) {
       return {
         content: [
@@ -143,11 +225,15 @@ server.tool(
 server.tool(
   "gnosys_read",
   "Read a specific memory. Accepts a memory ID (e.g., 'arch-012') or layer-prefixed path (e.g., 'project:decisions/why-not-rag.md'). Without a prefix, searches all stores in precedence order.",
-  { path: z.string().describe("Memory ID or path, optionally prefixed with store layer") },
-  async ({ path: memPath }) => {
+  {
+    path: z.string().describe("Memory ID or path, optionally prefixed with store layer"),
+    projectRoot: projectRootParam,
+  },
+  async ({ path: memPath, projectRoot }) => {
+    const ctx = await resolveToolContext(projectRoot);
     // v2.0 DB-backed fast path: try reading by memory ID from gnosys.db first
-    if (gnosysDb?.isAvailable() && gnosysDb?.isMigrated()) {
-      const dbMem = gnosysDb.getMemory(memPath);
+    if (ctx.gnosysDb?.isAvailable() && ctx.gnosysDb?.isMigrated()) {
+      const dbMem = ctx.gnosysDb.getMemory(memPath);
       if (dbMem) {
         const tags = dbMem.tags || "[]";
         const header = [
@@ -174,7 +260,7 @@ server.tool(
     }
 
     // v1.x legacy path
-    const memory = await resolver.readMemory(memPath);
+    const memory = await ctx.resolver.readMemory(memPath);
     if (!memory) {
       return {
         content: [{ type: "text", text: `Memory not found: ${memPath}` }],
@@ -201,11 +287,13 @@ server.tool(
   {
     query: z.string().describe("Search query (keywords)"),
     limit: z.number().optional().describe("Max results (default 20)"),
+    projectRoot: projectRootParam,
   },
-  async ({ query, limit }) => {
+  async ({ query, limit, projectRoot }) => {
+    const ctx = await resolveToolContext(projectRoot);
     // v2.0 DB-backed fast path
-    if (gnosysDb?.isAvailable() && gnosysDb?.isMigrated()) {
-      const results = gnosysDb.searchFts(query, limit || 20);
+    if (ctx.gnosysDb?.isAvailable() && ctx.gnosysDb?.isMigrated()) {
+      const results = ctx.gnosysDb.searchFts(query, limit || 20);
       if (results.length === 0) {
         return {
           content: [{ type: "text", text: `No results for "${query}". Try different keywords.` }],
@@ -220,14 +308,14 @@ server.tool(
     }
 
     // v1.x legacy path
-    if (!search) {
+    if (!ctx.search) {
       return {
         content: [{ type: "text", text: "Search index not initialized." }],
         isError: true,
       };
     }
 
-    const results = search.search(query, limit || 20);
+    const results = ctx.search.search(query, limit || 20);
     if (results.length === 0) {
       return {
         content: [
@@ -266,9 +354,11 @@ server.tool(
     tag: z.string().optional().describe("Filter by tag"),
     store: z.string().optional().describe("Filter by store layer (project/personal/global/optional)"),
     status: z.string().optional().describe("Filter by status (active/archived/superseded)"),
+    projectRoot: projectRootParam,
   },
-  async ({ category, tag, store: storeFilter, status }) => {
-    let memories = await resolver.getAllMemories();
+  async ({ category, tag, store: storeFilter, status, projectRoot }) => {
+    const ctx = await resolveToolContext(projectRoot);
+    let memories = await ctx.resolver.getAllMemories();
 
     if (storeFilter) {
       memories = memories.filter((m) => m.sourceLayer === storeFilter || m.sourceLabel === storeFilter);
@@ -329,9 +419,11 @@ server.tool(
       .enum(["declared", "observed", "imported", "inferred"])
       .optional()
       .describe("Epistemic trust level"),
+    projectRoot: projectRootParam,
   },
-  async ({ input, store: targetStore, author, authority }) => {
-    const writeTarget = resolver.getWriteTarget(
+  async ({ input, store: targetStore, author, authority, projectRoot }) => {
+    const ctx = await resolveToolContext(projectRoot);
+    const writeTarget = ctx.resolver.getWriteTarget(
       (targetStore as "project" | "personal" | "global") || undefined
     );
     if (!writeTarget) {
@@ -346,6 +438,7 @@ server.tool(
       };
     }
 
+    // Note: ingestion remains module-level since it's heavy and project-agnostic
     if (!ingestion) {
       return {
         content: [
@@ -386,13 +479,13 @@ server.tool(
       );
 
       // v2.0: Dual-write to gnosys.db
-      if (gnosysDb?.isAvailable()) {
-        syncMemoryToDb(gnosysDb, frontmatter, content, relativePath);
-        auditToDb(gnosysDb, "write", id, { tool: "gnosys_add", category: result.category });
+      if (ctx.gnosysDb?.isAvailable()) {
+        syncMemoryToDb(ctx.gnosysDb, frontmatter, content, relativePath);
+        auditToDb(ctx.gnosysDb, "write", id, { tool: "gnosys_add", category: result.category });
       }
 
       // Rebuild search index across all stores
-      if (search) {
+      if (ctx.search) {
         await reindexAllStores();
       }
 
@@ -406,8 +499,8 @@ server.tool(
       }
 
       // Contradiction / overlap detection: search for closely related memories
-      if (search && result.relevance) {
-        const related = search.discover(result.relevance.split(" ").slice(0, 5).join(" "), 5);
+      if (ctx.search && result.relevance) {
+        const related = ctx.search.discover(result.relevance.split(" ").slice(0, 5).join(" "), 5);
         // Filter out the memory we just added
         const overlaps = related.filter(
           (r) => !r.relative_path.endsWith(filename)
@@ -457,9 +550,11 @@ server.tool(
       .enum(["declared", "observed", "imported", "inferred"])
       .optional(),
     confidence: z.number().min(0).max(1).optional(),
+    projectRoot: projectRootParam,
   },
-  async ({ title, category, tags, relevance, content, store: targetStore, author, authority, confidence }) => {
-    const writeTarget = resolver.getWriteTarget(
+  async ({ title, category, tags, relevance, content, store: targetStore, author, authority, confidence, projectRoot }) => {
+    const ctx = await resolveToolContext(projectRoot);
+    const writeTarget = ctx.resolver.getWriteTarget(
       (targetStore as "project" | "personal" | "global") || undefined
     );
     if (!writeTarget) {
@@ -502,12 +597,12 @@ server.tool(
     );
 
     // v2.0: Dual-write to gnosys.db
-    if (gnosysDb?.isAvailable()) {
-      syncMemoryToDb(gnosysDb, frontmatter, fullContent, relativePath);
-      auditToDb(gnosysDb, "write", id, { tool: "gnosys_add_structured", category });
+    if (ctx.gnosysDb?.isAvailable()) {
+      syncMemoryToDb(ctx.gnosysDb, frontmatter, fullContent, relativePath);
+      auditToDb(ctx.gnosysDb, "write", id, { tool: "gnosys_add_structured", category });
     }
 
-    if (search) await reindexAllStores();
+    if (ctx.search) await reindexAllStores();
 
     return {
       content: [
@@ -524,8 +619,9 @@ server.tool(
 server.tool(
   "gnosys_tags",
   "List all tags in the registry, grouped by category.",
-  {},
-  async () => {
+  { projectRoot: projectRootParam },
+  async ({ projectRoot }) => {
+    // Tag registry is module-level and shared across projects, projectRoot is for API consistency
     if (!tagRegistry) {
       return { content: [{ type: "text", text: "Tag registry not loaded." }], isError: true };
     }
@@ -549,8 +645,10 @@ server.tool(
   {
     category: z.string().describe("Tag category (domain, type, concern, status_tag)"),
     tag: z.string().describe("The new tag to add"),
+    projectRoot: projectRootParam,
   },
-  async ({ category, tag }) => {
+  async ({ category, tag, projectRoot }) => {
+    // Tag registry is module-level and shared across projects, projectRoot is for API consistency
     if (!tagRegistry) {
       return { content: [{ type: "text", text: "Tag registry not loaded." }], isError: true };
     }
@@ -576,10 +674,12 @@ server.tool(
       .enum(["useful", "not_relevant", "outdated"])
       .describe("The reinforcement signal"),
     context: z.string().optional().describe("Why this signal was given"),
+    projectRoot: projectRootParam,
   },
-  async ({ memory_id, signal, context }) => {
+  async ({ memory_id, signal, context, projectRoot }) => {
+    const ctx = await resolveToolContext(projectRoot);
     // Log to the first writable store's .config directory
-    const writeTarget = resolver.getWriteTarget();
+    const writeTarget = ctx.resolver.getWriteTarget();
     if (writeTarget) {
       const logPath = path.join(
         writeTarget.store.getStorePath(),
@@ -597,10 +697,10 @@ server.tool(
 
     // If 'useful', find the memory across all stores and update if writable
     if (signal === "useful") {
-      const allMemories = await resolver.getAllMemories();
+      const allMemories = await ctx.resolver.getAllMemories();
       const memory = allMemories.find((m) => m.frontmatter.id === memory_id);
       if (memory) {
-        const sourceStore = resolver
+        const sourceStore = ctx.resolver
           .getStores()
           .find((s) => s.label === memory.sourceLabel);
         if (sourceStore?.writable) {
@@ -612,9 +712,9 @@ server.tool(
           } as any);
 
           // v2.0: Sync reinforcement to gnosys.db
-          if (gnosysDb?.isAvailable()) {
-            syncReinforcementToDb(gnosysDb, memory_id, count);
-            auditToDb(gnosysDb, "reinforce", memory_id, { signal, context });
+          if (ctx.gnosysDb?.isAvailable()) {
+            syncReinforcementToDb(ctx.gnosysDb, memory_id, count);
+            auditToDb(ctx.gnosysDb, "reinforce", memory_id, { signal, context });
           }
         }
       }
@@ -640,8 +740,11 @@ server.tool(
       .describe(
         "Absolute path to the project directory to create .gnosys/ in. Required."
       ),
+    projectRoot: projectRootParam,
   },
-  async ({ directory }) => {
+  async ({ directory, projectRoot }) => {
+    // Note: For gnosys_init, directory is the target, projectRoot is ignored since we're creating new
+    // Keeping projectRoot for API consistency
     const targetDir = path.resolve(directory);
     const storePath = path.join(targetDir, ".gnosys");
 
@@ -782,6 +885,7 @@ server.tool(
       .string()
       .optional()
       .describe("New markdown content (replaces existing body)"),
+    projectRoot: projectRootParam,
   },
   async ({
     path: memPath,
@@ -793,8 +897,10 @@ server.tool(
     supersedes,
     superseded_by,
     content: newContent,
+    projectRoot,
   }) => {
-    const memory = await resolver.readMemory(memPath);
+    const ctx = await resolveToolContext(projectRoot);
+    const memory = await ctx.resolver.readMemory(memPath);
     if (!memory) {
       return {
         content: [{ type: "text", text: `Memory not found: ${memPath}` }],
@@ -803,7 +909,7 @@ server.tool(
     }
 
     // Find the source store and check if writable
-    const sourceStore = resolver
+    const sourceStore = ctx.resolver
       .getStores()
       .find((s) => s.label === memory.sourceLabel);
     if (!sourceStore?.writable) {
@@ -845,12 +951,12 @@ server.tool(
 
     // Supersession cross-linking: if A supersedes B, mark B as superseded_by A
     if (supersedes && updated.frontmatter.id) {
-      const allMemories = await resolver.getAllMemories();
+      const allMemories = await ctx.resolver.getAllMemories();
       const supersededMemory = allMemories.find(
         (m) => m.frontmatter.id === supersedes
       );
       if (supersededMemory) {
-        const supersededStore = resolver
+        const supersededStore = ctx.resolver
           .getStores()
           .find((s) => s.label === supersededMemory.sourceLabel);
         if (supersededStore?.writable) {
@@ -866,18 +972,18 @@ server.tool(
     }
 
     // v2.0: Dual-write update to gnosys.db
-    if (gnosysDb?.isAvailable() && updated.frontmatter.id) {
-      syncUpdateToDb(gnosysDb, updated.frontmatter.id, updates, fullContent);
-      auditToDb(gnosysDb, "write", updated.frontmatter.id, { tool: "gnosys_update", changed: Object.keys(updates) });
+    if (ctx.gnosysDb?.isAvailable() && updated.frontmatter.id) {
+      syncUpdateToDb(ctx.gnosysDb, updated.frontmatter.id, updates, fullContent);
+      auditToDb(ctx.gnosysDb, "write", updated.frontmatter.id, { tool: "gnosys_update", changed: Object.keys(updates) });
 
       // Cross-link supersession in db too
       if (supersedes) {
-        syncUpdateToDb(gnosysDb, supersedes, { superseded_by: updated.frontmatter.id, status: "superseded" });
+        syncUpdateToDb(ctx.gnosysDb, supersedes, { superseded_by: updated.frontmatter.id, status: "superseded" });
       }
     }
 
     // Rebuild search index
-    if (search) await reindexAllStores();
+    if (ctx.search) await reindexAllStores();
 
     const changedFields = Object.keys(updates);
     if (newContent) changedFields.push("content");
@@ -903,15 +1009,17 @@ server.tool(
       .optional()
       .describe("Number of days since last modification to consider stale (default: 90)"),
     limit: z.number().optional().describe("Max results (default 20)"),
+    projectRoot: projectRootParam,
   },
-  async ({ days, limit }) => {
+  async ({ days, limit, projectRoot }) => {
+    const ctx = await resolveToolContext(projectRoot);
     const threshold = days || 90;
     const maxResults = limit || 20;
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - threshold);
     const cutoffStr = cutoff.toISOString().split("T")[0];
 
-    const allMemories = await resolver.getAllMemories();
+    const allMemories = await ctx.resolver.getAllMemories();
     const stale = allMemories
       .filter((m) => {
         const lastTouched = m.frontmatter.last_reviewed || m.frontmatter.modified;
@@ -967,8 +1075,11 @@ server.tool(
       .describe(
         "If true, show what would be committed without actually writing. Default: false."
       ),
+    projectRoot: projectRootParam,
   },
-  async ({ context, dry_run }) => {
+  async ({ context, dry_run, projectRoot }) => {
+    const ctx = await resolveToolContext(projectRoot);
+    // Note: ingestion is module-level since it's heavy
     if (!ingestion || !ingestion.isLLMAvailable) {
       return {
         content: [
@@ -981,7 +1092,7 @@ server.tool(
       };
     }
 
-    const writeTarget = resolver.getWriteTarget();
+    const writeTarget = ctx.resolver.getWriteTarget();
     if (!writeTarget) {
       return {
         content: [{ type: "text", text: "No writable store found." }],
@@ -992,7 +1103,7 @@ server.tool(
     // Step 1: Use LLM to extract candidate memories from the context
     let extractProvider: LLMProvider;
     try {
-      extractProvider = getLLMProvider(config, "structuring");
+      extractProvider = getLLMProvider(ctx.config, "structuring");
     } catch (err) {
       return {
         content: [{ type: "text", text: `LLM not available: ${err instanceof Error ? err.message : String(err)}` }],
@@ -1059,8 +1170,8 @@ Output ONLY the JSON array, no markdown fences.`,
       const searchTerms = candidate.search_terms.join(" ");
 
       // Check existing memories via discover
-      const existing = search
-        ? search.discover(searchTerms, 3)
+      const existing = ctx.search
+        ? ctx.search.discover(searchTerms, 3)
         : [];
 
       const hasOverlap = existing.length > 0;
@@ -1121,7 +1232,7 @@ Output ONLY the JSON array, no markdown fences.`,
     }
 
     // Rebuild search index after all writes
-    if (!dry_run && search && added > 0) {
+    if (!dry_run && ctx.search && added > 0) {
       await reindexAllStores();
     }
 
@@ -1147,14 +1258,16 @@ server.tool(
   {
     path: z.string().describe("Path to memory, optionally layer-prefixed"),
     limit: z.number().optional().describe("Max history entries (default 20)"),
+    projectRoot: projectRootParam,
   },
-  async ({ path: memPath, limit }) => {
-    const memory = await resolver.readMemory(memPath);
+  async ({ path: memPath, limit, projectRoot }) => {
+    const ctx = await resolveToolContext(projectRoot);
+    const memory = await ctx.resolver.readMemory(memPath);
     if (!memory) {
       return { content: [{ type: "text", text: `Memory not found: ${memPath}` }], isError: true };
     }
 
-    const sourceStore = resolver.getStores().find((s) => s.label === memory.sourceLabel);
+    const sourceStore = ctx.resolver.getStores().find((s) => s.label === memory.sourceLabel);
     if (!sourceStore || !hasGitHistory(sourceStore.path)) {
       return { content: [{ type: "text", text: "No git history available for this store." }], isError: true };
     }
@@ -1184,14 +1297,16 @@ server.tool(
   {
     path: z.string().describe("Path to memory, optionally layer-prefixed"),
     commitHash: z.string().describe("Git commit hash to revert to (full or abbreviated)"),
+    projectRoot: projectRootParam,
   },
-  async ({ path: memPath, commitHash }) => {
-    const memory = await resolver.readMemory(memPath);
+  async ({ path: memPath, commitHash, projectRoot }) => {
+    const ctx = await resolveToolContext(projectRoot);
+    const memory = await ctx.resolver.readMemory(memPath);
     if (!memory) {
       return { content: [{ type: "text", text: `Memory not found: ${memPath}` }], isError: true };
     }
 
-    const sourceStore = resolver.getStores().find((s) => s.label === memory.sourceLabel);
+    const sourceStore = ctx.resolver.getStores().find((s) => s.label === memory.sourceLabel);
     if (!sourceStore?.writable) {
       return { content: [{ type: "text", text: "Cannot rollback: store is read-only." }], isError: true };
     }
@@ -1202,10 +1317,10 @@ server.tool(
     }
 
     // Reindex after rollback
-    if (search) await reindexAllStores();
+    if (ctx.search) await reindexAllStores();
 
     // Read the reverted memory
-    const reverted = await resolver.readMemory(memPath);
+    const reverted = await ctx.resolver.readMemory(memPath);
     return {
       content: [{
         type: "text",
@@ -1233,9 +1348,11 @@ server.tool(
     modifiedAfter: z.string().optional().describe("Modified after ISO date"),
     modifiedBefore: z.string().optional().describe("Modified before ISO date"),
     operator: z.enum(["AND", "OR"]).optional().describe("Compound operator when multiple filter groups are provided (default: AND)"),
+    projectRoot: projectRootParam,
   },
-  async ({ category, tags, tagMatchMode, status, author, authority, minConfidence, maxConfidence, createdAfter, createdBefore, modifiedAfter, modifiedBefore }) => {
-    const allMemories = await resolver.getAllMemories();
+  async ({ category, tags, tagMatchMode, status, author, authority, minConfidence, maxConfidence, createdAfter, createdBefore, modifiedAfter, modifiedBefore, projectRoot }) => {
+    const ctx = await resolveToolContext(projectRoot);
+    const allMemories = await ctx.resolver.getAllMemories();
 
     const lens: LensFilter = {};
     if (category) lens.category = category;
@@ -1272,9 +1389,11 @@ server.tool(
   "View memory creation and modification activity over time. Shows how knowledge evolves by grouping memories into time periods.",
   {
     period: z.enum(["day", "week", "month", "year"]).optional().describe("Grouping period (default: month)"),
+    projectRoot: projectRootParam,
   },
-  async ({ period }) => {
-    const allMemories = await resolver.getAllMemories();
+  async ({ period, projectRoot }) => {
+    const ctx = await resolveToolContext(projectRoot);
+    const allMemories = await ctx.resolver.getAllMemories();
     const entries = groupByPeriod(allMemories, (period as TimePeriod) || "month");
 
     if (entries.length === 0) {
@@ -1295,9 +1414,10 @@ server.tool(
 server.tool(
   "gnosys_stats",
   "Summary statistics across all memories — totals by category, status, author, authority, average confidence, and date ranges.",
-  {},
-  async () => {
-    const allMemories = await resolver.getAllMemories();
+  { projectRoot: projectRootParam },
+  async ({ projectRoot }) => {
+    const ctx = await resolveToolContext(projectRoot);
+    const allMemories = await ctx.resolver.getAllMemories();
     const stats = computeStats(allMemories);
 
     if (stats.totalCount === 0) {
@@ -1339,14 +1459,16 @@ server.tool(
   "Show wikilinks for a specific memory — outgoing [[links]] and backlinks from other memories. Obsidian-compatible [[Title]] and [[path|display]] syntax.",
   {
     path: z.string().describe("Path to memory, optionally layer-prefixed"),
+    projectRoot: projectRootParam,
   },
-  async ({ path: memPath }) => {
-    const memory = await resolver.readMemory(memPath);
+  async ({ path: memPath, projectRoot }) => {
+    const ctx = await resolveToolContext(projectRoot);
+    const memory = await ctx.resolver.readMemory(memPath);
     if (!memory) {
       return { content: [{ type: "text", text: `Memory not found: ${memPath}` }], isError: true };
     }
 
-    const allMemories = await resolver.getAllMemories();
+    const allMemories = await ctx.resolver.getAllMemories();
     const outgoing = getOutgoingLinks(allMemories, memory.relativePath);
     const backlinks = getBacklinks(allMemories, memory.relativePath);
 
@@ -1381,9 +1503,10 @@ server.tool(
 server.tool(
   "gnosys_graph",
   "Show the full cross-reference graph across all memories. Reveals clusters, orphaned links, and the most-connected memories.",
-  {},
-  async () => {
-    const allMemories = await resolver.getAllMemories();
+  { projectRoot: projectRootParam },
+  async ({ projectRoot }) => {
+    const ctx = await resolveToolContext(projectRoot);
+    const allMemories = await ctx.resolver.getAllMemories();
 
     if (allMemories.length === 0) {
       return { content: [{ type: "text", text: "No memories found." }] };
@@ -1406,9 +1529,11 @@ server.tool(
     preserveFrontmatter: z.boolean().optional().describe("Preserve existing YAML frontmatter if present (default: false)"),
     dryRun: z.boolean().optional().describe("Preview what would be imported without writing (default: false)"),
     store: z.enum(["project", "personal", "global"]).optional().describe("Target store"),
+    projectRoot: projectRootParam,
   },
-  async ({ sourceDir, patterns, skipExisting, defaultCategory, preserveFrontmatter, dryRun, store: targetStore }) => {
-    const writeTarget = resolver.getWriteTarget(
+  async ({ sourceDir, patterns, skipExisting, defaultCategory, preserveFrontmatter, dryRun, store: targetStore, projectRoot }) => {
+    const ctx = await resolveToolContext(projectRoot);
+    const writeTarget = ctx.resolver.getWriteTarget(
       (targetStore as "project" | "personal" | "global") || undefined
     );
     if (!writeTarget) {
@@ -1448,7 +1573,7 @@ server.tool(
       }
 
       // Reindex after import
-      if (!dryRun && result.imported.length > 0 && search) {
+      if (!dryRun && result.imported.length > 0 && ctx.search) {
         await reindexAllStores();
       }
 
@@ -1487,6 +1612,7 @@ server.tool(
       .enum(["project", "personal", "global"])
       .optional()
       .describe("Target store (default: project)"),
+    projectRoot: projectRootParam,
   },
   async ({
     format,
@@ -1499,8 +1625,10 @@ server.tool(
     offset,
     concurrency,
     store: targetStore,
+    projectRoot,
   }) => {
-    const writeTarget = resolver.getWriteTarget(
+    const ctx = await resolveToolContext(projectRoot);
+    const writeTarget = ctx.resolver.getWriteTarget(
       (targetStore as "project" | "personal" | "global") || undefined
     );
     if (!writeTarget) {
@@ -1587,8 +1715,11 @@ server.tool(
     query: z.string().describe("Natural language search query"),
     limit: z.number().optional().describe("Max results (default 15)"),
     mode: z.enum(["keyword", "semantic", "hybrid"]).optional().describe("Search mode (default: hybrid)"),
+    projectRoot: projectRootParam,
   },
-  async ({ query, limit, mode }) => {
+  async ({ query, limit, mode, projectRoot }) => {
+    // Note: hybridSearch is module-level (heavy) and not scoped per project
+    (projectRoot); // quiets unused warning if any
     if (!hybridSearch) {
       return {
         content: [{ type: "text", text: "Hybrid search not initialized. No stores found." }],
@@ -1617,6 +1748,7 @@ server.tool(
         .join("\n\n");
 
       // Reinforce used memories (best-effort, non-blocking)
+      // Use default resolver here since hybridSearch operates across all stores
       const writeTarget = resolver.getWriteTarget();
       if (writeTarget) {
         GnosysMaintenanceEngine.reinforceBatch(
@@ -1650,8 +1782,11 @@ server.tool(
   {
     query: z.string().describe("Natural language search query"),
     limit: z.number().optional().describe("Max results (default 15)"),
+    projectRoot: projectRootParam,
   },
-  async ({ query, limit }) => {
+  async ({ query, limit, projectRoot }) => {
+    // Note: hybridSearch is module-level (heavy) and not scoped per project
+    (projectRoot); // quiets unused warning if any
     if (!hybridSearch) {
       return {
         content: [{ type: "text", text: "Search not initialized. No stores found." }],
@@ -1691,8 +1826,10 @@ server.tool(
 server.tool(
   "gnosys_reindex",
   "Rebuild all semantic embeddings from every memory file. Downloads the embedding model (~80 MB) on first run. Required before hybrid/semantic search can be used. Safe to re-run — fully regenerates the index.",
-  {},
-  async () => {
+  { projectRoot: projectRootParam },
+  async ({ projectRoot }) => {
+    // Note: reindex operates on all stores, projectRoot is for API consistency
+    (projectRoot); // quiets unused warning if any
     if (!hybridSearch) {
       return {
         content: [{ type: "text", text: "No stores found. Initialize a store with gnosys_init first." }],
@@ -1730,8 +1867,11 @@ server.tool(
     question: z.string().describe("Natural language question to answer from the vault"),
     limit: z.number().optional().describe("Max memories to retrieve (default 15)"),
     mode: z.enum(["keyword", "semantic", "hybrid"]).optional().describe("Search mode (default: hybrid)"),
+    projectRoot: projectRootParam,
   },
-  async ({ question, limit, mode }) => {
+  async ({ question, limit, mode, projectRoot }) => {
+    // Note: askEngine is module-level (heavy) and not scoped per project
+    (projectRoot); // quiets unused warning if any
     if (!askEngine) {
       return {
         content: [{ type: "text", text: "Ask engine not initialized. Ensure stores exist and an LLM provider is configured." }],
@@ -1793,18 +1933,20 @@ server.tool(
   {
     dryRun: z.boolean().optional().describe("Show what would change without modifying anything (default: true)"),
     autoApply: z.boolean().optional().describe("Automatically apply all changes (default: false)"),
+    projectRoot: projectRootParam,
   },
-  async ({ dryRun, autoApply }) => {
+  async ({ dryRun, autoApply, projectRoot }) => {
+    const ctx = await resolveToolContext(projectRoot);
     try {
-      const engine = new GnosysMaintenanceEngine(resolver, config);
+      const engine = new GnosysMaintenanceEngine(ctx.resolver, ctx.config);
       const report = await engine.maintain({
         dryRun: dryRun ?? true,
         autoApply: autoApply ?? false,
       });
 
       // v2.0: Log maintenance run to gnosys.db
-      if (gnosysDb?.isAvailable()) {
-        auditToDb(gnosysDb, "maintain", undefined, {
+      if (ctx.gnosysDb?.isAvailable()) {
+        auditToDb(ctx.gnosysDb, "maintain", undefined, {
           dryRun: dryRun ?? true,
           duplicatesFound: report.duplicates?.length || 0,
           consolidated: report.consolidated || 0,
@@ -1830,12 +1972,14 @@ server.tool(
   {
     query: z.string().describe("Search query to find archived memories to restore"),
     limit: z.number().optional().describe("Max memories to dearchive (default 5)"),
+    projectRoot: projectRootParam,
   },
-  async ({ query, limit }) => {
+  async ({ query, limit, projectRoot }) => {
+    const ctx = await resolveToolContext(projectRoot);
     try {
       const { GnosysArchive } = await import("./lib/archive.js");
 
-      const writeTarget = resolver.getWriteTarget();
+      const writeTarget = ctx.resolver.getWriteTarget();
       if (!writeTarget) {
         return {
           content: [{ type: "text", text: "No writable store found. Run gnosys_init first." }],
@@ -1864,11 +2008,11 @@ server.tool(
       archive.close();
 
       // v2.0: Sync dearchive to gnosys.db
-      if (gnosysDb?.isAvailable()) {
+      if (ctx.gnosysDb?.isAvailable()) {
         for (const memId of ids) {
-          syncDearchiveToDb(gnosysDb, memId);
+          syncDearchiveToDb(ctx.gnosysDb, memId);
         }
-        auditToDb(gnosysDb, "dearchive", undefined, { query, count: restored.length });
+        auditToDb(ctx.gnosysDb, "dearchive", undefined, { query, count: restored.length });
       }
 
       const lines = [`Dearchived ${restored.length} memories back to active:`];
@@ -1892,11 +2036,12 @@ server.tool(
 server.tool(
   "gnosys_reindex_graph",
   "Build or rebuild the wikilink graph (.gnosys/graph.json). Parses all [[wikilinks]] across memories and generates a persistent JSON graph with nodes, edges, and stats.",
-  {},
-  async () => {
+  { projectRoot: projectRootParam },
+  async ({ projectRoot }) => {
+    const ctx = await resolveToolContext(projectRoot);
     try {
       const { reindexGraph, formatGraphStats } = await import("./lib/graph.js");
-      const stats = await reindexGraph(resolver);
+      const stats = await reindexGraph(ctx.resolver);
       return {
         content: [{ type: "text", text: formatGraphStats(stats) }],
       };
@@ -1918,9 +2063,11 @@ server.tool(
     selfCritique: z.boolean().default(true).optional().describe("Enable self-critique scoring"),
     generateSummaries: z.boolean().default(true).optional().describe("Generate category summaries"),
     discoverRelationships: z.boolean().default(true).optional().describe("Discover relationships between memories"),
+    projectRoot: projectRootParam,
   },
   async (params) => {
-    if (!gnosysDb || !gnosysDb.isAvailable() || !gnosysDb.isMigrated()) {
+    const ctx = await resolveToolContext(params.projectRoot);
+    if (!ctx.gnosysDb || !ctx.gnosysDb.isAvailable() || !ctx.gnosysDb.isMigrated()) {
       return {
         content: [
           {
@@ -1942,11 +2089,11 @@ server.tool(
       generateSummaries: params.generateSummaries ?? true,
       discoverRelationships: params.discoverRelationships ?? true,
       minMemories: 1, // No minimum for manual trigger
-      provider: config?.dream?.provider || ("ollama" as const),
-      model: config?.dream?.model,
+      provider: ctx.config?.dream?.provider || ("ollama" as const),
+      model: ctx.config?.dream?.model,
     };
 
-    const engine = new GnosysDreamEngine(gnosysDb, config || DEFAULT_CONFIG, dreamConfig);
+    const engine = new GnosysDreamEngine(ctx.gnosysDb, ctx.config || DEFAULT_CONFIG, dreamConfig);
     const report = await engine.dream((phase, detail) => {
       console.error(`[dream:${phase}] ${detail}`);
     });
@@ -1973,9 +2120,11 @@ server.tool(
     includeSummaries: z.boolean().default(true).optional().describe("Include category summaries"),
     includeReviews: z.boolean().default(true).optional().describe("Include review suggestions from dream mode"),
     includeGraph: z.boolean().default(true).optional().describe("Include relationship graph"),
+    projectRoot: projectRootParam,
   },
   async (params) => {
-    if (!gnosysDb || !gnosysDb.isAvailable() || !gnosysDb.isMigrated()) {
+    const ctx = await resolveToolContext(params.projectRoot);
+    if (!ctx.gnosysDb || !ctx.gnosysDb.isAvailable() || !ctx.gnosysDb.isMigrated()) {
       return {
         content: [
           {
@@ -1986,7 +2135,7 @@ server.tool(
       };
     }
 
-    const exporter = new GnosysExporter(gnosysDb);
+    const exporter = new GnosysExporter(ctx.gnosysDb);
     const report = await exporter.export({
       targetDir: params.targetDir,
       activeOnly: params.activeOnly ?? true,
@@ -2011,11 +2160,12 @@ server.tool(
 server.tool(
   "gnosys_dashboard",
   "Show the Gnosys system dashboard: memory counts, maintenance health, graph stats, LLM provider status. Returns structured JSON.",
-  {},
-  async () => {
+  { projectRoot: projectRootParam },
+  async ({ projectRoot }) => {
+    const ctx = await resolveToolContext(projectRoot);
     try {
       const { collectDashboardData, formatDashboardJSON } = await import("./lib/dashboard.js");
-      const data = await collectDashboardData(resolver, config, "1.1.0", gnosysDb || undefined);
+      const data = await collectDashboardData(ctx.resolver, ctx.config, "1.1.0", ctx.gnosysDb || undefined);
       return {
         content: [{ type: "text", text: formatDashboardJSON(data) }],
       };
@@ -2031,11 +2181,47 @@ server.tool(
 // ─── Tool: gnosys_stores ─────────────────────────────────────────────────
 server.tool(
   "gnosys_stores",
-  "Show all active Gnosys stores — their layers, paths, and write permissions.",
+  "Debug tool — lists all detected Gnosys stores across registered projects, MCP workspace roots, cwd, and environment variables. Shows which store is active and helps diagnose multi-project routing.",
   {},
   async () => {
-    const summary = resolver.getSummary();
-    return { content: [{ type: "text", text: summary }] };
+    const lines: string[] = [];
+
+    lines.push("GNOSYS STORES — Multi-Project Overview");
+    lines.push("=".repeat(45));
+    lines.push("");
+
+    // Active stores
+    lines.push("ACTIVE STORES:");
+    lines.push(resolver.getSummary());
+    lines.push("");
+
+    // MCP roots
+    const mcpRoots = GnosysResolver.getMcpRoots();
+    lines.push(`MCP WORKSPACE ROOTS (${mcpRoots.length}):`);
+    if (mcpRoots.length === 0) {
+      lines.push("  (none — host may not support roots/list)");
+    } else {
+      for (const root of mcpRoots) {
+        lines.push(`  ${root}`);
+      }
+    }
+    lines.push("");
+
+    // All detected stores
+    const detected = await resolver.detectAllStores();
+    lines.push(`ALL DETECTED STORES (${detected.length}):`);
+    for (const d of detected) {
+      const status = d.isActive ? "✓ ACTIVE" : d.hasGnosys ? "available" : "no .gnosys";
+      lines.push(`  [${d.source}] ${d.path} — ${status}`);
+    }
+    lines.push("");
+
+    // Usage hint
+    lines.push("USAGE:");
+    lines.push("  Pass projectRoot to any tool to target a specific project:");
+    lines.push('  e.g. gnosys_add({ projectRoot: "/path/to/my-project", ... })');
+
+    return { content: [{ type: "text" as const, text: lines.join("\n") }] };
   }
 );
 
@@ -2120,28 +2306,30 @@ server.tool(
     limit: z.number().optional().describe("Max memories to return (default from config, max 15)"),
     traceId: z.string().optional().describe("Optional trace ID from the outer orchestrator for audit correlation"),
     aggressive: z.boolean().optional().describe("Override aggressive mode for this call. Default: from gnosys.json (true)"),
+    projectRoot: projectRootParam,
   },
-  async ({ query, limit, traceId, aggressive }) => {
-    if (!search) {
+  async ({ query, limit, traceId, aggressive, projectRoot }) => {
+    const ctx = await resolveToolContext(projectRoot);
+    if (!ctx.search) {
       return {
         content: [{ type: "text" as const, text: "<gnosys: no-strong-recall-needed>" }],
       };
     }
 
-    const storePath = resolver.getWriteTarget()?.store.getStorePath() || "";
+    const storePath = ctx.resolver.getWriteTarget()?.store.getStorePath() || "";
     const recallConfig = {
-      ...config.recall,
+      ...ctx.config.recall,
       ...(aggressive !== undefined ? { aggressive } : {}),
     };
 
     const result = await recall(query, {
       limit: Math.min(limit || recallConfig.maxMemories, 15),
-      search,
-      resolver,
+      search: ctx.search,
+      resolver: ctx.resolver,
       storePath,
       traceId,
       recallConfig,
-      gnosysDb: gnosysDb || undefined,
+      gnosysDb: ctx.gnosysDb || undefined,
     });
 
     return {
@@ -2158,9 +2346,11 @@ server.tool(
     days: z.number().optional().describe("Number of days to look back (default 7)"),
     operation: z.string().optional().describe("Filter by operation type: read, write, reinforce, dearchive, archive, maintain, search, ask, recall"),
     limit: z.number().optional().describe("Max entries to return (default 100)"),
+    projectRoot: projectRootParam,
   },
-  async ({ days, operation, limit }) => {
-    const storePath = resolver.getWriteTarget()?.store.getStorePath();
+  async ({ days, operation, limit, projectRoot }) => {
+    const ctx = await resolveToolContext(projectRoot);
+    const storePath = ctx.resolver.getWriteTarget()?.store.getStorePath();
     if (!storePath) {
       return {
         content: [{ type: "text" as const, text: "No store found." }],
@@ -2272,6 +2462,41 @@ async function main() {
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
+
+  // ─── MCP Roots Support (multi-project awareness) ───────────────────────
+  // After connecting, request workspace roots from the host. This lets us
+  // discover .gnosys stores in all open projects, not just the cwd.
+  try {
+    const rootsResult = await server.server.listRoots();
+    if (rootsResult.roots && rootsResult.roots.length > 0) {
+      GnosysResolver.setMcpRoots(rootsResult.roots);
+      console.error(`MCP roots: ${rootsResult.roots.map((r) => r.name || r.uri).join(", ")}`);
+    }
+  } catch {
+    // Host doesn't support roots/list — that's fine, fall back to cwd
+    console.error("MCP roots: not supported by host (using cwd fallback)");
+  }
+
+  // Listen for roots changes (e.g. user opens/closes folders)
+  try {
+    const { RootsListChangedNotificationSchema } = await import("@modelcontextprotocol/sdk/types.js");
+    server.server.setNotificationHandler(
+      RootsListChangedNotificationSchema,
+      async () => {
+        try {
+          const updated = await server.server.listRoots();
+          if (updated.roots) {
+            GnosysResolver.setMcpRoots(updated.roots);
+            console.error(`MCP roots updated: ${updated.roots.map((r) => r.name || r.uri).join(", ")}`);
+          }
+        } catch {
+          // Ignore errors during roots refresh
+        }
+      }
+    );
+  } catch {
+    // Notification handler setup failed — non-critical
+  }
 }
 
 main().catch((err) => {

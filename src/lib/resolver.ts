@@ -30,13 +30,72 @@ export interface LayeredMemory extends Memory {
 export class GnosysResolver {
   private stores: ResolvedStore[] = [];
 
+  /** MCP workspace roots (file:// URIs → local paths). Updated via roots/list. */
+  private static mcpRoots: string[] = [];
+
+  /**
+   * Update the MCP roots list. Call this from the MCP server on init
+   * and on "notifications/roots/list_changed".
+   */
+  static setMcpRoots(roots: Array<{ uri: string; name?: string }>): void {
+    GnosysResolver.mcpRoots = roots
+      .map((r) => {
+        try {
+          // Convert file:// URI to local path
+          if (r.uri.startsWith("file://")) {
+            return new URL(r.uri).pathname;
+          }
+          return r.uri;
+        } catch {
+          return r.uri;
+        }
+      })
+      .filter(Boolean);
+  }
+
+  /**
+   * Get the current MCP roots as local paths.
+   */
+  static getMcpRoots(): string[] {
+    return [...GnosysResolver.mcpRoots];
+  }
+
+  /**
+   * Create a resolver scoped to a specific project root.
+   * Used for per-tool projectRoot parameter — each call gets its own
+   * resolver instance, so there's no shared mutable state.
+   */
+  static async resolveForProject(projectRoot: string): Promise<GnosysResolver> {
+    const resolver = new GnosysResolver();
+    const storePath = path.join(path.resolve(projectRoot), ".gnosys");
+
+    try {
+      const stat = await fs.stat(storePath);
+      if (stat.isDirectory()) {
+        const store = new GnosysStore(storePath);
+        await store.init();
+        resolver.stores.push({
+          layer: "project",
+          label: "project",
+          store,
+          writable: true,
+          path: storePath,
+        });
+      }
+    } catch {
+      // Store doesn't exist at projectRoot — fall through to empty resolver
+    }
+
+    return resolver;
+  }
+
   /**
    * Discover and initialize all store layers.
    */
   async resolve(): Promise<ResolvedStore[]> {
     this.stores = [];
 
-    // 1. Project store — check registered projects first, then walk up from cwd.
+    // 1. Project store — check registered projects first, then MCP roots, then walk up from cwd.
     //    Registered projects are saved in ~/.config/gnosys/projects.json by gnosys_init.
     //    This is more reliable than cwd because MCP servers may be spawned
     //    with cwd set to the user's home directory rather than the open project.
@@ -250,12 +309,14 @@ export class GnosysResolver {
   }
 
   /**
-   * Find a project store. Checks registered projects first (from
-   * ~/.config/gnosys/projects.json), then walks up from cwd as fallback.
+   * Find a project store. Priority order:
+   *   1. Registered projects (~/.config/gnosys/projects.json)
+   *   2. MCP workspace roots (from roots/list)
+   *   3. Walk up from cwd (legacy fallback)
    */
   private async findProjectStore(): Promise<string | null> {
-    // Check registered projects first — most reliable when MCP server
-    // cwd doesn't match the editor's open project.
+    // 1. Check registered projects first — most reliable when MCP server
+    //    cwd doesn't match the editor's open project.
     const registered = await this.getRegisteredProjects();
     for (const projectDir of registered) {
       const candidate = path.join(projectDir, ".gnosys");
@@ -264,7 +325,15 @@ export class GnosysResolver {
       }
     }
 
-    // Fallback: walk up from cwd (works when cwd matches the project)
+    // 2. Check MCP roots — workspace folders the host tells us about.
+    for (const rootPath of GnosysResolver.mcpRoots) {
+      const candidate = path.join(rootPath, ".gnosys");
+      if (await this.isValidStore(candidate)) {
+        return candidate;
+      }
+    }
+
+    // 3. Fallback: walk up from cwd (works when cwd matches the project)
     let dir = path.resolve(process.cwd());
     const root = path.parse(dir).root;
 
@@ -297,6 +366,56 @@ export class GnosysResolver {
   private getRegistryPath(): string {
     const home = process.env.HOME || process.env.USERPROFILE || "/tmp";
     return path.join(home, ".config", "gnosys", "projects.json");
+  }
+
+  /**
+   * Detect all available stores from all sources (registered, MCP roots, cwd, env vars).
+   * Returns a flat list for debugging. Does NOT modify the active stores.
+   */
+  async detectAllStores(): Promise<Array<{
+    source: string;
+    path: string;
+    hasGnosys: boolean;
+    isActive: boolean;
+  }>> {
+    const results: Array<{ source: string; path: string; hasGnosys: boolean; isActive: boolean }> = [];
+    const activePaths = new Set(this.stores.map((s) => s.path));
+
+    // Registered projects
+    const registered = await this.getRegisteredProjects();
+    for (const dir of registered) {
+      const storePath = path.join(dir, ".gnosys");
+      const has = await this.isValidStore(storePath);
+      results.push({ source: "registered", path: dir, hasGnosys: has, isActive: activePaths.has(storePath) });
+    }
+
+    // MCP roots
+    for (const rootPath of GnosysResolver.mcpRoots) {
+      const storePath = path.join(rootPath, ".gnosys");
+      const has = await this.isValidStore(storePath);
+      // Skip if already listed as registered
+      if (!results.some((r) => r.path === rootPath)) {
+        results.push({ source: "mcp-root", path: rootPath, hasGnosys: has, isActive: activePaths.has(storePath) });
+      }
+    }
+
+    // CWD
+    const cwd = process.cwd();
+    if (!results.some((r) => r.path === cwd)) {
+      const cwdStore = path.join(cwd, ".gnosys");
+      const has = await this.isValidStore(cwdStore);
+      results.push({ source: "cwd", path: cwd, hasGnosys: has, isActive: activePaths.has(cwdStore) });
+    }
+
+    // Env vars
+    if (process.env.GNOSYS_PERSONAL) {
+      results.push({ source: "env:GNOSYS_PERSONAL", path: process.env.GNOSYS_PERSONAL, hasGnosys: true, isActive: activePaths.has(process.env.GNOSYS_PERSONAL) });
+    }
+    if (process.env.GNOSYS_GLOBAL) {
+      results.push({ source: "env:GNOSYS_GLOBAL", path: process.env.GNOSYS_GLOBAL, hasGnosys: true, isActive: activePaths.has(process.env.GNOSYS_GLOBAL) });
+    }
+
+    return results;
   }
 
   /**
