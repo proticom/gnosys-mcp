@@ -5,7 +5,14 @@
  * Embeddings are stored in SQLite as regeneratable sidecar data.
  */
 
-import Database from "better-sqlite3";
+// Dynamic import — gracefully handles missing native module (dlopen failures)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let Database: any = null;
+try {
+  Database = (await import("better-sqlite3")).default;
+} catch {
+  // better-sqlite3 native module not available — embeddings features disabled
+}
 import path from "path";
 import fs from "fs/promises";
 
@@ -17,7 +24,8 @@ const EMBEDDING_DIM = 384;
 
 export class GnosysEmbeddings {
   private pipeline: Pipeline | null = null;
-  private db: Database.Database | null = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private db: any = null;
   private storePath: string;
   private modelReady = false;
 
@@ -57,8 +65,9 @@ export class GnosysEmbeddings {
    * Stored in the same .config/search.db used by FTS5 search,
    * or a separate embeddings.db if search.db isn't writable.
    */
-  openDb(): Database.Database {
+  openDb(): any {
     if (this.db) return this.db;
+    if (!Database) return null;  // Native module not available
 
     const dbPath = path.join(this.storePath, ".config", "embeddings.db");
     try {

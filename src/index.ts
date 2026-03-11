@@ -5,11 +5,23 @@
  * Supports layered stores: project (auto-discovered), personal, global, optional.
  */
 
-// Load API keys from ~/.config/gnosys/.env before anything else
+// Load API keys from ~/.config/gnosys/.env before anything else.
+// IMPORTANT: We use dotenv.parse() instead of dotenv.config() because
+// dotenv v17+ writes injection notices to stdout, which corrupts the
+// MCP stdio JSON protocol. parse() is a pure function with no side effects.
 import dotenv from "dotenv";
 import path from "path";
+import { readFileSync } from "fs";
 const home = process.env.HOME || process.env.USERPROFILE || "/tmp";
-dotenv.config({ path: path.join(home, ".config", "gnosys", ".env") });
+try {
+  const envFile = readFileSync(path.join(home, ".config", "gnosys", ".env"), "utf8");
+  const parsed = dotenv.parse(envFile);
+  for (const [key, val] of Object.entries(parsed)) {
+    if (!(key in process.env)) process.env[key] = val;
+  }
+} catch {
+  // .env file not found — that's fine, env vars may be set elsewhere
+}
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";

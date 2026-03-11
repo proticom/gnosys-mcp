@@ -1044,10 +1044,9 @@ footer a:hover { color: var(--accent-light); }
         <div class="hiw-tabs" data-tab-group="rules">
           <button class="hiw-tab active" onclick="switchTab(this, 'rule-cursor', 'rules')">Cursor</button>
           <button class="hiw-tab" onclick="switchTab(this, 'rule-claude-code', 'rules')">Claude Code</button>
-          <button class="hiw-tab" onclick="switchTab(this, 'rule-windsurf', 'rules')">Windsurf</button>
         </div>
 
-        <!-- Cursor Rule -->
+        <!-- Cursor Rule (.mdc format) -->
         <div class="hiw-config-panel active" data-tab-group="rules" id="panel-rule-cursor">
           <div class="hiw-code">
             <div class="hiw-code-header">
@@ -1056,35 +1055,35 @@ footer a:hover { color: var(--accent-light); }
               <span class="hiw-code-dot"></span>
               .cursor/rules/gnosys.mdc
               <span class="hiw-copy-buttons">
-                <button class="hiw-copy-btn" id="copy-rule-cursor" onclick="copyRule(this)"><svg class="copy-icon" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy rule</button>
+                <button class="hiw-copy-btn" id="copy-rule-cursor" onclick="copyRule(this, 'cursor')"><svg class="copy-icon" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy rule</button>
               </span>
             </div>
-            <pre class="rule-preview"><span class="comment"># Gnosys Memory System</span>
+            <pre class="rule-preview"><span class="comment">---</span>
+<span class="key">description</span>: Gnosys persistent memory
+<span class="key">alwaysApply</span>: true
+<span class="comment">---</span>
 
-<span class="comment">## When to Retrieve</span>
-At the start of every task, call <span class="key">gnosys_discover</span>
-with keywords describing what you're working on.
-Also retrieve when the user says "remember when…",
-"what did we decide…", "recall…", "check your memory…"
+<span class="comment"># Gnosys Memory System</span>
 
-<span class="comment">## When to Write</span>
-Commit to Gnosys when the user says "remember this",
-"memorize", "save this", "note this down"… or when
-they state a decision, preference, spec, or plan.
-After significant work, commit findings automatically.
+<span class="comment">## Retrieve memories</span>
+- At task start, call <span class="key">gnosys_discover</span> with keywords
+- Load results with <span class="key">gnosys_read</span>
+- Trigger on: "recall", "remember when", "what did we decide"
+
+<span class="comment">## Write memories</span>
+- Trigger on: "remember", "memorize", "save this", "don't forget"
+- Also write on decisions, preferences, specs, post-task findings
 
 <span class="comment">## Key Tools</span>
-<span class="key">gnosys_discover</span>  → find relevant memories (call FIRST)
-<span class="key">gnosys_read</span>      → load full content
-<span class="key">gnosys_add</span>       → write memory (LLM-structured)
-<span class="key">gnosys_search</span>    → keyword search
-<span class="key">gnosys_ask</span>       → Q&amp;A with citations
-<span class="key">gnosys_update</span>    → modify existing memory
-<span class="string">… and 25 more tools</span></pre>
+<span class="key">gnosys_discover</span> → find memories  <span class="key">gnosys_add</span> → write
+<span class="key">gnosys_read</span>     → load content   <span class="key">gnosys_update</span> → modify
+<span class="key">gnosys_hybrid_search</span> → best search
+<span class="key">gnosys_ask</span> → Q&amp;A with citations
+<span class="string">… plus 25 more tools (maintain, history, graph, etc.)</span></pre>
           </div>
         </div>
 
-        <!-- Claude Code Rule -->
+        <!-- Claude Code Rule (CLAUDE.md format) -->
         <div class="hiw-config-panel" data-tab-group="rules" id="panel-rule-claude-code">
           <div class="hiw-code">
             <div class="hiw-code-header">
@@ -1093,68 +1092,30 @@ After significant work, commit findings automatically.
               <span class="hiw-code-dot"></span>
               CLAUDE.md
               <span class="hiw-copy-buttons">
-                <button class="hiw-copy-btn" id="copy-rule-claude-code" onclick="copyRule(this)"><svg class="copy-icon" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy rule</button>
+                <button class="hiw-copy-btn" id="copy-rule-claude-code" onclick="copyRule(this, 'claude')"><svg class="copy-icon" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy rule</button>
               </span>
             </div>
-            <pre class="rule-preview"><span class="comment"># Gnosys Memory System</span>
+            <pre class="rule-preview"><span class="comment"># Gnosys Memory</span>
 
-<span class="comment">## When to Retrieve</span>
-At the start of every task, call <span class="key">gnosys_discover</span>
-with keywords describing what you're working on.
-Also retrieve when the user says "remember when…",
-"what did we decide…", "recall…", "check your memory…"
+This project uses Gnosys for persistent memory via MCP.
 
-<span class="comment">## When to Write</span>
-Commit to Gnosys when the user says "remember this",
-"memorize", "save this", "note this down"… or when
-they state a decision, preference, spec, or plan.
-After significant work, commit findings automatically.
+<span class="comment">## Read first</span>
+- At task start, call <span class="key">gnosys_discover</span> with keywords
+- Load results with <span class="key">gnosys_read</span>
+- On "recall", "remember when", "what did we decide" → search first
 
-<span class="comment">## Key Tools</span>
-<span class="key">gnosys_discover</span>  → find relevant memories (call FIRST)
-<span class="key">gnosys_read</span>      → load full content
-<span class="key">gnosys_add</span>       → write memory (LLM-structured)
-<span class="key">gnosys_search</span>    → keyword search
-<span class="key">gnosys_ask</span>       → Q&amp;A with citations
-<span class="key">gnosys_update</span>    → modify existing memory
-<span class="string">… and 25 more tools</span></pre>
-          </div>
-        </div>
+<span class="comment">## Write automatically</span>
+- On "remember", "memorize", "save this" → call <span class="key">gnosys_add</span>
+- Decisions/preferences → commit to <span class="key">decisions/</span>
+- Specs → commit BEFORE starting work
+- After implementation → commit findings
 
-        <!-- Windsurf Rule -->
-        <div class="hiw-config-panel" data-tab-group="rules" id="panel-rule-windsurf">
-          <div class="hiw-code">
-            <div class="hiw-code-header">
-              <span class="hiw-code-dot"></span>
-              <span class="hiw-code-dot"></span>
-              <span class="hiw-code-dot"></span>
-              .windsurfrules
-              <span class="hiw-copy-buttons">
-                <button class="hiw-copy-btn" id="copy-rule-windsurf" onclick="copyRule(this)"><svg class="copy-icon" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy rule</button>
-              </span>
-            </div>
-            <pre class="rule-preview"><span class="comment"># Gnosys Memory System</span>
-
-<span class="comment">## When to Retrieve</span>
-At the start of every task, call <span class="key">gnosys_discover</span>
-with keywords describing what you're working on.
-Also retrieve when the user says "remember when…",
-"what did we decide…", "recall…", "check your memory…"
-
-<span class="comment">## When to Write</span>
-Commit to Gnosys when the user says "remember this",
-"memorize", "save this", "note this down"… or when
-they state a decision, preference, spec, or plan.
-After significant work, commit findings automatically.
-
-<span class="comment">## Key Tools</span>
-<span class="key">gnosys_discover</span>  → find relevant memories (call FIRST)
-<span class="key">gnosys_read</span>      → load full content
-<span class="key">gnosys_add</span>       → write memory (LLM-structured)
-<span class="key">gnosys_search</span>    → keyword search
-<span class="key">gnosys_ask</span>       → Q&amp;A with citations
-<span class="key">gnosys_update</span>    → modify existing memory
-<span class="string">… and 25 more tools</span></pre>
+<span class="comment">## Key tools</span>
+| Action | Tool |
+| Find   | <span class="key">gnosys_discover</span> → <span class="key">gnosys_read</span> |
+| Search | <span class="key">gnosys_hybrid_search</span>, <span class="key">gnosys_ask</span> |
+| Write  | <span class="key">gnosys_add</span>, <span class="key">gnosys_add_structured</span> |
+| Update | <span class="key">gnosys_update</span>, <span class="key">gnosys_reinforce</span> |</pre>
           </div>
         </div>
       </div>
@@ -1284,12 +1245,15 @@ function switchTab(btn, panelId, group) {
   document.getElementById('panel-' + panelId).classList.add('active');
 }
 
-// Copy full rule to clipboard
-var GNOSYS_RULE = "# Gnosys Memory System\n\nYou have access to a persistent memory system called **Gnosys** via MCP tools. Use it proactively \u2014 don\u2019t wait for explicit instructions. Memory makes you a better collaborator over time.\n\n## When to Retrieve Memories\n\n**At the start of every task**, call `gnosys_discover` with keywords describing what you\u2019re working on. This returns lightweight metadata \u2014 then use `gnosys_read` to load the ones that look relevant.\n\nAlso retrieve memories when the user says things like:\n- \u201Cremember when we\u2026\u201D, \u201Cwhat did we decide about\u2026\u201D, \u201Crecall\u2026\u201D, \u201Cwhat do you know about\u2026\u201D\n- \u201Ccheck your memory\u201D, \u201Clook that up\u201D, \u201Cdo we have notes on\u2026\u201D\n- Any reference to a past conversation, decision, or piece of knowledge\n\nUse `gnosys_search` for keyword search, `gnosys_hybrid_search` for semantic + keyword, or `gnosys_ask` for a natural-language question with a cited answer.\n\n## When to Write Memories\n\nCommit knowledge to Gnosys whenever ANY of these happen:\n\n### Explicit requests\nThe user says: \u201Cremember this\u201D, \u201Cmemorize\u201D, \u201Csave this\u201D, \u201Cnote this down\u201D, \u201Cstore this\u201D, \u201Crecord this\u201D, \u201Ccommit to memory\u201D, \u201Cdon\u2019t forget\u201D, or any variation.\n\n### Decisions and preferences\nWhenever the user states a decision, preference, or opinion \u2014 even casually. Examples: choosing a library, rejecting an approach, setting a convention, expressing how they want something done.\n\n### Specs and plans\nWhen the user provides a spec, plan, feature request, or implementation prompt \u2014 commit it BEFORE starting the work.\n\n### Post-task findings\nAfter completing significant work, commit what was learned: gotchas, key findings, things that worked differently than expected.\n\n## How to Write\n\nUse `gnosys_add` for freeform input (the LLM structures it automatically), or `gnosys_add_structured` for precise control:\n\n```\ngnosys_add_structured({\n  title: \"Descriptive title\",\n  category: \"decisions\",\n  content: \"Markdown content...\",\n  tags: '{\"domain\": [\"tag1\"], \"type\": [\"tag2\"]}',\n  relevance: \"space separated keywords for discovery\",\n  author: \"human+ai\",\n  authority: \"declared\"\n})\n```\n\n## How to Update\n\nUse `gnosys_update` to modify existing memories when information changes. Set `supersedes` when a new memory replaces an old one.\n\nUse `gnosys_reinforce` to signal whether a retrieved memory was `useful`, `not_relevant`, or `outdated`.\n\n## Available MCP Tools (Quick Reference)\n\n| Tool | Purpose |\n|------|---------|\n| `gnosys_discover` | Find relevant memories by keyword (metadata only) \u2014 call FIRST |\n| `gnosys_read` | Load a specific memory\u2019s full content |\n| `gnosys_search` | Full-text keyword search |\n| `gnosys_hybrid_search` | Keyword + semantic search (best results) |\n| `gnosys_semantic_search` | Semantic similarity search only |\n| `gnosys_ask` | Natural-language Q&A with citations |\n| `gnosys_add` | Add memory from freeform text (LLM-structured) |\n| `gnosys_add_structured` | Add memory with explicit fields (no LLM) |\n| `gnosys_update` | Update an existing memory |\n| `gnosys_reinforce` | Signal memory usefulness |\n| `gnosys_list` | List all memories (filterable) |\n| `gnosys_lens` | Filtered view with multiple criteria |\n| `gnosys_tags` | List tag registry |\n| `gnosys_tags_add` | Add a new tag |\n| `gnosys_commit_context` | Extract + commit novel memories from context |\n| `gnosys_stale` | Find memories not updated recently |\n| `gnosys_history` | Version history for a memory |\n| `gnosys_rollback` | Revert a memory to a prior version |\n| `gnosys_timeline` | Show memory creation/modification timeline |\n| `gnosys_stats` | Store statistics |\n| `gnosys_links` | Show wikilinks for a memory |\n| `gnosys_graph` | Full cross-reference graph |\n| `gnosys_dashboard` | System health overview |\n| `gnosys_stores` | Show active stores and layers |\n| `gnosys_maintain` | Run vault maintenance (dedup, decay) |\n| `gnosys_init` | Initialize a new store |\n| `gnosys_bootstrap` | Batch-import existing documents |\n| `gnosys_import` | Bulk import CSV/JSON/JSONL |\n| `gnosys_reindex` | Rebuild semantic embeddings |\n| `gnosys_reindex_graph` | Rebuild wikilink graph |\n";
+// Copy IDE-specific rule to clipboard
+var RULES = {
+  cursor: "---\ndescription: Gnosys persistent memory \u2014 teaches the agent when to read/write memories via MCP tools\nalwaysApply: true\n---\n\n# Gnosys Memory System\n\nYou have access to persistent memory via Gnosys MCP tools. Use them proactively.\n\n## Retrieve memories\n\n- At the start of every task, call `gnosys_discover` with keywords for what you\u2019re working on\n- Call `gnosys_read` to load any relevant results\n- Trigger on: \u201Cremember when\u2026\u201D, \u201Cwhat did we decide\u2026\u201D, \u201Crecall\u201D, \u201Ccheck your memory\u201D, \u201Cdo we have notes on\u2026\u201D\n- Use `gnosys_hybrid_search` for best search results, `gnosys_ask` for Q&A with citations\n\n## Write memories\n\n- Trigger on: \u201Cremember this\u201D, \u201Cmemorize\u201D, \u201Csave this\u201D, \u201Cnote this down\u201D, \u201Cstore this\u201D, \u201Cdon\u2019t forget\u201D\n- Also write when the user states a decision, preference, or opinion \u2014 even casually\n- Commit specs and plans BEFORE starting implementation\n- After significant work, commit findings (gotchas, what worked, what didn\u2019t)\n\n## Tools\n\n- `gnosys_add` \u2014 write memory from freeform text (LLM structures it)\n- `gnosys_add_structured` \u2014 write with explicit title, category, content, tags, relevance\n- `gnosys_update` \u2014 modify existing memory\n- `gnosys_reinforce` \u2014 signal useful / not_relevant / outdated\n- `gnosys_commit_context` \u2014 extract novel memories from a conversation context\n- `gnosys_discover` \u2014 lightweight metadata search (call FIRST)\n- `gnosys_read` \u2014 load full memory content\n- `gnosys_search` \u2014 keyword search\n- `gnosys_hybrid_search` \u2014 keyword + semantic (best results)\n- `gnosys_ask` \u2014 natural-language Q&A with citations\n- `gnosys_list` \u2014 list all memories\n- `gnosys_lens` \u2014 filtered view (category, tag, status, confidence, date)\n- `gnosys_tags` / `gnosys_tags_add` \u2014 tag registry\n- `gnosys_links` / `gnosys_graph` \u2014 wikilink relationships\n- `gnosys_history` / `gnosys_rollback` \u2014 version control\n- `gnosys_stats` / `gnosys_dashboard` \u2014 system overview\n- `gnosys_maintain` \u2014 vault maintenance (dedup, decay, consolidation)\n- `gnosys_stale` \u2014 find memories not updated recently\n- `gnosys_stores` \u2014 show active store layers\n- `gnosys_init` \u2014 initialize a new store\n- `gnosys_bootstrap` / `gnosys_import` \u2014 bulk import\n- `gnosys_reindex` / `gnosys_reindex_graph` \u2014 rebuild indexes\n\n## Categories\n\nUse these when writing: `architecture`, `decisions`, `requirements`, `concepts`, `roadmap`, `landscape`, `open-questions`\n",
+  claude: "# Gnosys Memory\n\nThis project uses Gnosys for persistent memory via MCP. Follow these rules:\n\n## Read first\n\n- At task start, call `gnosys_discover` with relevant keywords\n- Load results with `gnosys_read`\n- When the user references past decisions, says \u201Crecall\u201D, \u201Cremember when\u201D, \u201Cwhat did we decide\u201D \u2014 search memory first\n\n## Write automatically\n\n- When user says \u201Cremember\u201D, \u201Cmemorize\u201D, \u201Csave this\u201D, \u201Cnote this down\u201D, \u201Cdon\u2019t forget\u201D \u2014 call `gnosys_add`\n- When user states a decision or preference (even casually) \u2014 commit to `decisions/`\n- When user provides a spec or plan \u2014 commit BEFORE starting work\n- After significant implementation \u2014 commit findings and gotchas\n\n## Key tools\n\n| Action | Tool |\n|--------|------|\n| Find memories | `gnosys_discover` (metadata) \u2192 `gnosys_read` (content) |\n| Search | `gnosys_hybrid_search` (best), `gnosys_search` (keyword), `gnosys_ask` (Q&A) |\n| Write | `gnosys_add` (freeform), `gnosys_add_structured` (explicit fields) |\n| Update | `gnosys_update`, `gnosys_reinforce` (useful/not_relevant/outdated) |\n| Browse | `gnosys_list`, `gnosys_lens` (filtered), `gnosys_tags`, `gnosys_graph` |\n| Maintain | `gnosys_maintain`, `gnosys_stale`, `gnosys_history`, `gnosys_dashboard` |\n\n## Categories\n\n`architecture` \u00b7 `decisions` \u00b7 `requirements` \u00b7 `concepts` \u00b7 `roadmap` \u00b7 `landscape` \u00b7 `open-questions`\n"
+};
 
-function copyRule(btn) {
+function copyRule(btn, variant) {
   var ic = btn.innerHTML;
-  navigator.clipboard.writeText(GNOSYS_RULE).then(function() {
+  navigator.clipboard.writeText(RULES[variant]).then(function() {
     btn.innerHTML = 'copied!';
     btn.classList.add('copied');
     setTimeout(function() { btn.innerHTML = ic; btn.classList.remove('copied'); }, 2000);

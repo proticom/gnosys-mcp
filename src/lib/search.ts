@@ -3,7 +3,14 @@
  * FTS5-based search and discovery across all Gnosys stores.
  */
 
-import Database from "better-sqlite3";
+// Dynamic import — gracefully handles missing native module (dlopen failures)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let Database: any = null;
+try {
+  Database = (await import("better-sqlite3")).default;
+} catch {
+  // better-sqlite3 native module not available — search degrades gracefully
+}
 import path from "path";
 import { GnosysStore, Memory } from "./store.js";
 
@@ -22,11 +29,17 @@ export interface DiscoverResult {
 }
 
 export class GnosysSearch {
-  private db!: Database.Database;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private db: any = null;
   private storePath: string;
+  private available = false;
 
   constructor(storePath: string) {
     this.storePath = storePath;
+    if (!Database) {
+      // Native module not available — search features disabled
+      return;
+    }
     // Try file-based DB first, fall back to in-memory.
     // We must verify writes actually work — some filesystems (e.g., mounted
     // volumes in sandboxed environments) allow file creation but block the
@@ -39,11 +52,13 @@ export class GnosysSearch {
       this.db.exec(
         "CREATE TABLE IF NOT EXISTS _write_test (v INTEGER); INSERT INTO _write_test VALUES (1); DELETE FROM _write_test; DROP TABLE _write_test;"
       );
+      this.available = true;
     } catch {
       // Fallback to in-memory (works everywhere, rebuilt on each start)
       try { this.db?.close(); } catch { /* ignore */ }
       this.db = new Database(":memory:");
       this.initSchema();
+      this.available = true;
     }
   }
 
@@ -65,6 +80,7 @@ export class GnosysSearch {
    * Clear the entire search index.
    */
   clearIndex(): void {
+    if (!this.db) return;
     this.db.exec("DELETE FROM memories_fts");
   }
 
@@ -83,6 +99,7 @@ export class GnosysSearch {
    * Optional storeLabel prefix is prepended to relative_path for disambiguation.
    */
   async addStoreMemories(store: GnosysStore, storeLabel?: string): Promise<number> {
+    if (!this.db) return 0;
     const memories = await store.getAllMemories();
 
     const insert = this.db.prepare(
@@ -120,6 +137,7 @@ export class GnosysSearch {
    * Search memories by keyword query.
    */
   search(query: string, limit: number = 20): SearchResult[] {
+    if (!this.db) return [];
     // FTS5 query — escape special characters
     const safeQuery = query.replace(/['"]/g, "").trim();
     if (!safeQuery) return [];
@@ -161,6 +179,7 @@ export class GnosysSearch {
    * This is the primary discovery mechanism replacing the static manifest.
    */
   discover(query: string, limit: number = 20): DiscoverResult[] {
+    if (!this.db) return [];
     const safeQuery = query.replace(/['"]/g, "").trim();
     if (!safeQuery) return [];
 
@@ -197,6 +216,6 @@ export class GnosysSearch {
   }
 
   close(): void {
-    this.db.close();
+    this.db?.close();
   }
 }
