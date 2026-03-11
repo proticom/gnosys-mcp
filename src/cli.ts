@@ -1479,7 +1479,7 @@ program
 
     const embeddings = new GnosysEmbeddings(storePath);
     const hybridSearch = new GnosysHybridSearch(search, embeddings, resolver, storePath);
-    const ask = new GnosysAsk(hybridSearch, cliConfig);
+    const ask = new GnosysAsk(hybridSearch, cliConfig, resolver, storePath);
 
     if (!ask.isLLMAvailable) {
       console.error("No LLM provider available. Set ANTHROPIC_API_KEY or switch to Ollama: gnosys config set provider ollama");
@@ -1809,10 +1809,62 @@ program
     console.log(formatMaintenanceReport(report));
   });
 
+// ─── gnosys dearchive ───────────────────────────────────────────────────
+program
+  .command("dearchive <query>")
+  .description("Force-dearchive memories matching a query from archive.db back to active")
+  .option("--limit <n>", "Max memories to dearchive", "5")
+  .action(async (query: string, opts: { limit: string }) => {
+    const { GnosysArchive } = await import("./lib/archive.js");
+
+    const resolver = await getResolver();
+    const stores = resolver.getStores();
+
+    if (stores.length === 0) {
+      console.error("No Gnosys stores found. Run gnosys init first.");
+      process.exit(1);
+    }
+
+    const writeTarget = resolver.getWriteTarget();
+    if (!writeTarget) {
+      console.error("No writable store found.");
+      process.exit(1);
+    }
+
+    const archive = new GnosysArchive(writeTarget.path);
+    if (!archive.isAvailable()) {
+      console.error("Archive not available. Is better-sqlite3 installed?");
+      process.exit(1);
+    }
+
+    const results = archive.searchArchive(query, parseInt(opts.limit));
+    if (results.length === 0) {
+      console.log(`No archived memories found matching "${query}".`);
+      archive.close();
+      return;
+    }
+
+    console.log(`Found ${results.length} archived memories matching "${query}":\n`);
+    for (const r of results) {
+      console.log(`  • ${r.title} (${r.id})`);
+    }
+    console.log("");
+
+    // Dearchive all found
+    const ids = results.map((r) => r.id);
+    const restored = await archive.dearchiveBatch(ids, writeTarget.store);
+    archive.close();
+
+    console.log(`Dearchived ${restored.length} memories back to active:`);
+    for (const rp of restored) {
+      console.log(`  → ${rp}`);
+    }
+  });
+
 // ─── gnosys doctor ──────────────────────────────────────────────────────
 program
   .command("doctor")
-  .description("Check system health: stores, LLM connectivity, embeddings")
+  .description("Check system health: stores, LLM connectivity, embeddings, archive")
   .action(async () => {
     const resolver = await getResolver();
     const stores = resolver.getStores();
@@ -1831,6 +1883,30 @@ program
       }
     }
     console.log("");
+
+    // Check archive
+    if (stores.length > 0) {
+      console.log("Archive (Two-Tier Memory):");
+      try {
+        const { GnosysArchive } = await import("./lib/archive.js");
+        const archive = new GnosysArchive(stores[0].path);
+        if (archive.isAvailable()) {
+          const stats = archive.getStats();
+          console.log(`  Archived memories: ${stats.totalArchived}`);
+          if (stats.totalArchived > 0) {
+            console.log(`  Archive DB size: ${stats.dbSizeMB.toFixed(2)} MB`);
+            console.log(`  Oldest archived: ${stats.oldestArchived}`);
+            console.log(`  Newest archived: ${stats.newestArchived}`);
+          }
+          archive.close();
+        } else {
+          console.log("  Not available (better-sqlite3 not installed)");
+        }
+      } catch {
+        console.log("  Not initialized");
+      }
+      console.log("");
+    }
 
     // Check config — SOC routing
     const cfg = stores.length > 0 ? await loadConfig(stores[0].path) : DEFAULT_CONFIG;

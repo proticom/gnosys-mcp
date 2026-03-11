@@ -21,6 +21,11 @@ import path from "path";
 export interface DashboardData {
   stores: Array<{ label: string; path: string; memoryCount: number }>;
   totalMemories: number;
+  archive: {
+    totalArchived: number;
+    dbSizeMB: number;
+    archiveEligible: number;
+  } | null;
   maintenance: {
     staleCount: number;
     avgConfidence: number;
@@ -67,6 +72,29 @@ export async function collectDashboardData(
     const memories = await s.store.getAllMemories();
     storeData.push({ label: s.label, path: s.path, memoryCount: memories.length });
     totalMemories += memories.length;
+  }
+
+  // Archive stats
+  let archive: DashboardData["archive"] = null;
+  if (stores.length > 0) {
+    try {
+      const { GnosysArchive, getArchiveEligible } = await import("./archive.js");
+      const arch = new GnosysArchive(stores[0].path);
+      if (arch.isAvailable()) {
+        const stats = arch.getStats();
+        // Count eligible for archiving
+        const allMems = await stores[0].store.getAllMemories();
+        const eligible = getArchiveEligible(allMems, config);
+        archive = {
+          totalArchived: stats.totalArchived,
+          dbSizeMB: stats.dbSizeMB,
+          archiveEligible: eligible.length,
+        };
+        arch.close();
+      }
+    } catch {
+      // Archive not available
+    }
   }
 
   // Maintenance health
@@ -140,6 +168,7 @@ export async function collectDashboardData(
   return {
     stores: storeData,
     totalMemories,
+    archive,
     maintenance,
     embeddings,
     graph,
@@ -169,8 +198,19 @@ export function formatDashboard(data: DashboardData): string {
     const label = `  ${s.label}: ${s.memoryCount} memories`.padEnd(53);
     lines.push(`║${label}║`);
   }
-  const total = `  Total: ${data.totalMemories} memories`.padEnd(53);
+  const total = `  Total: ${data.totalMemories} active memories`.padEnd(53);
   lines.push(`║${total}║`);
+
+  // Archive (Two-Tier Memory)
+  if (data.archive) {
+    lines.push("╟──────────────────────────────────────────────────────╢");
+    lines.push("║  ARCHIVE (TWO-TIER MEMORY)                          ║");
+    lines.push("╟──────────────────────────────────────────────────────╢");
+    const archived = `  Archived: ${data.archive.totalArchived} memories (${data.archive.dbSizeMB.toFixed(1)} MB)`.padEnd(53);
+    lines.push(`║${archived}║`);
+    const eligible = `  Eligible for archiving: ${data.archive.archiveEligible}`.padEnd(53);
+    lines.push(`║${eligible}║`);
+  }
 
   // Maintenance Health
   if (data.maintenance) {

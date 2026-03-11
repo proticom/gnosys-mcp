@@ -52,7 +52,7 @@ let config: GnosysConfig = DEFAULT_CONFIG;
 // Create MCP server
 const server = new McpServer({
   name: "gnosys",
-  version: "1.1.0",
+  version: "1.2.0",
 });
 
 // These are initialized in main() after resolver runs
@@ -1698,6 +1698,63 @@ server.tool(
   }
 );
 
+// ─── Tool: gnosys_dearchive ──────────────────────────────────────────────
+server.tool(
+  "gnosys_dearchive",
+  "Force-dearchive memories from archive.db back to active. Search the archive for memories matching a query, then restore them to the active layer. Used when you need specific archived knowledge that wasn't auto-dearchived by search/ask.",
+  {
+    query: z.string().describe("Search query to find archived memories to restore"),
+    limit: z.number().optional().describe("Max memories to dearchive (default 5)"),
+  },
+  async ({ query, limit }) => {
+    try {
+      const { GnosysArchive } = await import("./lib/archive.js");
+
+      const writeTarget = resolver.getWriteTarget();
+      if (!writeTarget) {
+        return {
+          content: [{ type: "text", text: "No writable store found. Run gnosys_init first." }],
+          isError: true,
+        };
+      }
+
+      const archive = new GnosysArchive(writeTarget.path);
+      if (!archive.isAvailable()) {
+        return {
+          content: [{ type: "text", text: "Archive not available. Is better-sqlite3 installed?" }],
+          isError: true,
+        };
+      }
+
+      const results = archive.searchArchive(query, limit || 5);
+      if (results.length === 0) {
+        archive.close();
+        return {
+          content: [{ type: "text", text: `No archived memories found matching "${query}".` }],
+        };
+      }
+
+      const ids = results.map((r) => r.id);
+      const restored = await archive.dearchiveBatch(ids, writeTarget.store);
+      archive.close();
+
+      const lines = [`Dearchived ${restored.length} memories back to active:`];
+      for (const rp of restored) {
+        lines.push(`  → ${rp}`);
+      }
+
+      return {
+        content: [{ type: "text", text: lines.join("\n") }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Dearchive failed: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
 // ─── Tool: gnosys_reindex_graph ──────────────────────────────────────────
 server.tool(
   "gnosys_reindex_graph",
@@ -1796,7 +1853,7 @@ async function main() {
     // Initialize hybrid search + ask engine (embeddings loaded lazily)
     const embeddings = new GnosysEmbeddings(writeTarget.store.getStorePath());
     hybridSearch = new GnosysHybridSearch(search, embeddings, resolver, writeTarget.store.getStorePath());
-    askEngine = new GnosysAsk(hybridSearch, config);
+    askEngine = new GnosysAsk(hybridSearch, config, resolver, writeTarget.store.getStorePath());
 
     const embCount = embeddings.hasEmbeddings() ? embeddings.count() : 0;
     console.error(

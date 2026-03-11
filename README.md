@@ -261,8 +261,9 @@ ANTHROPIC_API_KEY = "your-key-here"
 | `gnosys_stats` | Summary statistics for the memory store |
 | `gnosys_links` | Show wikilinks and backlinks for a memory |
 | `gnosys_graph` | Full cross-reference graph across all memories |
-| `gnosys_maintain` | Run vault maintenance (decay, dedup, consolidation) |
-| `gnosys_dashboard` | System dashboard (memory count, health, graph, LLM status) |
+| `gnosys_maintain` | Run vault maintenance (decay, dedup, consolidation, archiving) |
+| `gnosys_dearchive` | Force-dearchive memories from archive back to active |
+| `gnosys_dashboard` | System dashboard (memory count, health, archive, graph, LLM status) |
 | `gnosys_reindex_graph` | Build/rebuild the wikilink graph |
 | `gnosys_stores` | Show active stores |
 | `gnosys_tags` | List tag registry |
@@ -286,6 +287,7 @@ your-project/
     nvd-cves/
       cve-2024-1234.md
     gnosys.json          # configuration
+    archive.db           # two-tier memory archive (SQLite)
     .config/tags.json    # tag registry
     CHANGELOG.md
     .git/                # auto-versioned
@@ -575,6 +577,32 @@ Agent memory is a spectrum — from a single markdown file to full knowledge gra
 - **Hybrid search without a vector DB**: FTS5 keyword search is built-in. Semantic search is optional (local embeddings via Ollama, no API costs).
 - **Bulk import**: CSV, JSON, JSONL. Turn a dataset into a searchable knowledge base in seconds.
 - **Cost**: Genuinely free. No cloud service, no API costs if using local LLM providers.
+- **Two-tier memory**: Active memories stay lightning-fast as markdown files. Old/low-confidence memories automatically archive to SQLite — and auto-dearchive when needed by search or ask.
+
+### Two-Tier Memory (Active + Archive)
+
+Gnosys uses a two-tier architecture so your current work stays fast while safely growing to 100k+ memories:
+
+**Active layer** — `.gnosys/<category>/*.md` — fast markdown files for day-to-day work.
+
+**Archive layer** — `.gnosys/archive.db` — SQLite database for old or low-confidence memories.
+
+The flow is fully automatic and bidirectional:
+1. `gnosys maintain --auto-apply` moves stale memories (>90 days unreinforced + confidence below 0.3) from active → archive
+2. Every search and ask query checks the archive if active results are insufficient
+3. Archived memories that get cited in an answer are automatically restored to active and reinforced
+
+You can also force-dearchive with `gnosys dearchive "query"` or the `gnosys_dearchive` MCP tool.
+
+Configure thresholds in `gnosys.json`:
+```json
+{
+  "archive": {
+    "maxActiveDays": 90,
+    "minConfidence": 0.3
+  }
+}
+```
 
 ---
 
@@ -610,7 +638,8 @@ gnosys tags-add              # Add a new tag
 gnosys reindex               # Build/rebuild semantic embeddings
 gnosys reindex-graph         # Build/rebuild wikilink graph
 gnosys maintain              # Run vault maintenance (dry run by default)
-gnosys maintain --auto-apply # Apply all maintenance automatically
+gnosys maintain --auto-apply # Apply all maintenance + archiving automatically
+gnosys dearchive "query"     # Force-dearchive memories from archive to active
 gnosys dashboard             # Pretty system dashboard
 gnosys dashboard --json      # Dashboard as JSON
 gnosys config show           # Show SOC configuration
@@ -647,7 +676,8 @@ src/
     hybridSearch.ts # Hybrid search with RRF fusion
     ask.ts          # Freeform Q&A with LLM synthesis + citations
     llm.ts          # LLM abstraction — System of Cognition (5 providers)
-    maintenance.ts  # Auto-maintenance: decay, dedup, consolidation, reinforcement
+    maintenance.ts  # Auto-maintenance: decay, dedup, consolidation, archiving
+    archive.ts      # Two-tier memory: active ↔ archive (SQLite)
     dashboard.ts    # Aggregated system dashboard
     graph.ts        # Persistent wikilink graph (graph.json)
     tags.ts         # Tag registry management

@@ -1,4 +1,4 @@
-# Gnosys v1.1 — Real-World Demo
+# Gnosys v1.2 — Real-World Demo
 
 This document shows Gnosys importing real data from two production APIs: **USDA FoodData Central** and **NVD (National Vulnerability Database)**.
 
@@ -427,12 +427,17 @@ gnosys dashboard
 
 ```
 ╔══════════════════════════════════════════════════════╗
-║          GNOSYS DASHBOARD  v1.1.0                   ║
+║          GNOSYS DASHBOARD  v1.2.0                   ║
 ╠══════════════════════════════════════════════════════╣
 ║  MEMORY STORES                                      ║
 ╟──────────────────────────────────────────────────────╢
-║  project: 120 memories                              ║
-║  Total: 120 memories                                ║
+║  project: 120 active memories                       ║
+║  Total: 120 active memories                         ║
+╟──────────────────────────────────────────────────────╢
+║  ARCHIVE (TWO-TIER MEMORY)                          ║
+╟──────────────────────────────────────────────────────╢
+║  Archived: 0 memories (0.0 MB)                      ║
+║  Eligible for archiving: 0                          ║
 ╟──────────────────────────────────────────────────────╢
 ║  MAINTENANCE HEALTH                                 ║
 ╟──────────────────────────────────────────────────────╢
@@ -464,3 +469,22 @@ gnosys dashboard
 ```
 
 For JSON output (useful for MCP tools and scripts): `gnosys dashboard --json`
+
+---
+
+## Two-Tier Memory (v1.2+)
+
+As your vault grows, maintenance automatically archives old, low-confidence memories to SQLite:
+
+```bash
+# See what would be archived (dry run by default)
+gnosys maintain
+
+# Actually archive stale memories
+gnosys maintain --auto-apply
+
+# Force-dearchive specific knowledge back to active
+gnosys dearchive "almond butter nutrition"
+```
+
+When you `gnosys ask` a question, both active and archived memories are searched. If an archived memory gets cited in the answer, it's automatically restored to the active layer and reinforced — no manual intervention needed.

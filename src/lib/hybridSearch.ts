@@ -12,6 +12,7 @@ import { GnosysSearch, SearchResult } from "./search.js";
 import { GnosysEmbeddings } from "./embeddings.js";
 import { GnosysStore, Memory } from "./store.js";
 import { GnosysResolver, LayeredMemory } from "./resolver.js";
+import { GnosysArchive, ArchiveSearchResult } from "./archive.js";
 
 export type SearchMode = "keyword" | "semantic" | "hybrid";
 
@@ -21,11 +22,15 @@ export interface HybridSearchResult {
   snippet: string;
   score: number;
   /** Which method(s) found this result */
-  sources: ("keyword" | "semantic")[];
+  sources: ("keyword" | "semantic" | "archive")[];
   /** Full memory content (loaded on demand for ask engine) */
   content?: string;
   /** The memory frontmatter content field */
   fullContent?: string;
+  /** Memory ID (used for dearchiving) */
+  memoryId?: string;
+  /** Whether this result came from the archive */
+  fromArchive?: boolean;
 }
 
 /** RRF constant k — standard value from Cormack et al. 2009 */
@@ -51,6 +56,7 @@ export class GnosysHybridSearch {
 
   /**
    * Main hybrid search entry point.
+   * Searches active memories first; if results are insufficient, also searches archive.db.
    */
   async hybridSearch(
     query: string,
@@ -67,21 +73,60 @@ export class GnosysHybridSearch {
       }
     }
 
+    let results: HybridSearchResult[];
+
     if (mode === "keyword") {
-      return this.keywordSearch(query, limit);
+      results = this.keywordSearch(query, limit);
+    } else if (mode === "semantic") {
+      results = await this.semanticSearch(query, limit);
+    } else {
+      // Hybrid: run both and fuse with RRF
+      const [keywordResults, semanticResults] = await Promise.all([
+        this.keywordSearch(query, limit * 2),
+        this.semanticSearch(query, limit * 2),
+      ]);
+      results = this.rrfFusion(keywordResults, semanticResults, limit);
     }
 
-    if (mode === "semantic") {
-      return this.semanticSearch(query, limit);
+    // If active results are insufficient, search archive.db
+    if (results.length < limit) {
+      const archiveResults = this.searchArchive(query, limit - results.length);
+      if (archiveResults.length > 0) {
+        // Deduplicate by title (archive results won't have same relativePath)
+        const existingTitles = new Set(results.map((r) => r.title.toLowerCase()));
+        const newArchiveResults = archiveResults.filter(
+          (ar) => !existingTitles.has(ar.title.toLowerCase())
+        );
+        results = [...results, ...newArchiveResults];
+      }
     }
 
-    // Hybrid: run both and fuse with RRF
-    const [keywordResults, semanticResults] = await Promise.all([
-      this.keywordSearch(query, limit * 2),
-      this.semanticSearch(query, limit * 2),
-    ]);
+    return results.slice(0, limit);
+  }
 
-    return this.rrfFusion(keywordResults, semanticResults, limit);
+  /**
+   * Search the archive.db for memories.
+   */
+  private searchArchive(query: string, limit: number): HybridSearchResult[] {
+    try {
+      const archive = new GnosysArchive(this.storePath);
+      if (!archive.isAvailable()) return [];
+
+      const archiveResults = archive.searchArchive(query, limit);
+      archive.close();
+
+      return archiveResults.map((ar) => ({
+        relativePath: `archive:${ar.category}/${ar.id}`,
+        title: ar.title,
+        snippet: ar.snippet,
+        score: Math.abs(ar.score) > 0 ? 1 / (RRF_K + Math.abs(ar.score)) : 0.001,
+        sources: ["archive"] as ("keyword" | "semantic" | "archive")[],
+        memoryId: ar.id,
+        fromArchive: true,
+      }));
+    } catch {
+      return [];
+    }
   }
 
   /**
@@ -253,22 +298,44 @@ export class GnosysHybridSearch {
 
   /**
    * Load full content for search results (used by Ask engine).
+   * Handles both active memories and archived memories.
    */
   async loadContent(results: HybridSearchResult[]): Promise<HybridSearchResult[]> {
     const enriched: HybridSearchResult[] = [];
+    let archive: GnosysArchive | null = null;
 
     for (const r of results) {
-      const memory = await this.resolver.readMemory(r.relativePath);
-      if (memory) {
-        enriched.push({
-          ...r,
-          fullContent: memory.content,
-        });
-      } else {
+      if (r.fromArchive && r.memoryId) {
+        // Load from archive
+        if (!archive) {
+          archive = new GnosysArchive(this.storePath);
+        }
+        if (archive.isAvailable()) {
+          const archived = archive.getArchivedMemory(r.memoryId);
+          if (archived) {
+            enriched.push({
+              ...r,
+              fullContent: archived.content,
+            });
+            continue;
+          }
+        }
         enriched.push(r);
+      } else {
+        const memory = await this.resolver.readMemory(r.relativePath);
+        if (memory) {
+          enriched.push({
+            ...r,
+            fullContent: memory.content,
+            memoryId: memory.frontmatter.id,
+          });
+        } else {
+          enriched.push(r);
+        }
       }
     }
 
+    archive?.close();
     return enriched;
   }
 

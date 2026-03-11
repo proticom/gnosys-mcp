@@ -15,6 +15,7 @@ import { GnosysEmbeddings } from "./embeddings.js";
 import { GnosysConfig, DEFAULT_CONFIG } from "./config.js";
 import { LLMProvider, getLLMProvider } from "./llm.js";
 import { GnosysResolver, ResolvedStore } from "./resolver.js";
+import { GnosysArchive, getArchiveEligible } from "./archive.js";
 import { execSync } from "child_process";
 import path from "path";
 import fs from "fs/promises";
@@ -76,6 +77,10 @@ export interface MaintenanceReport {
   consolidated: number;
   /** Number of memories with updated decay */
   decayUpdated: number;
+  /** Number of memories archived in this run */
+  archived: number;
+  /** Total memories in archive after this run */
+  totalArchived: number;
   /** Actions taken (or that would be taken in dry run) */
   actions: string[];
 }
@@ -129,6 +134,8 @@ export class GnosysMaintenanceEngine {
       avgDecayedConfidence: 0,
       consolidated: 0,
       decayUpdated: 0,
+      archived: 0,
+      totalArchived: 0,
       actions: [],
     };
 
@@ -138,14 +145,14 @@ export class GnosysMaintenanceEngine {
     }
 
     // Step 1: Detect duplicates (requires embeddings)
-    progress("Detecting duplicates", 0, 3);
-    log("info", "Step 1/3: Detecting duplicates...");
+    progress("Detecting duplicates", 0, 4);
+    log("info", "Step 1/4: Detecting duplicates...");
     report.duplicates = await this.detectDuplicates(allMemories, writeTarget, log);
     log("info", `  Found ${report.duplicates.length} duplicate pair(s)`);
 
     // Step 2: Calculate confidence decay
-    progress("Calculating decay", 1, 3);
-    log("info", "Step 2/3: Calculating confidence decay...");
+    progress("Calculating decay", 1, 4);
+    log("info", "Step 2/4: Calculating confidence decay...");
     const { stale, avgConfidence, avgDecayedConfidence } = this.calculateDecay(allMemories);
     report.staleMemories = stale;
     report.avgConfidence = avgConfidence;
@@ -153,9 +160,17 @@ export class GnosysMaintenanceEngine {
     log("info", `  ${stale.length} stale memorie(s) (confidence < ${STALE_CONFIDENCE_THRESHOLD})`);
     log("info", `  Average confidence: ${avgConfidence.toFixed(3)} → decayed: ${avgDecayedConfidence.toFixed(3)}`);
 
-    // Step 3: Apply changes
-    progress("Applying changes", 2, 3);
-    log("info", "Step 3/3: Applying changes...");
+    // Step 3: Archive old/low-confidence memories
+    progress("Archiving", 2, 4);
+    log("info", "Step 3/4: Archiving old/low-confidence memories...");
+    const archiveResult = await this.archiveOldMemories(allMemories, writeTarget, dryRun, autoApply, log);
+    report.archived = archiveResult.archived;
+    report.totalArchived = archiveResult.totalArchived;
+    report.actions.push(...archiveResult.actions);
+
+    // Step 4: Apply changes
+    progress("Applying changes", 3, 4);
+    log("info", "Step 4/4: Applying changes...");
 
     if (dryRun) {
       // Report what would happen
@@ -197,7 +212,7 @@ export class GnosysMaintenanceEngine {
       }
     }
 
-    progress("Complete", 3, 3);
+    progress("Complete", 4, 4);
     log("info", `Maintenance complete. ${report.actions.length} action(s) ${dryRun ? "identified" : "taken"}.`);
 
     return report;
@@ -470,6 +485,70 @@ Merged content:`;
     return reinforced;
   }
 
+  // ─── Archive Operations ──────────────────────────────────────────────
+
+  /**
+   * Archive old/low-confidence memories to archive.db.
+   */
+  private async archiveOldMemories(
+    allMemories: Memory[],
+    writeTarget: ResolvedStore,
+    dryRun: boolean,
+    autoApply: boolean,
+    log: (level: "info" | "warn" | "action", message: string) => void
+  ): Promise<{ archived: number; totalArchived: number; actions: string[] }> {
+    const actions: string[] = [];
+    let archived = 0;
+
+    const archive = new GnosysArchive(writeTarget.path);
+    if (!archive.isAvailable()) {
+      log("info", "  Archive not available (better-sqlite3 not installed). Skipping.");
+      return { archived: 0, totalArchived: 0, actions };
+    }
+
+    const eligible = getArchiveEligible(allMemories, this.config);
+    log("info", `  ${eligible.length} memorie(s) eligible for archiving`);
+
+    if (dryRun) {
+      for (const m of eligible) {
+        const action = `[DRY RUN] Would archive: "${m.frontmatter.title}" (confidence: ${m.frontmatter.confidence}, last active: ${(m.frontmatter as any).last_reinforced || m.frontmatter.modified})`;
+        actions.push(action);
+        log("action", action);
+      }
+    } else if (autoApply) {
+      for (const m of eligible) {
+        try {
+          const success = await archive.archiveMemory(m);
+          if (success) {
+            archived++;
+            const action = `Archived: "${m.frontmatter.title}" → archive.db`;
+            actions.push(action);
+            log("action", `  ${action}`);
+          }
+        } catch (err) {
+          const msg = `Failed to archive "${m.frontmatter.title}": ${err instanceof Error ? err.message : String(err)}`;
+          log("warn", msg);
+          actions.push(msg);
+        }
+      }
+
+      // Git commit archived changes (file deletions)
+      if (archived > 0) {
+        try {
+          execSync("git add -A", { cwd: writeTarget.path, stdio: "pipe" });
+          execSync(`git commit -m "maintenance: archive ${archived} old memories"`, { cwd: writeTarget.path, stdio: "pipe" });
+        } catch {
+          // Ignore commit errors (nothing to commit, no git, etc.)
+        }
+      }
+    }
+
+    const stats = archive.getStats();
+    archive.close();
+
+    return { archived, totalArchived: stats.totalArchived, actions };
+  }
+
   // ─── Health Report ────────────────────────────────────────────────────
 
   /**
@@ -478,11 +557,13 @@ Merged content:`;
    */
   async getHealthReport(): Promise<{
     totalActive: number;
+    totalArchived: number;
     staleCount: number;
     avgConfidence: number;
     avgDecayedConfidence: number;
     neverReinforced: number;
     totalReinforcements: number;
+    archiveEligible: number;
   }> {
     const memories = await this.loadAllActiveMemories();
     const { stale, avgConfidence, avgDecayedConfidence } = this.calculateDecay(memories);
@@ -496,13 +577,29 @@ Merged content:`;
       totalReinforcements += count;
     }
 
+    // Archive stats
+    const writeTarget = this.resolver.getWriteTarget();
+    let totalArchived = 0;
+    let archiveEligible = 0;
+
+    if (writeTarget) {
+      const archive = new GnosysArchive(writeTarget.path);
+      if (archive.isAvailable()) {
+        totalArchived = archive.getStats().totalArchived;
+        archiveEligible = getArchiveEligible(memories, this.config).length;
+        archive.close();
+      }
+    }
+
     return {
       totalActive: memories.length,
+      totalArchived,
       staleCount: stale.length,
       avgConfidence,
       avgDecayedConfidence,
       neverReinforced,
       totalReinforcements,
+      archiveEligible,
     };
   }
 
@@ -623,12 +720,20 @@ export function formatMaintenanceReport(report: MaintenanceReport): string {
     lines.push("No actions taken.");
   }
 
+  // Archive
+  if (report.archived > 0 || report.totalArchived > 0) {
+    lines.push(`Archived this run: ${report.archived}`);
+    lines.push(`Total in archive: ${report.totalArchived}`);
+    lines.push("");
+  }
+
   // Summary
-  if (report.consolidated > 0 || report.decayUpdated > 0) {
+  if (report.consolidated > 0 || report.decayUpdated > 0 || report.archived > 0) {
     lines.push("");
     lines.push("Summary:");
     if (report.consolidated > 0) lines.push(`  Consolidated: ${report.consolidated} pair(s)`);
     if (report.decayUpdated > 0) lines.push(`  Decay updated: ${report.decayUpdated} memorie(s)`);
+    if (report.archived > 0) lines.push(`  Archived: ${report.archived} memorie(s)`);
   }
 
   return lines.join("\n");

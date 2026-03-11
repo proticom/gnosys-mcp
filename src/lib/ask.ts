@@ -12,6 +12,9 @@ import { fileURLToPath } from "url";
 import { GnosysHybridSearch, HybridSearchResult } from "./hybridSearch.js";
 import { GnosysConfig, DEFAULT_CONFIG } from "./config.js";
 import { LLMProvider, getLLMProvider } from "./llm.js";
+import { GnosysArchive } from "./archive.js";
+import { GnosysMaintenanceEngine } from "./maintenance.js";
+import { GnosysResolver } from "./resolver.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,6 +24,8 @@ export interface AskResult {
   sources: { relativePath: string; title: string }[];
   deepQueryUsed: boolean;
   searchMode: string;
+  /** Memory IDs that were dearchived (moved from archive → active) during this query */
+  dearchivedIds: string[];
 }
 
 export interface AskStreamCallbacks {
@@ -49,13 +54,19 @@ export class GnosysAsk {
   private hybridSearch: GnosysHybridSearch;
   private config: GnosysConfig;
   private promptTemplate: string | null = null;
+  private resolver: GnosysResolver | null = null;
+  private storePath: string | null = null;
 
   constructor(
     hybridSearch: GnosysHybridSearch,
-    config?: GnosysConfig
+    config?: GnosysConfig,
+    resolver?: GnosysResolver,
+    storePath?: string
   ) {
     this.hybridSearch = hybridSearch;
     this.config = config || DEFAULT_CONFIG;
+    this.resolver = resolver || null;
+    this.storePath = storePath || null;
 
     // Initialize LLM provider via abstraction layer
     try {
@@ -170,6 +181,7 @@ export class GnosysAsk {
         sources: [],
         deepQueryUsed: false,
         searchMode: mode,
+        dearchivedIds: [],
       };
     }
 
@@ -253,12 +265,67 @@ export class GnosysAsk {
     const sources = this.extractCitedSources(answer, results);
     callbacks?.onSourcesReady?.(sources);
 
+    // Step 7: Auto-dearchive — move used archive memories back to active
+    const dearchivedIds = await this.dearchiveUsedMemories(results, sources);
+
     return {
       answer,
       sources,
       deepQueryUsed,
       searchMode: mode,
+      dearchivedIds,
     };
+  }
+
+  /**
+   * Dearchive memories that were used in the synthesis.
+   * Only dearchives memories that came from the archive AND were cited.
+   */
+  private async dearchiveUsedMemories(
+    results: HybridSearchResult[],
+    sources: { relativePath: string; title: string }[]
+  ): Promise<string[]> {
+    if (!this.storePath || !this.resolver) return [];
+
+    // Find archive results that were cited (or all archive results if they contributed to the answer)
+    const archiveResults = results.filter((r) => r.fromArchive && r.memoryId);
+    if (archiveResults.length === 0) return [];
+
+    // Determine which archive results were actually used
+    const citedPaths = new Set(sources.map((s) => s.relativePath));
+    const usedArchiveIds = archiveResults
+      .filter((r) => citedPaths.has(r.relativePath))
+      .map((r) => r.memoryId!)
+      .filter(Boolean);
+
+    if (usedArchiveIds.length === 0) return [];
+
+    try {
+      const archive = new GnosysArchive(this.storePath);
+      if (!archive.isAvailable()) return [];
+
+      const writeTarget = this.resolver.getWriteTarget();
+      if (!writeTarget) {
+        archive.close();
+        return [];
+      }
+
+      const restored = await archive.dearchiveBatch(usedArchiveIds, writeTarget.store);
+      archive.close();
+
+      // Reinforce the restored memories
+      if (restored.length > 0) {
+        try {
+          await GnosysMaintenanceEngine.reinforceBatch(writeTarget.store, restored);
+        } catch {
+          // Reinforcement is best-effort
+        }
+      }
+
+      return usedArchiveIds;
+    } catch {
+      return [];
+    }
   }
 
   /**

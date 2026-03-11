@@ -57,6 +57,15 @@ const TaskModelsSchema = z.object({
   synthesis: TaskModelSchema.optional(),
 });
 
+// ─── Archive Schema ─────────────────────────────────────────────────────
+
+const ArchiveConfigSchema = z.object({
+  /** Days since last reinforcement before a memory becomes archive-eligible */
+  maxActiveDays: z.number().int().min(1).default(90),
+  /** Minimum confidence threshold — below this, eligible for archive */
+  minConfidence: z.number().min(0).max(1).default(0.3),
+});
+
 // ─── Main Config Schema ─────────────────────────────────────────────────
 
 export const GnosysConfigSchema = z.object({
@@ -112,6 +121,9 @@ export const GnosysConfigSchema = z.object({
 
   /** Store path override (relative to project root, or absolute) */
   storePath: z.string().optional(),
+
+  /** Two-tier memory archive settings */
+  archive: ArchiveConfigSchema.default({ maxActiveDays: 90, minConfidence: 0.3 }),
 });
 
 export type GnosysConfig = z.infer<typeof GnosysConfigSchema>;
@@ -324,6 +336,10 @@ export function generateConfigTemplate(): string {
       defaultAuthor: "ai",
       defaultAuthority: "imported",
       defaultConfidence: 0.8,
+      archive: {
+        maxActiveDays: 90,
+        minConfidence: 0.3,
+      },
     },
     null,
     2
