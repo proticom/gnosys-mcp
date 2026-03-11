@@ -2052,4 +2052,80 @@ program
     await import("./index.js");
   });
 
+// ─── gnosys recall ───────────────────────────────────────────────────────
+program
+  .command("recall <query>")
+  .description("Fast memory recall for agent orchestrators (sub-50ms, no LLM)")
+  .option("--limit <n>", "Max memories to return", "8")
+  .option("--trace-id <id>", "Trace ID for audit correlation")
+  .option("--json", "Output raw JSON instead of formatted text")
+  .action(async (query: string, opts: { limit: string; traceId?: string; json?: boolean }) => {
+    const resolver = new GnosysResolver();
+    await resolver.resolve();
+    const stores = resolver.getStores();
+    if (stores.length === 0) {
+      console.error("No Gnosys stores found. Run 'gnosys init' first.");
+      process.exit(1);
+    }
+
+    const { recall, formatRecall } = await import("./lib/recall.js");
+    const { initAudit, closeAudit } = await import("./lib/audit.js");
+
+    const storePath = stores[0].path;
+    initAudit(storePath);
+
+    // Build search index
+    const search = new GnosysSearch(storePath);
+    await search.addStoreMemories(stores[0].store);
+
+    const result = await recall(query, {
+      limit: parseInt(opts.limit, 10),
+      search,
+      resolver,
+      storePath,
+      traceId: opts.traceId,
+    });
+
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(formatRecall(result));
+    }
+
+    closeAudit();
+  });
+
+// ─── gnosys audit ────────────────────────────────────────────────────────
+program
+  .command("audit")
+  .description("View the structured audit trail of memory operations")
+  .option("--days <n>", "Show entries from the last N days", "7")
+  .option("--operation <op>", "Filter by operation type (read, write, recall, etc.)")
+  .option("--limit <n>", "Max entries to show")
+  .option("--json", "Output raw JSON instead of formatted timeline")
+  .action(async (opts: { days: string; operation?: string; limit?: string; json?: boolean }) => {
+    const resolver = new GnosysResolver();
+    await resolver.resolve();
+    const stores = resolver.getStores();
+    if (stores.length === 0) {
+      console.error("No Gnosys stores found. Run 'gnosys init' first.");
+      process.exit(1);
+    }
+
+    const { readAuditLog, formatAuditTimeline } = await import("./lib/audit.js");
+    const storePath = stores[0].path;
+
+    const entries = readAuditLog(storePath, {
+      days: parseInt(opts.days, 10),
+      operation: opts.operation as import("./lib/audit.js").AuditOperation | undefined,
+      limit: opts.limit ? parseInt(opts.limit, 10) : undefined,
+    });
+
+    if (opts.json) {
+      console.log(JSON.stringify(entries, null, 2));
+    } else {
+      console.log(formatAuditTimeline(entries));
+    }
+  });
+
 program.parse();

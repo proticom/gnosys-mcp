@@ -53,6 +53,11 @@ export interface DashboardData {
       note: string;
     }>;
   };
+  performance: {
+    activeSearchMs: number;
+    archiveSearchMs: number;
+    recallMs: number;
+  } | null;
   version: string;
 }
 
@@ -165,6 +170,45 @@ export async function collectDashboardData(
     });
   }
 
+  // Performance benchmarks (quick probe of search/archive latency)
+  let performance: DashboardData["performance"] = null;
+  if (stores.length > 0) {
+    try {
+      const { GnosysSearch: SearchClass } = await import("./search.js");
+      const testSearch = new SearchClass(stores[0].path);
+      await testSearch.addStoreMemories(stores[0].store);
+
+      // Active search benchmark
+      const t1 = Date.now();
+      testSearch.search("test benchmark probe", 5);
+      const activeSearchMs = Date.now() - t1;
+
+      // Archive search benchmark
+      let archiveSearchMs = 0;
+      try {
+        const { GnosysArchive: ArchClass } = await import("./archive.js");
+        const arch = new ArchClass(stores[0].path);
+        if (arch.isAvailable()) {
+          const t2 = Date.now();
+          arch.searchArchive("test benchmark probe", 5);
+          archiveSearchMs = Date.now() - t2;
+          arch.close();
+        }
+      } catch {
+        // Archive not available
+      }
+
+      // Recall benchmark (active search only)
+      const t3 = Date.now();
+      testSearch.discover("test benchmark probe", 8);
+      const recallMs = Date.now() - t3;
+
+      performance = { activeSearchMs, archiveSearchMs, recallMs };
+    } catch {
+      // Performance probe failed
+    }
+  }
+
   return {
     stores: storeData,
     totalMemories,
@@ -178,6 +222,7 @@ export async function collectDashboardData(
       synthesis,
       providerStatus,
     },
+    performance,
     version,
   };
 }
@@ -273,6 +318,23 @@ export function formatDashboard(data: DashboardData): string {
     }
     const pLine = `  ${icon} ${p.name}: ${note}`.substring(0, 53).padEnd(53);
     lines.push(`║${pLine}║`);
+  }
+
+  // Performance
+  if (data.performance) {
+    lines.push("╟──────────────────────────────────────────────────────╢");
+    lines.push("║  PERFORMANCE (ENTERPRISE)                           ║");
+    lines.push("╟──────────────────────────────────────────────────────╢");
+    const perf = data.performance;
+    const recallLine = `  Recall: ${perf.recallMs}ms${perf.recallMs > 50 ? " ⚠ SLOW" : " ✓"}`.padEnd(53);
+    lines.push(`║${recallLine}║`);
+    const activeLine = `  Active search: ${perf.activeSearchMs}ms`.padEnd(53);
+    lines.push(`║${activeLine}║`);
+    const archiveLine = `  Archive search: ${perf.archiveSearchMs}ms`.padEnd(53);
+    lines.push(`║${archiveLine}║`);
+    if (perf.recallMs > 50) {
+      lines.push("║  ⚠ Recall exceeds 50ms target for enterprise use   ║");
+    }
   }
 
   lines.push("╚══════════════════════════════════════════════════════╝");

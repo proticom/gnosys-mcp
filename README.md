@@ -605,6 +605,32 @@ Configure thresholds in `gnosys.json`:
 }
 ```
 
+### Enterprise Reliability (v1.3.0)
+
+Built for long-running agent orchestrators that call Gnosys hundreds of times per session.
+
+**Recall hook** — `gnosys_recall` / `gnosys recall "query"` — Sub-50ms memory injection using FTS5 keyword search only. No LLM calls, no embeddings. Designed to be called before every agent turn. Falls back to archive search if active results are insufficient.
+
+```bash
+# CLI
+gnosys recall "React state management" --limit 5 --trace-id abc123
+
+# MCP tool (called by orchestrator before each turn)
+gnosys_recall { query: "React state management", limit: 5, traceId: "abc123" }
+```
+
+**Concurrency safety** — Write locking with PID tracking prevents corruption when multiple agents write simultaneously. SQLite databases (archive + embeddings) use WAL mode for concurrent reads during writes. Stale lock detection auto-recovers from crashed processes.
+
+**Audit trail** — Every memory operation (read, write, recall, ask, maintain, archive, dearchive) is logged to `.gnosys/.config/audit.jsonl` with timestamps, durations, and optional traceIds for correlation with your outer orchestrator.
+
+```bash
+gnosys audit --days 7 --operation recall --json
+```
+
+**Deterministic dearchive** — When an LLM-synthesized answer cites archived memories, a three-stage fallback ensures they're always restored: path match → title match → all archive results from context. No memory is left behind even if the LLM output is unpredictable.
+
+**Performance monitoring** — `gnosys dashboard` now includes enterprise performance benchmarks: recall latency, active search latency, and archive search latency, with warnings if recall exceeds the 50ms target.
+
 ---
 
 ## CLI Reference
@@ -648,6 +674,11 @@ gnosys config set provider <name>  # Set default provider
 gnosys config set task <task> <provider> <model>  # Route task
 gnosys doctor                # Full system health check (all providers)
 gnosys stores                # Show active stores
+gnosys recall "query"        # Fast recall for agent orchestrators (sub-50ms)
+gnosys recall "q" --json     # Recall as JSON for programmatic use
+gnosys audit                 # View audit trail (last 7 days)
+gnosys audit --days 30       # View last 30 days of operations
+gnosys audit --operation ask # Filter by operation type
 gnosys serve                 # Start MCP server (stdio)
 gnosys serve --with-maintenance  # MCP server + maintenance every 6h
 ```
@@ -679,7 +710,10 @@ src/
     llm.ts          # LLM abstraction — System of Cognition (5 providers)
     maintenance.ts  # Auto-maintenance: decay, dedup, consolidation, archiving
     archive.ts      # Two-tier memory: active ↔ archive (SQLite)
-    dashboard.ts    # Aggregated system dashboard
+    recall.ts       # Ultra-fast recall hook for agent orchestrators
+    audit.ts        # Structured JSONL audit logging
+    lock.ts         # File-level write locking + WAL helper
+    dashboard.ts    # Aggregated system dashboard + performance monitoring
     graph.ts        # Persistent wikilink graph (graph.json)
     tags.ts         # Tag registry management
     ingest.ts       # LLM-powered structuring (with retry logic)

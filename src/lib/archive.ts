@@ -25,6 +25,8 @@ import { statSync } from "fs";
 import matter from "gray-matter";
 import { GnosysStore, Memory, MemoryFrontmatter } from "./store.js";
 import { GnosysConfig } from "./config.js";
+import { enableWAL } from "./lock.js";
+import { auditLog } from "./audit.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -73,6 +75,7 @@ export class GnosysArchive {
     try {
       const dbPath = path.join(storePath, "archive.db");
       this.db = new Database(dbPath);
+      enableWAL(this.db);
       this.initSchema();
       this.available = true;
     } catch {
@@ -204,6 +207,12 @@ export class GnosysArchive {
       // File may already be gone
     }
 
+    auditLog({
+      operation: "archive",
+      memoryId: memory.frontmatter.id,
+      memoryTitle: memory.frontmatter.title,
+    });
+
     return true;
   }
 
@@ -264,6 +273,12 @@ export class GnosysArchive {
       this.db.prepare("DELETE FROM archive_fts WHERE id = ?").run(memoryId);
     });
     tx();
+
+    auditLog({
+      operation: "dearchive",
+      memoryId,
+      memoryTitle: row.title,
+    });
 
     return relativePath;
   }

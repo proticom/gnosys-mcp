@@ -16,6 +16,8 @@ import { GnosysConfig, DEFAULT_CONFIG } from "./config.js";
 import { LLMProvider, getLLMProvider } from "./llm.js";
 import { GnosysResolver, ResolvedStore } from "./resolver.js";
 import { GnosysArchive, getArchiveEligible } from "./archive.js";
+import { acquireWriteLock } from "./lock.js";
+import { auditLog } from "./audit.js";
 import { execSync } from "child_process";
 import path from "path";
 import fs from "fs/promises";
@@ -119,6 +121,16 @@ export class GnosysMaintenanceEngine {
     const stores = this.resolver.getStores();
     const writeTarget = this.resolver.getWriteTarget();
 
+    // Acquire write lock for concurrent safety (skip in dry-run)
+    let releaseLock: (() => void) | null = null;
+    if (!dryRun && writeTarget) {
+      try {
+        releaseLock = await acquireWriteLock(writeTarget.path, "maintain");
+      } catch (err) {
+        log("warn", `Could not acquire write lock: ${(err as Error).message}`);
+      }
+    }
+
     if (!writeTarget) {
       throw new Error("No writable store found. Run gnosys init first.");
     }
@@ -141,6 +153,7 @@ export class GnosysMaintenanceEngine {
 
     if (allMemories.length === 0) {
       log("info", "No memories to maintain.");
+      releaseLock?.();
       return report;
     }
 
@@ -214,6 +227,22 @@ export class GnosysMaintenanceEngine {
 
     progress("Complete", 4, 4);
     log("info", `Maintenance complete. ${report.actions.length} action(s) ${dryRun ? "identified" : "taken"}.`);
+
+    // Release write lock
+    releaseLock?.();
+
+    // Audit log
+    auditLog({
+      operation: "maintain",
+      details: {
+        dryRun,
+        duplicates: report.duplicates.length,
+        stale: report.staleMemories.length,
+        consolidated: report.consolidated,
+        archived: report.archived,
+        decayUpdated: report.decayUpdated,
+      },
+    });
 
     return report;
   }

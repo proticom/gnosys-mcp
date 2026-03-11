@@ -44,6 +44,8 @@ import { GnosysHybridSearch } from "./lib/hybridSearch.js";
 import { GnosysAsk } from "./lib/ask.js";
 import { getLLMProvider, isProviderAvailable, LLMProvider } from "./lib/llm.js";
 import { GnosysMaintenanceEngine, formatMaintenanceReport } from "./lib/maintenance.js";
+import { recall, formatRecall } from "./lib/recall.js";
+import { initAudit, readAuditLog, formatAuditTimeline } from "./lib/audit.js";
 
 // Initialize resolver (discovers all layered stores)
 const resolver = new GnosysResolver();
@@ -52,7 +54,7 @@ let config: GnosysConfig = DEFAULT_CONFIG;
 // Create MCP server
 const server = new McpServer({
   name: "gnosys",
-  version: "1.2.0",
+  version: "1.3.0",
 });
 
 // These are initialized in main() after resolver runs
@@ -1818,6 +1820,72 @@ async function reindexAllStores(): Promise<void> {
   }
 }
 
+// ─── Tool: gnosys_recall ─────────────────────────────────────────────────
+server.tool(
+  "gnosys_recall",
+  "Ultra-fast memory recall for agent orchestrators. Call this BEFORE every agent turn to inject relevant context. Returns top 5-8 memories in sub-50ms. No LLM calls — pure index lookup. Designed for enterprise long-running agents.",
+  {
+    query: z
+      .string()
+      .describe(
+        "What the agent is currently working on. Use keywords. Example: 'auth JWT middleware' or 'database migration schema'"
+      ),
+    limit: z.number().optional().describe("Max memories to return (default 8, max 15)"),
+    traceId: z.string().optional().describe("Optional trace ID from the outer orchestrator for audit correlation"),
+  },
+  async ({ query, limit, traceId }) => {
+    if (!search) {
+      return {
+        content: [{ type: "text" as const, text: "Search index not initialized." }],
+        isError: true,
+      };
+    }
+
+    const storePath = resolver.getWriteTarget()?.store.getStorePath() || "";
+    const result = await recall(query, {
+      limit: Math.min(limit || 8, 15),
+      search,
+      resolver,
+      storePath,
+      traceId,
+    });
+
+    return {
+      content: [{ type: "text" as const, text: formatRecall(result) }],
+    };
+  }
+);
+
+// ─── Tool: gnosys_audit ──────────────────────────────────────────────────
+server.tool(
+  "gnosys_audit",
+  "View the audit trail of all memory operations (reads, writes, reinforcements, dearchives, maintenance). Shows a timeline of what happened and when. Useful for debugging 'why did the agent forget X?'",
+  {
+    days: z.number().optional().describe("Number of days to look back (default 7)"),
+    operation: z.string().optional().describe("Filter by operation type: read, write, reinforce, dearchive, archive, maintain, search, ask, recall"),
+    limit: z.number().optional().describe("Max entries to return (default 100)"),
+  },
+  async ({ days, operation, limit }) => {
+    const storePath = resolver.getWriteTarget()?.store.getStorePath();
+    if (!storePath) {
+      return {
+        content: [{ type: "text" as const, text: "No store found." }],
+        isError: true,
+      };
+    }
+
+    const entries = readAuditLog(storePath, {
+      days: days || 7,
+      operation: operation as any,
+      limit: limit || 100,
+    });
+
+    return {
+      content: [{ type: "text" as const, text: formatAuditTimeline(entries) }],
+    };
+  }
+);
+
 // ─── Start the server ────────────────────────────────────────────────────
 async function main() {
   // Discover and initialize all layered stores
@@ -1846,6 +1914,9 @@ async function main() {
       console.error(`Warning: Failed to load gnosys.json: ${err instanceof Error ? err.message : err}`);
     }
     ingestion = new GnosysIngestion(writeTarget.store, tagRegistry, config);
+
+    // Initialize audit logging
+    initAudit(writeTarget.store.getStorePath());
 
     // Build search index across all stores
     await reindexAllStores();

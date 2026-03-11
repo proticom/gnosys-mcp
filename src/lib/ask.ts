@@ -15,6 +15,7 @@ import { LLMProvider, getLLMProvider } from "./llm.js";
 import { GnosysArchive } from "./archive.js";
 import { GnosysMaintenanceEngine } from "./maintenance.js";
 import { GnosysResolver } from "./resolver.js";
+import { auditLog } from "./audit.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -268,6 +269,18 @@ export class GnosysAsk {
     // Step 7: Auto-dearchive — move used archive memories back to active
     const dearchivedIds = await this.dearchiveUsedMemories(results, sources);
 
+    // Audit log
+    auditLog({
+      operation: "ask",
+      query: question,
+      resultCount: sources.length,
+      details: {
+        deepQueryUsed,
+        dearchivedCount: dearchivedIds.length,
+        searchMode: mode,
+      },
+    });
+
     return {
       answer,
       sources,
@@ -279,7 +292,9 @@ export class GnosysAsk {
 
   /**
    * Dearchive memories that were used in the synthesis.
-   * Only dearchives memories that came from the archive AND were cited.
+   * Uses deterministic fallback: if cited paths don't match archive results,
+   * falls back to title-matching from the answer text to ensure anything
+   * the answer actually references gets dearchived.
    */
   private async dearchiveUsedMemories(
     results: HybridSearchResult[],
@@ -293,10 +308,28 @@ export class GnosysAsk {
 
     // Determine which archive results were actually used
     const citedPaths = new Set(sources.map((s) => s.relativePath));
-    const usedArchiveIds = archiveResults
+    let usedArchiveIds = archiveResults
       .filter((r) => citedPaths.has(r.relativePath))
       .map((r) => r.memoryId!)
       .filter(Boolean);
+
+    // Deterministic fallback: if no archive results matched by path,
+    // check if any archive memory titles appear in the cited sources' titles
+    if (usedArchiveIds.length === 0) {
+      const citedTitles = new Set(sources.map((s) => s.title.toLowerCase()));
+      usedArchiveIds = archiveResults
+        .filter((r) => citedTitles.has(r.title.toLowerCase()))
+        .map((r) => r.memoryId!)
+        .filter(Boolean);
+    }
+
+    // Final fallback: dearchive ALL archive results that were in the search context
+    // (they contributed to the LLM's answer even if not explicitly cited)
+    if (usedArchiveIds.length === 0 && archiveResults.length > 0) {
+      usedArchiveIds = archiveResults
+        .map((r) => r.memoryId!)
+        .filter(Boolean);
+    }
 
     if (usedArchiveIds.length === 0) return [];
 
