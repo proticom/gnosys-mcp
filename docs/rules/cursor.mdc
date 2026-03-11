@@ -1,0 +1,51 @@
+---
+description: Gnosys persistent memory — teaches the agent when to read/write memories via MCP tools
+alwaysApply: true
+---
+
+# Gnosys Memory System
+
+You have access to persistent memory via Gnosys MCP tools. Use them proactively.
+
+## Retrieve memories
+
+- At the start of every task, call `gnosys_discover` with keywords for what you're working on
+- Call `gnosys_read` to load any relevant results
+- Trigger on: "remember when…", "what did we decide…", "recall", "check your memory", "do we have notes on…"
+- Use `gnosys_hybrid_search` for best search results, `gnosys_ask` for Q&A with citations
+
+## Write memories
+
+- Trigger on: "remember this", "memorize", "save this", "note this down", "store this", "don't forget"
+- Also write when the user states a decision, preference, or opinion — even casually
+- Commit specs and plans BEFORE starting implementation
+- After significant work, commit findings (gotchas, what worked, what didn't)
+
+## Tools
+
+- `gnosys_add` — write memory from freeform text (LLM structures it)
+- `gnosys_add_structured` — write with explicit title, category, content, tags, relevance
+- `gnosys_update` — modify existing memory
+- `gnosys_reinforce` — signal useful / not_relevant / outdated
+- `gnosys_commit_context` — extract novel memories from a conversation context
+- `gnosys_discover` — lightweight metadata search (call FIRST)
+- `gnosys_read` — load full memory content
+- `gnosys_search` — keyword search
+- `gnosys_hybrid_search` — keyword + semantic (best results)
+- `gnosys_ask` — natural-language Q&A with citations
+- `gnosys_list` — list all memories
+- `gnosys_lens` — filtered view (category, tag, status, confidence, date)
+- `gnosys_tags` / `gnosys_tags_add` — tag registry
+- `gnosys_links` / `gnosys_graph` — wikilink relationships
+- `gnosys_history` / `gnosys_rollback` — version control
+- `gnosys_stats` / `gnosys_dashboard` — system overview
+- `gnosys_maintain` — vault maintenance (dedup, decay, consolidation)
+- `gnosys_stale` — find memories not updated recently
+- `gnosys_stores` — show active store layers
+- `gnosys_init` — initialize a new store
+- `gnosys_bootstrap` / `gnosys_import` — bulk import
+- `gnosys_reindex` / `gnosys_reindex_graph` — rebuild indexes
+
+## Categories
+
+Use these when writing: `architecture`, `decisions`, `requirements`, `concepts`, `roadmap`, `landscape`, `open-questions`
