@@ -54,7 +54,7 @@ let config: GnosysConfig = DEFAULT_CONFIG;
 // Create MCP server
 const server = new McpServer({
   name: "gnosys",
-  version: "1.3.0",
+  version: "1.3.1",
 });
 
 // These are initialized in main() after resolver runs
