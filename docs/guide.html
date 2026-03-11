@@ -1523,8 +1523,8 @@ Options:
         <p>Rules are stored as markdown files in your IDE configuration and are automatically included in the agent's context. Here's how to set them up for your preferred IDE:</p>
 
         <div class="rules-tabs">
-          <button class="rules-tab active" onclick="switchRulesTab('cursor')">Cursor</button>
-          <button class="rules-tab" onclick="switchRulesTab('claude')">Claude Code</button>
+          <button class="rules-tab active" onclick="switchRulesTab('cursor', this)">Cursor</button>
+          <button class="rules-tab" onclick="switchRulesTab('claude', this)">Claude Code</button>
         </div>
 
         <div id="rules-cursor" class="rules-content active">
@@ -1534,7 +1534,7 @@ Options:
           <div class="rules-code">
             <pre id="rules-code-cursor"></pre>
           </div>
-          <button class="copy-rule-btn" onclick="copyRuleCode('rules-code-cursor')">Copy Rule</button>
+          <button class="copy-rule-btn" onclick="copyRuleCode('rules-code-cursor', this)">Copy Rule</button>
         </div>
 
         <div id="rules-claude" class="rules-content">
@@ -1544,21 +1544,11 @@ Options:
           <div class="rules-code">
             <pre id="rules-code-claude"></pre>
           </div>
-          <button class="copy-rule-btn" onclick="copyRuleCode('rules-code-claude')">Copy Rule</button>
+          <button class="copy-rule-btn" onclick="copyRuleCode('rules-code-claude', this)">Copy Rule</button>
         </div>
       </div>
     </div>
 
-    <!-- Markdown View -->
-    <div class="markdown-view" id="markdown-view">
-      <div class="markdown-container">
-        <div class="markdown-header">
-          <h2>Complete Guide (Markdown)</h2>
-          <button class="copy-all-btn" onclick="copyAllMarkdown()">Copy All</button>
-        </div>
-        <pre id="markdown-content"></pre>
-      </div>
-    </div>
   </div>
 </div>
 
@@ -2099,26 +2089,11 @@ MCP Tool: \`gnosys_reindex_graph\``;
 // Expose to global scope for markdown toggle
 window.gnosysGenerateMarkdown = generateMarkdown;
 
-// Copy All Markdown
-function copyAllMarkdown() {
-  const content = document.getElementById('markdown-content');
-  navigator.clipboard.writeText(content.textContent).then(() => {
-    const btn = event.target;
-    btn.classList.add('copied');
-    btn.textContent = 'Copied!';
-    setTimeout(() => {
-      btn.classList.remove('copied');
-      btn.textContent = 'Copy All Markdown';
-    }, 2000);
-  });
-}
-
 // Copy Rule Code
-function copyRuleCode(elementId) {
+function copyRuleCode(elementId, btn) {
   const codeElement = document.getElementById(elementId);
   const text = codeElement.textContent;
   navigator.clipboard.writeText(text).then(() => {
-    const btn = event.target;
     btn.classList.add('copied');
     btn.textContent = 'Copied!';
     setTimeout(() => {
@@ -2129,11 +2104,11 @@ function copyRuleCode(elementId) {
 }
 
 // Switch Rules Tab
-function switchRulesTab(tab) {
+function switchRulesTab(tab, btn) {
   document.querySelectorAll('.rules-content').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.rules-tab').forEach(el => el.classList.remove('active'));
   document.getElementById(`rules-${tab}`).classList.add('active');
-  event.target.classList.add('active');
+  btn.classList.add('active');
 }
 
 // Load Agent Rules Content — each IDE gets its own file
