@@ -488,3 +488,37 @@ gnosys dearchive "almond butter nutrition"
 ```
 
 When you `gnosys ask` a question, both active and archived memories are searched. If an archived memory gets cited in the answer, it's automatically restored to the active layer and reinforced — no manual intervention needed.
+
+## Enterprise Reliability (v1.3+)
+
+For long-running agent orchestrators (OpenClaw, AutoGPT, CrewAI, etc.), Gnosys provides a fast recall hook designed to be called before every agent turn:
+
+```bash
+# Sub-50ms recall — no LLM, no embeddings, pure FTS5
+gnosys recall "almond milk nutrition facts" --limit 5
+
+# With trace ID for audit correlation
+gnosys recall "organic certification" --trace-id "session-42-turn-7" --json
+```
+
+Every operation is logged to a structured audit trail:
+
+```bash
+# View recent operations
+gnosys audit --days 7
+
+# Filter to just recall operations
+gnosys audit --operation recall --json
+```
+
+The dashboard now includes performance benchmarks:
+
+```bash
+gnosys dashboard
+# ... includes PERFORMANCE (ENTERPRISE) section with:
+#   Recall: 3ms ✓
+#   Active search: 1ms
+#   Archive search: 2ms
+```
+
+Concurrent writes are safe — the locking system prevents corruption when multiple agents write simultaneously, and SQLite databases use WAL mode for concurrent read/write access.

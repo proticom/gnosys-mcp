@@ -15,6 +15,7 @@ try {
 }
 import path from "path";
 import fs from "fs/promises";
+import { enableWAL } from "./lock.js";
 
 // Type for the pipeline function from @xenova/transformers
 type Pipeline = (texts: string[], options?: Record<string, unknown>) => Promise<{ tolist(): number[][] }>;
@@ -72,6 +73,7 @@ export class GnosysEmbeddings {
     const dbPath = path.join(this.storePath, ".config", "embeddings.db");
     try {
       this.db = new Database(dbPath);
+      enableWAL(this.db);
     } catch {
       // Fallback to in-memory
       this.db = new Database(":memory:");
