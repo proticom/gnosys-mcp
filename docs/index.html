@@ -1418,8 +1418,8 @@ function copyRule(btn, variant) {
   var nav = document.querySelector('nav');
   var footer = document.querySelector('footer');
   var el = nav.nextElementSibling;
-  while (el && el !== footer && el !== overlay) {
-    pageBody.push(el);
+  while (el && el !== footer) {
+    if (el !== overlay) pageBody.push(el);
     el = el.nextElementSibling;
   }
 
