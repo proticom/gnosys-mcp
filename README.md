@@ -545,7 +545,7 @@ Agent memory is a spectrum — from a single markdown file to full knowledge gra
 | Aspect | Plain Markdown | RAG (Vector DB) | Knowledge Graph | **Gnosys** |
 |--------|---------------|-----------------|-----------------|-----------|
 | **Examples** | CLAUDE.md, .cursorrules | Mem0, LangChain Memory | Graphiti/Zep, Mem0 Graph | — |
-| **Storage** | `.md` files | Embeddings in vector DB | Nodes/edges in graph DB | `.md` files + SQLite index |
+| **Storage** | `.md` files | Embeddings in vector DB | Nodes/edges in graph DB | `.md` files + SQLite index + SQLite archive |
 | **Transparency** | Perfect | Lossy (embeddings) | High (query nodes) | High (readable markdown) |
 | **Version history** | Git native | None built-in | None built-in | Git native |
 | **Keyword search** | Manual / grep | BM25 layer (some) | BM25 layer (some) | FTS5 (built-in) |
@@ -553,13 +553,14 @@ Agent memory is a spectrum — from a single markdown file to full knowledge gra
 | **Relationship traversal** | None | None | Multi-hop graph queries | Wikilinks (manual encoding) |
 | **Automatic extraction** | No | Yes (embeddings) | Yes (entities + edges) | No (explicit structuring) |
 | **Conflict detection** | No | No | Yes (graph rules) | No |
-| **Scale comfort zone** | ~5K memories | 100K+ | 100K+ | 100K+ (FTS5) |
+| **Scale comfort zone** | ~5K memories | 100K+ | 100K+ | 100K+ (two-tier: active `.md` + SQLite archive) |
 | **Setup time** | < 5 min | 30 min – 2 hours | 4 – 8 hours | 15 – 30 min |
 | **Infrastructure** | None | Vector DB + embeddings API | Graph DB + LLM | SQLite (embedded) |
 | **Human editability** | Excellent | Poor (re-embed) | Moderate | Excellent |
 | **MCP integration** | Via skill files | Custom server | Mem0 ships MCP | MCP server (included) |
 | **Obsidian compatible** | Partially | No | No | Yes (full vault) |
 | **Cost** | Free | $0–500+/mo (cloud DB + embeddings) | $250+/mo (Mem0 Pro) or self-host | Free (MIT) |
+| **Memory lifecycle** | Manual cleanup | Manual / TTL | Manual / TTL | Auto-archive + auto-dearchive on cite |
 | **Offline capable** | Yes | Self-hosted only | Self-hosted only | Yes (Ollama/LM Studio) |
 
 ### Where others genuinely win
