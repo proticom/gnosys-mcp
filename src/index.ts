@@ -46,6 +46,7 @@ import { getLLMProvider, isProviderAvailable, LLMProvider } from "./lib/llm.js";
 import { GnosysMaintenanceEngine, formatMaintenanceReport } from "./lib/maintenance.js";
 import { recall, formatRecall, formatRecallCLI } from "./lib/recall.js";
 import { initAudit, readAuditLog, formatAuditTimeline } from "./lib/audit.js";
+import { GnosysDB } from "./lib/db.js";
 
 // Initialize resolver (discovers all layered stores)
 const resolver = new GnosysResolver();
@@ -63,6 +64,8 @@ let tagRegistry: GnosysTagRegistry | null = null;
 let ingestion: GnosysIngestion | null = null;
 let hybridSearch: GnosysHybridSearch | null = null;
 let askEngine: GnosysAsk | null = null;
+/** v2.0: Unified SQLite store (available after migration) */
+let gnosysDb: GnosysDB | null = null;
 
 // ─── Tool: gnosys_discover ──────────────────────────────────────────────
 server.tool(
@@ -77,6 +80,23 @@ server.tool(
     limit: z.number().optional().describe("Max results (default 20)"),
   },
   async ({ query, limit }) => {
+    // v2.0 DB-backed fast path
+    if (gnosysDb?.isAvailable() && gnosysDb?.isMigrated()) {
+      const results = gnosysDb.discoverFts(query, limit || 20);
+      if (results.length === 0) {
+        return {
+          content: [{ type: "text", text: `No memories found for "${query}". Try different keywords.` }],
+        };
+      }
+      const formatted = results
+        .map((r) => `**${r.title}**\n  ID: ${r.id}${r.relevance ? `\n  Relevance: ${r.relevance}` : ""}`)
+        .join("\n\n");
+      return {
+        content: [{ type: "text", text: `Found ${results.length} relevant memories for "${query}":\n\n${formatted}\n\nUse gnosys_read to load any of these.` }],
+      };
+    }
+
+    // v1.x legacy path
     if (!search) {
       return {
         content: [{ type: "text", text: "Search index not initialized." }],
@@ -117,9 +137,38 @@ server.tool(
 // ─── Tool: gnosys_read ───────────────────────────────────────────────────
 server.tool(
   "gnosys_read",
-  "Read a specific memory file. Use layer-prefixed paths (e.g., 'project:decisions/why-not-rag.md'). Without a prefix, searches all stores in precedence order.",
-  { path: z.string().describe("Path to memory, optionally prefixed with store layer") },
+  "Read a specific memory. Accepts a memory ID (e.g., 'arch-012') or layer-prefixed path (e.g., 'project:decisions/why-not-rag.md'). Without a prefix, searches all stores in precedence order.",
+  { path: z.string().describe("Memory ID or path, optionally prefixed with store layer") },
   async ({ path: memPath }) => {
+    // v2.0 DB-backed fast path: try reading by memory ID from gnosys.db first
+    if (gnosysDb?.isAvailable() && gnosysDb?.isMigrated()) {
+      const dbMem = gnosysDb.getMemory(memPath);
+      if (dbMem) {
+        const tags = dbMem.tags || "[]";
+        const header = [
+          `---`,
+          `id: ${dbMem.id}`,
+          `title: '${dbMem.title}'`,
+          `category: ${dbMem.category}`,
+          `tags: ${tags}`,
+          `relevance: ${dbMem.relevance}`,
+          `author: ${dbMem.author}`,
+          `authority: ${dbMem.authority}`,
+          `confidence: ${dbMem.confidence}`,
+          `status: ${dbMem.status}`,
+          `tier: ${dbMem.tier}`,
+          `created: '${dbMem.created}'`,
+          `modified: '${dbMem.modified}'`,
+          `---`,
+        ].join("\n");
+        return {
+          content: [{ type: "text", text: `[Source: gnosys.db]\n\n${header}\n\n${dbMem.content}` }],
+        };
+      }
+      // Not found in db — fall through to legacy path
+    }
+
+    // v1.x legacy path
     const memory = await resolver.readMemory(memPath);
     if (!memory) {
       return {
@@ -149,6 +198,23 @@ server.tool(
     limit: z.number().optional().describe("Max results (default 20)"),
   },
   async ({ query, limit }) => {
+    // v2.0 DB-backed fast path
+    if (gnosysDb?.isAvailable() && gnosysDb?.isMigrated()) {
+      const results = gnosysDb.searchFts(query, limit || 20);
+      if (results.length === 0) {
+        return {
+          content: [{ type: "text", text: `No results for "${query}". Try different keywords.` }],
+        };
+      }
+      const formatted = results
+        .map((r) => `**${r.title}** (${r.id})\n${r.snippet.replace(/>>>/g, "**").replace(/<<</g, "**")}`)
+        .join("\n\n");
+      return {
+        content: [{ type: "text", text: `Found ${results.length} results for "${query}":\n\n${formatted}` }],
+      };
+    }
+
+    // v1.x legacy path
     if (!search) {
       return {
         content: [{ type: "text", text: "Search index not initialized." }],
@@ -1786,7 +1852,7 @@ server.tool(
   async () => {
     try {
       const { collectDashboardData, formatDashboardJSON } = await import("./lib/dashboard.js");
-      const data = await collectDashboardData(resolver, config, "1.1.0");
+      const data = await collectDashboardData(resolver, config, "1.1.0", gnosysDb || undefined);
       return {
         content: [{ type: "text", text: formatDashboardJSON(data) }],
       };
@@ -1858,6 +1924,7 @@ server.resource(
       resolver,
       storePath,
       recallConfig: config.recall,
+      gnosysDb: gnosysDb || undefined,
     });
 
     return {
@@ -1908,6 +1975,7 @@ server.tool(
       storePath,
       traceId,
       recallConfig,
+      gnosysDb: gnosysDb || undefined,
     });
 
     return {
@@ -1981,9 +2049,33 @@ async function main() {
     // Build search index across all stores
     await reindexAllStores();
 
+    // v2.0: Initialize GnosysDB (unified SQLite store)
+    try {
+      gnosysDb = new GnosysDB(writeTarget.store.getStorePath());
+      if (gnosysDb.isAvailable() && gnosysDb.isMigrated()) {
+        const counts = gnosysDb.getMemoryCount();
+        console.error(
+          `GnosysDB: migrated ✓ (${counts.active} active, ${counts.archived} archived, schema v${gnosysDb.getSchemaVersion()})`
+        );
+      } else if (gnosysDb.isAvailable()) {
+        console.error(
+          "GnosysDB: available but not migrated. Run `gnosys migrate` to populate."
+        );
+      } else {
+        gnosysDb = null;
+        console.error("GnosysDB: not available (better-sqlite3 missing)");
+      }
+    } catch {
+      gnosysDb = null;
+      console.error("GnosysDB: initialization failed — using legacy paths");
+    }
+
     // Initialize hybrid search + ask engine (embeddings loaded lazily)
     const embeddings = new GnosysEmbeddings(writeTarget.store.getStorePath());
-    hybridSearch = new GnosysHybridSearch(search, embeddings, resolver, writeTarget.store.getStorePath());
+    hybridSearch = new GnosysHybridSearch(
+      search, embeddings, resolver, writeTarget.store.getStorePath(),
+      gnosysDb || undefined
+    );
     askEngine = new GnosysAsk(hybridSearch, config, resolver, writeTarget.store.getStorePath());
 
     const embCount = embeddings.hasEmbeddings() ? embeddings.count() : 0;

@@ -13,6 +13,7 @@ import {
 } from "./config.js";
 import { isProviderAvailable } from "./llm.js";
 import { GnosysEmbeddings } from "./embeddings.js";
+import { GnosysDB } from "./db.js";
 import fs from "fs/promises";
 import path from "path";
 
@@ -21,6 +22,16 @@ import path from "path";
 export interface DashboardData {
   stores: Array<{ label: string; path: string; memoryCount: number }>;
   totalMemories: number;
+  /** v2.0: gnosys.db unified store stats */
+  gnosysDb: {
+    migrated: boolean;
+    schemaVersion: number;
+    activeCount: number;
+    archivedCount: number;
+    totalCount: number;
+    embeddingCount: number;
+    categories: string[];
+  } | null;
   archive: {
     totalArchived: number;
     dbSizeMB: number;
@@ -71,9 +82,27 @@ export interface DashboardData {
 export async function collectDashboardData(
   resolver: GnosysResolver,
   config: GnosysConfig,
-  version: string
+  version: string,
+  gnosysDb?: GnosysDB
 ): Promise<DashboardData> {
   const stores = resolver.getStores();
+
+  // v2.0: GnosysDB stats
+  let gnosysDbData: DashboardData["gnosysDb"] = null;
+  if (gnosysDb?.isAvailable() && gnosysDb?.isMigrated()) {
+    const counts = gnosysDb.getMemoryCount();
+    const embCount = gnosysDb.getAllEmbeddings().length;
+    const categories = gnosysDb.getCategories();
+    gnosysDbData = {
+      migrated: true,
+      schemaVersion: gnosysDb.getSchemaVersion(),
+      activeCount: counts.active,
+      archivedCount: counts.archived,
+      totalCount: counts.total,
+      embeddingCount: embCount,
+      categories,
+    };
+  }
 
   // Memory counts
   const storeData: DashboardData["stores"] = [];
@@ -217,6 +246,7 @@ export async function collectDashboardData(
   return {
     stores: storeData,
     totalMemories,
+    gnosysDb: gnosysDbData,
     archive,
     maintenance,
     embeddings,
@@ -245,6 +275,21 @@ export function formatDashboard(data: DashboardData): string {
   lines.push("╔══════════════════════════════════════════════════════╗");
   lines.push(`║          GNOSYS DASHBOARD  v${data.version.padEnd(24)}║`);
   lines.push("╠══════════════════════════════════════════════════════╣");
+
+  // v2.0 GnosysDB stats (show first when available)
+  if (data.gnosysDb) {
+    lines.push("║  GNOSYS DB (v2.0 AGENT-NATIVE CORE)                ║");
+    lines.push("╟──────────────────────────────────────────────────────╢");
+    const schema = `  Schema v${data.gnosysDb.schemaVersion} — migrated ✓`.padEnd(53);
+    lines.push(`║${schema}║`);
+    const counts = `  Active: ${data.gnosysDb.activeCount} | Archived: ${data.gnosysDb.archivedCount} | Total: ${data.gnosysDb.totalCount}`.padEnd(53);
+    lines.push(`║${counts}║`);
+    const emb = `  Embeddings: ${data.gnosysDb.embeddingCount} inline vectors`.padEnd(53);
+    lines.push(`║${emb}║`);
+    const cats = `  Categories: ${data.gnosysDb.categories.join(", ")}`.substring(0, 53).padEnd(53);
+    lines.push(`║${cats}║`);
+    lines.push("╟──────────────────────────────────────────────────────╢");
+  }
 
   // Memory Stats
   lines.push("║  MEMORY STORES                                      ║");

@@ -15,12 +15,16 @@
  * When aggressive=true (default): inject top memories even if relevance is
  * medium. This boosts recall in long sessions where context drifts.
  *
+ * v2.0: When GnosysDB is available, recall runs entirely from SQLite —
+ * no filesystem reads, no separate search.db. Pure DB lookup. Sub-10ms.
+ *
  * No LLM calls. No embeddings. Pure index lookup. Sub-50ms.
  */
 
 import { GnosysSearch } from "./search.js";
 import { GnosysResolver } from "./resolver.js";
 import { GnosysArchive } from "./archive.js";
+import { GnosysDB } from "./db.js";
 import { auditLog } from "./audit.js";
 import { RecallConfig } from "./config.js";
 
@@ -74,6 +78,9 @@ function normalizeRank(rank: number, allRanks: number[]): number {
  * Fast recall — keyword search only, no LLM, no embeddings.
  * Designed to run on every host turn via MCP Resource (sub-50ms target).
  *
+ * v2.0: When gnosysDb is provided, recall runs entirely from SQLite.
+ * No filesystem reads. Sub-10ms.
+ *
  * When aggressive=true (default):
  *   - Always returns up to maxMemories regardless of relevance score
  *   - Uses minRelevance as a soft floor, not a hard cutoff
@@ -92,15 +99,23 @@ export async function recall(
     storePath: string;
     traceId?: string;
     recallConfig?: RecallConfig;
+    /** v2.0: When provided, recall uses SQLite directly — no filesystem reads */
+    gnosysDb?: GnosysDB;
   }
 ): Promise<RecallResult> {
   const start = performance.now();
   const cfg = options.recallConfig || DEFAULT_RECALL_CONFIG;
   const limit = options.limit || cfg.maxMemories;
+
+  // ─── v2.0 DB-backed fast path ──────────────────────────────────────
+  if (options.gnosysDb?.isAvailable() && options.gnosysDb?.isMigrated()) {
+    return recallFromDb(query, options.gnosysDb, limit, cfg, options.traceId);
+  }
+
+  // ─── v1.x legacy path (filesystem + search.db) ────────────────────
   const memories: RecallMemory[] = [];
 
   // Step 1: Fast keyword search on active memories (FTS5 — sub-10ms)
-  // Fetch extra so we can score and filter
   const fetchLimit = Math.max(limit * 2, 15);
   const activeResults = options.search.discover(query, fetchLimit);
   const allRanks = activeResults.map((r) => r.rank);
@@ -158,38 +173,145 @@ export async function recall(
   }
 
   // Step 3: Apply filtering
-  const sorted = [...memories].sort((a, b) => b.relevanceScore - a.relevanceScore);
-  let filtered: RecallMemory[];
-
-  if (cfg.aggressive) {
-    // Aggressive: return up to maxMemories. Use minRelevance as soft floor —
-    // always include top 3 even if below threshold, then add remaining above threshold.
-    const guaranteed = sorted.slice(0, 3);
-    const rest = sorted.slice(3).filter((m) => m.relevanceScore >= cfg.minRelevance);
-    filtered = [...guaranteed, ...rest].slice(0, limit);
-  } else {
-    // Non-aggressive: hard cutoff at minRelevance
-    filtered = sorted.filter((m) => m.relevanceScore >= cfg.minRelevance).slice(0, limit);
-  }
-
-  const elapsed = performance.now() - start;
+  const result = applyRecallFiltering(memories, activeResults.length, totalArchived, limit, cfg, start);
 
   auditLog({
     operation: "recall",
     query,
-    resultCount: filtered.length,
-    durationMs: elapsed,
+    resultCount: result.memories.length,
+    durationMs: result.recallTimeMs,
     traceId: options.traceId,
     details: {
       aggressive: cfg.aggressive,
       totalCandidates: memories.length,
-      filtered: filtered.length,
+      filtered: result.memories.length,
     },
   });
 
+  return result;
+}
+
+/**
+ * v2.0 DB-backed recall — runs entirely from gnosys.db.
+ * No filesystem reads. No separate search.db. Sub-10ms target.
+ */
+function recallFromDb(
+  query: string,
+  db: GnosysDB,
+  limit: number,
+  cfg: RecallConfig,
+  traceId?: string
+): RecallResult {
+  const start = performance.now();
+  const memories: RecallMemory[] = [];
+
+  // Step 1: FTS5 discover on gnosys.db
+  const fetchLimit = Math.max(limit * 2, 15);
+  const dbResults = db.discoverFts(query, fetchLimit);
+  const allRanks = dbResults.map((r) => r.rank);
+
+  for (const r of dbResults) {
+    const mem = db.getMemory(r.id);
+    if (mem && mem.tier === "active" && mem.status === "active") {
+      const relevanceScore = normalizeRank(r.rank, allRanks);
+      memories.push({
+        id: mem.id,
+        title: mem.title,
+        category: mem.category,
+        relevance: mem.relevance || "",
+        confidence: mem.confidence,
+        path: mem.id,
+        fromArchive: false,
+        snippet: mem.content.substring(0, 300),
+        relevanceScore,
+      });
+    }
+  }
+
+  // Step 2: Archive tier fallback if active results are thin
+  const counts = db.getMemoryCount();
+  if (memories.length < limit) {
+    for (const r of dbResults) {
+      if (memories.length >= limit) break;
+      const mem = db.getMemory(r.id);
+      if (mem && mem.tier === "archive") {
+        const existingIds = new Set(memories.map((m) => m.id));
+        if (!existingIds.has(mem.id)) {
+          const relevanceScore = normalizeRank(r.rank, allRanks);
+          memories.push({
+            id: mem.id,
+            title: mem.title,
+            category: mem.category,
+            relevance: mem.relevance || "",
+            confidence: mem.confidence,
+            path: mem.id,
+            fromArchive: true,
+            snippet: mem.content.substring(0, 300),
+            relevanceScore,
+          });
+        }
+      }
+    }
+  }
+
+  // Step 3: Apply same filtering logic
+  const result = applyRecallFiltering(
+    memories,
+    dbResults.filter((r) => {
+      const m = db.getMemory(r.id);
+      return m && m.tier === "active";
+    }).length,
+    counts.archived,
+    limit,
+    cfg,
+    start
+  );
+
+  // Audit via db instead of JSONL
+  db.logAudit({
+    timestamp: new Date().toISOString(),
+    operation: "recall",
+    memory_id: null,
+    details: JSON.stringify({
+      query,
+      aggressive: cfg.aggressive,
+      totalCandidates: memories.length,
+      filtered: result.memories.length,
+    }),
+    duration_ms: Math.round(result.recallTimeMs),
+    trace_id: traceId || null,
+  });
+
+  return result;
+}
+
+/**
+ * Shared filtering logic for both v1.x and v2.0 paths.
+ */
+function applyRecallFiltering(
+  memories: RecallMemory[],
+  totalActive: number,
+  totalArchived: number,
+  limit: number,
+  cfg: RecallConfig,
+  startTime: number
+): RecallResult {
+  const sorted = [...memories].sort((a, b) => b.relevanceScore - a.relevanceScore);
+  let filtered: RecallMemory[];
+
+  if (cfg.aggressive) {
+    const guaranteed = sorted.slice(0, 3);
+    const rest = sorted.slice(3).filter((m) => m.relevanceScore >= cfg.minRelevance);
+    filtered = [...guaranteed, ...rest].slice(0, limit);
+  } else {
+    filtered = sorted.filter((m) => m.relevanceScore >= cfg.minRelevance).slice(0, limit);
+  }
+
+  const elapsed = performance.now() - startTime;
+
   return {
     memories: filtered,
-    totalActive: activeResults.length,
+    totalActive,
     totalArchived,
     recallTimeMs: Math.round(elapsed * 100) / 100,
     aggressive: cfg.aggressive,

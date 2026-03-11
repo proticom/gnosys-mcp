@@ -1806,7 +1806,20 @@ program
     }
 
     const cfg = await loadConfig(stores[0].path);
-    const data = await collectDashboardData(resolver, cfg, pkg.version);
+
+    // v2.0: Try to open GnosysDB for dashboard stats
+    let dashDb: import("./lib/db.js").GnosysDB | undefined;
+    try {
+      const { GnosysDB: DbClass } = await import("./lib/db.js");
+      const db = new DbClass(stores[0].path);
+      if (db.isAvailable() && db.isMigrated()) {
+        dashDb = db;
+      }
+    } catch {
+      // GnosysDB not available — legacy dashboard only
+    }
+
+    const data = await collectDashboardData(resolver, cfg, pkg.version, dashDb);
 
     if (opts.json) {
       console.log(formatDashboardJSON(data));

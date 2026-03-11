@@ -13,6 +13,8 @@ import { GnosysEmbeddings } from "./embeddings.js";
 import { GnosysStore, Memory } from "./store.js";
 import { GnosysResolver, LayeredMemory } from "./resolver.js";
 import { GnosysArchive, ArchiveSearchResult } from "./archive.js";
+import { GnosysDbSearch } from "./dbSearch.js";
+import { GnosysDB } from "./db.js";
 
 export type SearchMode = "keyword" | "semantic" | "hybrid";
 
@@ -41,17 +43,25 @@ export class GnosysHybridSearch {
   private embeddings: GnosysEmbeddings;
   private resolver: GnosysResolver;
   private storePath: string;
+  /** v2.0: When set, hybrid search uses SQLite directly */
+  private dbSearch: GnosysDbSearch | null = null;
 
   constructor(
     search: GnosysSearch,
     embeddings: GnosysEmbeddings,
     resolver: GnosysResolver,
-    storePath: string
+    storePath: string,
+    gnosysDb?: GnosysDB
   ) {
     this.search = search;
     this.embeddings = embeddings;
     this.resolver = resolver;
     this.storePath = storePath;
+
+    // v2.0: If GnosysDB is migrated, create a DB search adapter
+    if (gnosysDb?.isAvailable() && gnosysDb?.isMigrated()) {
+      this.dbSearch = new GnosysDbSearch(gnosysDb);
+    }
   }
 
   /**
@@ -63,6 +73,14 @@ export class GnosysHybridSearch {
     limit: number = 15,
     mode: SearchMode = "hybrid"
   ): Promise<HybridSearchResult[]> {
+    // v2.0 DB-backed fast path: run entirely from gnosys.db
+    if (this.dbSearch) {
+      const embedQuery = this.embeddings.hasEmbeddings()
+        ? (text: string) => this.embeddings.embed(text)
+        : undefined;
+      return this.dbSearch.hybridSearch(query, limit, mode, embedQuery);
+    }
+
     // Auto-downgrade to keyword if no embeddings available
     if (mode === "hybrid" || mode === "semantic") {
       if (!this.embeddings.hasEmbeddings()) {
@@ -301,6 +319,11 @@ export class GnosysHybridSearch {
    * Handles both active memories and archived memories.
    */
   async loadContent(results: HybridSearchResult[]): Promise<HybridSearchResult[]> {
+    // v2.0 DB-backed fast path
+    if (this.dbSearch) {
+      return this.dbSearch.loadContent(results);
+    }
+
     const enriched: HybridSearchResult[] = [];
     let archive: GnosysArchive | null = null;
 
@@ -343,6 +366,7 @@ export class GnosysHybridSearch {
    * Check if embeddings are available.
    */
   hasEmbeddings(): boolean {
+    if (this.dbSearch) return this.dbSearch.hasEmbeddings();
     return this.embeddings.hasEmbeddings();
   }
 
@@ -350,6 +374,7 @@ export class GnosysHybridSearch {
    * Get embedding count.
    */
   embeddingCount(): number {
+    if (this.dbSearch) return this.dbSearch.embeddingCount();
     return this.embeddings.count();
   }
 }
