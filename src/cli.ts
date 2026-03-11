@@ -2055,11 +2055,13 @@ program
 // ─── gnosys recall ───────────────────────────────────────────────────────
 program
   .command("recall <query>")
-  .description("Fast memory recall for agent orchestrators (sub-50ms, no LLM)")
-  .option("--limit <n>", "Max memories to return", "8")
+  .description("Always-on memory recall — injects most relevant memories as context (sub-50ms, no LLM)")
+  .option("--limit <n>", "Max memories to return (default from config)")
+  .option("--mode <mode>", "Recall mode: aggressive | balanced | conservative (default from config)")
   .option("--trace-id <id>", "Trace ID for audit correlation")
   .option("--json", "Output raw JSON instead of formatted text")
-  .action(async (query: string, opts: { limit: string; traceId?: string; json?: boolean }) => {
+  .option("--host", "Output in host-friendly <gnosys-recall> format (default for MCP)")
+  .action(async (query: string, opts: { limit?: string; mode?: string; traceId?: string; json?: boolean; host?: boolean }) => {
     const resolver = new GnosysResolver();
     await resolver.resolve();
     const stores = resolver.getStores();
@@ -2068,28 +2070,38 @@ program
       process.exit(1);
     }
 
-    const { recall, formatRecall } = await import("./lib/recall.js");
+    const { recall, formatRecall, formatRecallCLI } = await import("./lib/recall.js");
     const { initAudit, closeAudit } = await import("./lib/audit.js");
 
     const storePath = stores[0].path;
     initAudit(storePath);
+
+    // Load config for recall settings
+    const cfg = await loadConfig(storePath);
+    const recallConfig = {
+      ...cfg.recall,
+      ...(opts.mode ? { mode: opts.mode as "aggressive" | "balanced" | "conservative" } : {}),
+    };
 
     // Build search index
     const search = new GnosysSearch(storePath);
     await search.addStoreMemories(stores[0].store);
 
     const result = await recall(query, {
-      limit: parseInt(opts.limit, 10),
+      limit: opts.limit ? parseInt(opts.limit, 10) : undefined,
       search,
       resolver,
       storePath,
       traceId: opts.traceId,
+      recallConfig,
     });
 
     if (opts.json) {
       console.log(JSON.stringify(result, null, 2));
-    } else {
+    } else if (opts.host) {
       console.log(formatRecall(result));
+    } else {
+      console.log(formatRecallCLI(result));
     }
 
     closeAudit();

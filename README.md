@@ -609,14 +609,29 @@ Configure thresholds in `gnosys.json`:
 
 Built for long-running agent orchestrators that call Gnosys hundreds of times per session.
 
-**Recall hook** — `gnosys_recall` / `gnosys recall "query"` — Sub-50ms memory injection using FTS5 keyword search only. No LLM calls, no embeddings. Designed to be called before every agent turn. Falls back to archive search if active results are insufficient.
+**Always-on recall** — `gnosys_recall` tool + `gnosys://recall` resource — Sub-50ms automatic context injection. No LLM, no embeddings. Three modes: **aggressive** (default, always injects top 3+), **balanced** (relevance threshold), **conservative** (high relevance only). MCP resource with `priority: 1` for hosts that support automatic resource injection. Returns `<gnosys-recall>` blocks or a `<gnosys: no-strong-recall-needed>` heartbeat marker.
 
 ```bash
-# CLI
-gnosys recall "React state management" --limit 5 --trace-id abc123
+# CLI — aggressive mode (default)
+gnosys recall "React state management"
+
+# Override mode, host-friendly format
+gnosys recall "React state management" --mode balanced --host
 
 # MCP tool (called by orchestrator before each turn)
-gnosys_recall { query: "React state management", limit: 5, traceId: "abc123" }
+gnosys_recall { query: "React state management", mode: "aggressive" }
+```
+
+Configure in `gnosys.json`:
+```json
+{
+  "recall": {
+    "mode": "aggressive",
+    "minRelevanceScore": 0.65,
+    "maxMemoriesPerTurn": 8,
+    "alwaysInjectTopN": 3
+  }
+}
 ```
 
 **Concurrency safety** — Write locking with PID tracking prevents corruption when multiple agents write simultaneously. SQLite databases (archive + embeddings) use WAL mode for concurrent reads during writes. Stale lock detection auto-recovers from crashed processes.
@@ -674,7 +689,9 @@ gnosys config set provider <name>  # Set default provider
 gnosys config set task <task> <provider> <model>  # Route task
 gnosys doctor                # Full system health check (all providers)
 gnosys stores                # Show active stores
-gnosys recall "query"        # Fast recall for agent orchestrators (sub-50ms)
+gnosys recall "query"        # Always-on recall (aggressive mode by default)
+gnosys recall "q" --mode balanced  # Override recall mode
+gnosys recall "q" --host     # Output in <gnosys-recall> host format
 gnosys recall "q" --json     # Recall as JSON for programmatic use
 gnosys audit                 # View audit trail (last 7 days)
 gnosys audit --days 30       # View last 30 days of operations

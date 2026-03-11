@@ -491,14 +491,37 @@ When you `gnosys ask` a question, both active and archived memories are searched
 
 ## Enterprise Reliability (v1.3+)
 
-For long-running agent orchestrators (OpenClaw, AutoGPT, CrewAI, etc.), Gnosys provides a fast recall hook designed to be called before every agent turn:
+For long-running agent orchestrators (OpenClaw, AutoGPT, CrewAI, etc.), Gnosys provides always-on recall that injects memory context before every agent turn:
 
 ```bash
-# Sub-50ms recall — no LLM, no embeddings, pure FTS5
-gnosys recall "almond milk nutrition facts" --limit 5
+# Aggressive mode (default) — always injects top 3+ memories
+gnosys recall "almond milk nutrition facts"
 
-# With trace ID for audit correlation
-gnosys recall "organic certification" --trace-id "session-42-turn-7" --json
+# Balanced mode — only injects above relevance threshold
+gnosys recall "organic certification" --mode balanced
+
+# Host-friendly format for MCP injection
+gnosys recall "almond milk" --host
+# Output:
+# <gnosys-recall>
+# [Memory 1] [[usda-almond-nutritional-profile.md]] (relevance: 0.92)
+# Almonds provide 579 kcal per 100g with 21.2g protein...
+# </gnosys-recall>
+
+# When nothing matches:
+# <gnosys: no-strong-recall-needed>
+```
+
+Configure recall aggressiveness in `gnosys.json`:
+```json
+{
+  "recall": {
+    "mode": "aggressive",
+    "minRelevanceScore": 0.65,
+    "maxMemoriesPerTurn": 8,
+    "alwaysInjectTopN": 3
+  }
+}
 ```
 
 Every operation is logged to a structured audit trail:

@@ -66,6 +66,24 @@ const ArchiveConfigSchema = z.object({
   minConfidence: z.number().min(0).max(1).default(0.3),
 });
 
+// ─── Recall Schema ─────────────────────────────────────────────────────
+
+const RecallModeEnum = z.enum(["aggressive", "balanced", "conservative"]);
+export type RecallMode = z.infer<typeof RecallModeEnum>;
+
+const RecallConfigSchema = z.object({
+  /** Recall mode: aggressive (always inject top N), balanced (relevance threshold), conservative (high relevance only) */
+  mode: RecallModeEnum.default("aggressive"),
+  /** Minimum relevance score (0-1) for inclusion in balanced/conservative modes */
+  minRelevanceScore: z.number().min(0).max(1).default(0.65),
+  /** Maximum memories per recall turn */
+  maxMemoriesPerTurn: z.number().int().min(1).max(20).default(8),
+  /** In aggressive mode, always inject at least this many top memories */
+  alwaysInjectTopN: z.number().int().min(0).max(10).default(3),
+});
+
+export type RecallConfig = z.infer<typeof RecallConfigSchema>;
+
 // ─── Main Config Schema ─────────────────────────────────────────────────
 
 export const GnosysConfigSchema = z.object({
@@ -124,6 +142,14 @@ export const GnosysConfigSchema = z.object({
 
   /** Two-tier memory archive settings */
   archive: ArchiveConfigSchema.default({ maxActiveDays: 90, minConfidence: 0.3 }),
+
+  /** Recall hook configuration (always-on context injection) */
+  recall: RecallConfigSchema.default({
+    mode: "aggressive",
+    minRelevanceScore: 0.65,
+    maxMemoriesPerTurn: 8,
+    alwaysInjectTopN: 3,
+  }),
 });
 
 export type GnosysConfig = z.infer<typeof GnosysConfigSchema>;
@@ -339,6 +365,12 @@ export function generateConfigTemplate(): string {
       archive: {
         maxActiveDays: 90,
         minConfidence: 0.3,
+      },
+      recall: {
+        mode: "aggressive",
+        minRelevanceScore: 0.65,
+        maxMemoriesPerTurn: 8,
+        alwaysInjectTopN: 3,
       },
     },
     null,

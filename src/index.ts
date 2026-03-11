@@ -44,7 +44,7 @@ import { GnosysHybridSearch } from "./lib/hybridSearch.js";
 import { GnosysAsk } from "./lib/ask.js";
 import { getLLMProvider, isProviderAvailable, LLMProvider } from "./lib/llm.js";
 import { GnosysMaintenanceEngine, formatMaintenanceReport } from "./lib/maintenance.js";
-import { recall, formatRecall } from "./lib/recall.js";
+import { recall, formatRecall, formatRecallCLI } from "./lib/recall.js";
 import { initAudit, readAuditLog, formatAuditTimeline } from "./lib/audit.js";
 
 // Initialize resolver (discovers all layered stores)
@@ -1820,34 +1820,94 @@ async function reindexAllStores(): Promise<void> {
   }
 }
 
+// ─── Resource: gnosys://recall ──────────────────────────────────────────
+// Always-on memory resource. MCP hosts that support resources can subscribe
+// to this for automatic context injection on every turn.
+server.resource(
+  "gnosys_recall_context",
+  "gnosys://recall",
+  {
+    description:
+      "Always-on memory context. Subscribe to this resource for automatic memory injection on every agent turn. Returns the most relevant memories as a <gnosys-recall> block. Priority 1 (highest) — designed to be read before every tool call.",
+    mimeType: "text/markdown",
+    annotations: {
+      audience: ["assistant"],
+      priority: 1, // Highest priority — always inject
+    },
+  },
+  async () => {
+    if (!search) {
+      return {
+        contents: [
+          {
+            uri: "gnosys://recall",
+            mimeType: "text/markdown",
+            text: "<gnosys: no-strong-recall-needed>",
+          },
+        ],
+      };
+    }
+
+    // Use a generic recall for resource subscriptions (no specific query)
+    // The resource acts as a heartbeat — the tool provides query-specific recall
+    const storePath = resolver.getWriteTarget()?.store.getStorePath() || "";
+    const result = await recall("*", {
+      limit: config.recall?.maxMemoriesPerTurn || 8,
+      search,
+      resolver,
+      storePath,
+      recallConfig: config.recall,
+    });
+
+    return {
+      contents: [
+        {
+          uri: "gnosys://recall",
+          mimeType: "text/markdown",
+          text: formatRecall(result),
+        },
+      ],
+    };
+  }
+);
+
 // ─── Tool: gnosys_recall ─────────────────────────────────────────────────
 server.tool(
   "gnosys_recall",
-  "Ultra-fast memory recall for agent orchestrators. Call this BEFORE every agent turn to inject relevant context. Returns top 5-8 memories in sub-50ms. No LLM calls — pure index lookup. Designed for enterprise long-running agents.",
+  "Always-on memory recall — call BEFORE every agent turn. Injects the most relevant memories as context. Sub-50ms, no LLM. In aggressive mode (default), always returns at least 3 memories. Returns <gnosys-recall> block for host injection. When no strong matches exist, returns <gnosys: no-strong-recall-needed> marker.",
   {
     query: z
       .string()
       .describe(
         "What the agent is currently working on. Use keywords. Example: 'auth JWT middleware' or 'database migration schema'"
       ),
-    limit: z.number().optional().describe("Max memories to return (default 8, max 15)"),
+    limit: z.number().optional().describe("Max memories to return (default from config, max 15)"),
     traceId: z.string().optional().describe("Optional trace ID from the outer orchestrator for audit correlation"),
+    mode: z
+      .enum(["aggressive", "balanced", "conservative"])
+      .optional()
+      .describe("Override recall mode for this call. Default: from gnosys.json config (aggressive)"),
   },
-  async ({ query, limit, traceId }) => {
+  async ({ query, limit, traceId, mode }) => {
     if (!search) {
       return {
-        content: [{ type: "text" as const, text: "Search index not initialized." }],
-        isError: true,
+        content: [{ type: "text" as const, text: "<gnosys: no-strong-recall-needed>" }],
       };
     }
 
     const storePath = resolver.getWriteTarget()?.store.getStorePath() || "";
+    const recallConfig = {
+      ...config.recall,
+      ...(mode ? { mode } : {}),
+    };
+
     const result = await recall(query, {
-      limit: Math.min(limit || 8, 15),
+      limit: Math.min(limit || recallConfig.maxMemoriesPerTurn, 15),
       search,
       resolver,
       storePath,
       traceId,
+      recallConfig,
     });
 
     return {
