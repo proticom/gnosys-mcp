@@ -47,6 +47,7 @@ import { GnosysMaintenanceEngine, formatMaintenanceReport } from "./lib/maintena
 import { recall, formatRecall, formatRecallCLI } from "./lib/recall.js";
 import { initAudit, readAuditLog, formatAuditTimeline } from "./lib/audit.js";
 import { GnosysDB } from "./lib/db.js";
+import { syncMemoryToDb, syncUpdateToDb, syncArchiveToDb, syncDearchiveToDb, syncReinforcementToDb, auditToDb } from "./lib/dbWrite.js";
 
 // Initialize resolver (discovers all layered stores)
 const resolver = new GnosysResolver();
@@ -380,6 +381,12 @@ server.tool(
         content
       );
 
+      // v2.0: Dual-write to gnosys.db
+      if (gnosysDb?.isAvailable()) {
+        syncMemoryToDb(gnosysDb, frontmatter, content, relativePath);
+        auditToDb(gnosysDb, "write", id, { tool: "gnosys_add", category: result.category });
+      }
+
       // Rebuild search index across all stores
       if (search) {
         await reindexAllStores();
@@ -490,6 +497,12 @@ server.tool(
       fullContent
     );
 
+    // v2.0: Dual-write to gnosys.db
+    if (gnosysDb?.isAvailable()) {
+      syncMemoryToDb(gnosysDb, frontmatter, fullContent, relativePath);
+      auditToDb(gnosysDb, "write", id, { tool: "gnosys_add_structured", category });
+    }
+
     if (search) await reindexAllStores();
 
     return {
@@ -587,9 +600,18 @@ server.tool(
           .getStores()
           .find((s) => s.label === memory.sourceLabel);
         if (sourceStore?.writable) {
+          const count = (memory.frontmatter.reinforcement_count || 0) + 1;
           await sourceStore.store.updateMemory(memory.relativePath, {
             modified: new Date().toISOString().split("T")[0],
+            reinforcement_count: count,
+            last_reinforced: new Date().toISOString().split("T")[0],
           } as any);
+
+          // v2.0: Sync reinforcement to gnosys.db
+          if (gnosysDb?.isAvailable()) {
+            syncReinforcementToDb(gnosysDb, memory_id, count);
+            auditToDb(gnosysDb, "reinforce", memory_id, { signal, context });
+          }
         }
       }
     }
@@ -836,6 +858,17 @@ server.tool(
             } as Partial<MemoryFrontmatter>
           );
         }
+      }
+    }
+
+    // v2.0: Dual-write update to gnosys.db
+    if (gnosysDb?.isAvailable() && updated.frontmatter.id) {
+      syncUpdateToDb(gnosysDb, updated.frontmatter.id, updates, fullContent);
+      auditToDb(gnosysDb, "write", updated.frontmatter.id, { tool: "gnosys_update", changed: Object.keys(updates) });
+
+      // Cross-link supersession in db too
+      if (supersedes) {
+        syncUpdateToDb(gnosysDb, supersedes, { superseded_by: updated.frontmatter.id, status: "superseded" });
       }
     }
 
@@ -1501,6 +1534,17 @@ server.tool(
         await reindexAllStores();
       }
 
+      // v2.0: Sync imported memories to gnosys.db
+      if (!dryRun && result.imported.length > 0 && gnosysDb?.isAvailable()) {
+        try {
+          const { migrate: migrateDb } = await import("./lib/migrate.js");
+          await migrateDb(writeTarget.store.getStorePath());
+        } catch {
+          // Migration sync is best-effort
+        }
+        auditToDb(gnosysDb, "ingest", undefined, { format, count: result.imported.length, mode: effectiveMode });
+      }
+
       let response = formatImportSummary(result);
 
       // Smart threshold guidance
@@ -1754,6 +1798,15 @@ server.tool(
         autoApply: autoApply ?? false,
       });
 
+      // v2.0: Log maintenance run to gnosys.db
+      if (gnosysDb?.isAvailable()) {
+        auditToDb(gnosysDb, "maintain", undefined, {
+          dryRun: dryRun ?? true,
+          duplicatesFound: report.duplicates?.length || 0,
+          consolidated: report.consolidated || 0,
+        });
+      }
+
       return {
         content: [{ type: "text", text: formatMaintenanceReport(report) }],
       };
@@ -1805,6 +1858,14 @@ server.tool(
       const ids = results.map((r) => r.id);
       const restored = await archive.dearchiveBatch(ids, writeTarget.store);
       archive.close();
+
+      // v2.0: Sync dearchive to gnosys.db
+      if (gnosysDb?.isAvailable()) {
+        for (const memId of ids) {
+          syncDearchiveToDb(gnosysDb, memId);
+        }
+        auditToDb(gnosysDb, "dearchive", undefined, { query, count: restored.length });
+      }
 
       const lines = [`Dearchived ${restored.length} memories back to active:`];
       for (const rp of restored) {
