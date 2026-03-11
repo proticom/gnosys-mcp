@@ -1657,10 +1657,10 @@ function copyCode(btn) {
   }
 
   function htmlToMarkdown() {
-    // Get visible text content from page body elements
+    // Use textContent to capture ALL content including hidden tab panels
     var text = '';
     pageBody.forEach(function(el) {
-      text += el.innerText + '\n\n';
+      text += el.textContent + '\n\n';
     });
     return text.trim();
   }
@@ -1675,6 +1675,7 @@ function copyCode(btn) {
 
   function setView(mode) {
     var isMd = (mode === 'md');
+    localStorage.setItem('gnosys-view', mode);
     mdToggle.setAttribute('data-active', isMd ? '2' : '1');
     mdBtns.forEach(function(b) { b.classList.toggle('active', b.dataset.view === mode); });
 
@@ -1700,6 +1701,11 @@ function copyCode(btn) {
       }, 2000);
     });
   });
+
+  // Restore persisted view preference
+  if (localStorage.getItem('gnosys-view') === 'md') {
+    setView('md');
+  }
 })();
 
 // Generate Markdown Content
@@ -2074,7 +2080,20 @@ Usage: \`gnosys reindex-graph\`
 
 MCP Tool: \`gnosys_reindex_graph\``;
 
-  content.textContent = text;
+  // Append agent rules from DOM (loaded dynamically from /rules/)
+  var rulesSection = '\n\n## Agent Rules\n\n';
+  var cursorPre = document.getElementById('rules-code-cursor');
+  var claudePre = document.getElementById('rules-code-claude');
+  if (cursorPre && cursorPre.textContent) {
+    rulesSection += '### Cursor (.cursor/rules/gnosys.mdc)\n\n```\n' + cursorPre.textContent.trim() + '\n```\n\n';
+  }
+  if (claudePre && claudePre.textContent) {
+    rulesSection += '### Claude Code (CLAUDE.md)\n\n```\n' + claudePre.textContent.trim() + '\n```\n';
+  }
+  var fullText = text + rulesSection;
+
+  content.textContent = fullText;
+  return fullText;
 }
 
 // Expose to global scope for markdown toggle

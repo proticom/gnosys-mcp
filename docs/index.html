@@ -1424,10 +1424,10 @@ function copyRule(btn, variant) {
   }
 
   function htmlToMarkdown() {
-    // Get visible text content from page body elements
+    // Use textContent to capture ALL content including hidden tab panels
     var text = '';
     pageBody.forEach(function(el) {
-      text += el.innerText + '\n\n';
+      text += el.textContent + '\n\n';
     });
     return text.trim();
   }
@@ -1442,6 +1442,7 @@ function copyRule(btn, variant) {
 
   function setView(mode) {
     var isMd = (mode === 'md');
+    localStorage.setItem('gnosys-view', mode);
     mdToggle.setAttribute('data-active', isMd ? '2' : '1');
     mdBtns.forEach(function(b) { b.classList.toggle('active', b.dataset.view === mode); });
 
@@ -1467,6 +1468,11 @@ function copyRule(btn, variant) {
       }, 2000);
     });
   });
+
+  // Restore persisted view preference
+  if (localStorage.getItem('gnosys-view') === 'md') {
+    setView('md');
+  }
 })();
 
 /* ── Knowledge Graph Canvas Animation ── */

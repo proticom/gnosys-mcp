@@ -510,10 +510,10 @@ footer a:hover { color: var(--accent-light); }
   }
 
   function htmlToMarkdown() {
-    // Get visible text content from page body elements
+    // Use textContent to capture ALL content including hidden tab panels
     var text = '';
     pageBody.forEach(function(el) {
-      text += el.innerText + '\n\n';
+      text += el.textContent + '\n\n';
     });
     return text.trim();
   }
@@ -528,6 +528,7 @@ footer a:hover { color: var(--accent-light); }
 
   function setView(mode) {
     var isMd = (mode === 'md');
+    localStorage.setItem('gnosys-view', mode);
     mdToggle.setAttribute('data-active', isMd ? '2' : '1');
     mdBtns.forEach(function(b) { b.classList.toggle('active', b.dataset.view === mode); });
 
@@ -553,6 +554,11 @@ footer a:hover { color: var(--accent-light); }
       }, 2000);
     });
   });
+
+  // Restore persisted view preference
+  if (localStorage.getItem('gnosys-view') === 'md') {
+    setView('md');
+  }
 })();
 
 // Recipe engine
