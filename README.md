@@ -605,34 +605,49 @@ Configure thresholds in `gnosys.json`:
 }
 ```
 
-### Enterprise Reliability (v1.3.0)
+### Enterprise Reliability (v1.3.0+)
 
 Built for long-running agent orchestrators that call Gnosys hundreds of times per session.
 
-**Always-on recall** — `gnosys_recall` tool + `gnosys://recall` resource — Sub-50ms automatic context injection. No LLM, no embeddings. Three modes: **aggressive** (default, always injects top 3+), **balanced** (relevance threshold), **conservative** (high relevance only). MCP resource with `priority: 1` for hosts that support automatic resource injection. Returns `<gnosys-recall>` blocks or a `<gnosys: no-strong-recall-needed>` heartbeat marker.
+**Automatic Memory Injection** — The `gnosys://recall` MCP Resource is read by hosts (Cursor, Claude Desktop, Claude Code, Cowork) on every single turn. No tool call needed — the host injects relevant memories into the model context automatically. The `gnosys_recall` tool is kept as a fallback for hosts that don't support MCP Resources.
+
+Sub-50ms, no LLM, no embeddings — pure FTS5 keyword search with relevance scoring. Returns `<gnosys-recall>` blocks with `[[wikilinks]]` or a `<gnosys: no-strong-recall-needed>` heartbeat.
+
+Two modes: **aggressive** (default) always injects the top 3 memories plus any above the relevance floor. **Filtered** (`aggressive: false`) applies a hard cutoff at `minRelevance`.
 
 ```bash
 # CLI — aggressive mode (default)
 gnosys recall "React state management"
 
-# Override mode, host-friendly format
-gnosys recall "React state management" --mode balanced --host
+# Force filtered mode
+gnosys recall "React state management" --no-aggressive --host
 
-# MCP tool (called by orchestrator before each turn)
-gnosys_recall { query: "React state management", mode: "aggressive" }
+# Configure recall
+gnosys config set recall aggressive true
+gnosys config set recall maxMemories 12
+gnosys config set recall minRelevance 0.3
 ```
 
 Configure in `gnosys.json`:
 ```json
 {
   "recall": {
-    "mode": "aggressive",
-    "minRelevanceScore": 0.65,
-    "maxMemoriesPerTurn": 8,
-    "alwaysInjectTopN": 3
+    "aggressive": true,
+    "maxMemories": 8,
+    "minRelevance": 0.4
   }
 }
 ```
+
+#### Setup for Automatic Injection
+
+**Cursor** — Add to your MCP config. Cursor reads `gnosys://recall` automatically on every turn when it's listed as a resource with `priority: 1`.
+
+**Claude Desktop** — Same MCP config. The resource appears in the model context on every message.
+
+**Claude Code / Cowork** — Configure via `.mcp.json` or the MCP settings. The `gnosys://recall` resource is injected into every assistant turn.
+
+No per-turn tool calls, no manual invocation — just configure the MCP server once and memories flow into every conversation automatically.
 
 **Concurrency safety** — Write locking with PID tracking prevents corruption when multiple agents write simultaneously. SQLite databases (archive + embeddings) use WAL mode for concurrent reads during writes. Stale lock detection auto-recovers from crashed processes.
 
@@ -689,10 +704,10 @@ gnosys config set provider <name>  # Set default provider
 gnosys config set task <task> <provider> <model>  # Route task
 gnosys doctor                # Full system health check (all providers)
 gnosys stores                # Show active stores
-gnosys recall "query"        # Always-on recall (aggressive mode by default)
-gnosys recall "q" --mode balanced  # Override recall mode
-gnosys recall "q" --host     # Output in <gnosys-recall> host format
-gnosys recall "q" --json     # Recall as JSON for programmatic use
+gnosys recall "query"            # Always-on recall (aggressive mode by default)
+gnosys recall "q" --no-aggressive  # Force filtered mode (hard cutoff)
+gnosys recall "q" --host         # Output in <gnosys-recall> host format
+gnosys recall "q" --json         # Recall as JSON for programmatic use
 gnosys audit                 # View audit trail (last 7 days)
 gnosys audit --days 30       # View last 30 days of operations
 gnosys audit --operation ask # Filter by operation type

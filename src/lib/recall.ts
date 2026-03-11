@@ -1,21 +1,24 @@
 /**
- * Gnosys Recall — Always-on automatic context injection for agent orchestrators.
+ * Gnosys Recall — Automatic memory injection via MCP Resource.
  *
- * Designed to be called BEFORE every agent turn to inject the most relevant
- * memories into context. Sub-50ms response on typical vaults (< 5000 active).
+ * The host (Cursor, Claude Desktop, Claude Code, Cowork) reads the
+ * gnosys://recall resource on every turn. This module runs the fast
+ * FTS5 lookup and returns a citation-heavy <gnosys-recall> block that
+ * gets injected into the model context automatically — no tool call needed.
  *
- * Pipeline: FTS5 keyword search (fastest) → relevance filtering → optional
- * archive fallback → format as host-friendly <gnosys-recall> block.
+ * Pipeline: FTS5 keyword search → relevance scoring → aggressive/filtered
+ *           selection → archive fallback → format as [[wikilink]] block.
  *
- * Modes:
- *   aggressive (default): Always inject top N + any high-relevance memories
- *   balanced: Only inject if relevance > minRelevanceScore
- *   conservative: Only inject high-relevance memories (>0.8 normalized)
+ * Config (gnosys.json):
+ *   "recall": { "aggressive": true, "maxMemories": 8, "minRelevance": 0.4 }
  *
- * No LLM calls. No embeddings. Pure index lookup.
+ * When aggressive=true (default): inject top memories even if relevance is
+ * medium. This boosts recall in long sessions where context drifts.
+ *
+ * No LLM calls. No embeddings. Pure index lookup. Sub-50ms.
  */
 
-import { GnosysSearch, DiscoverResult } from "./search.js";
+import { GnosysSearch } from "./search.js";
 import { GnosysResolver } from "./resolver.js";
 import { GnosysArchive } from "./archive.js";
 import { auditLog } from "./audit.js";
@@ -26,7 +29,7 @@ export interface RecallResult {
   totalActive: number;
   totalArchived: number;
   recallTimeMs: number;
-  mode: string;
+  aggressive: boolean;
 }
 
 export interface RecallMemory {
@@ -42,12 +45,11 @@ export interface RecallMemory {
   relevanceScore: number;
 }
 
-/** Default recall config (aggressive mode) */
+/** Default recall config */
 const DEFAULT_RECALL_CONFIG: RecallConfig = {
-  mode: "aggressive",
-  minRelevanceScore: 0.65,
-  maxMemoriesPerTurn: 8,
-  alwaysInjectTopN: 3,
+  aggressive: true,
+  maxMemories: 8,
+  minRelevance: 0.4,
 };
 
 /**
@@ -57,24 +59,29 @@ const DEFAULT_RECALL_CONFIG: RecallConfig = {
  */
 function normalizeRank(rank: number, allRanks: number[]): number {
   if (allRanks.length === 0) return 0.5;
-  if (allRanks.length === 1) return 0.9; // Single result is probably relevant
+  if (allRanks.length === 1) return 0.9;
 
   const minRank = Math.min(...allRanks); // Most relevant (most negative)
-  const maxRank = Math.max(...allRanks); // Least relevant (least negative / closest to 0)
+  const maxRank = Math.max(...allRanks); // Least relevant
 
-  if (maxRank === minRank) return 0.9; // All same rank
+  if (maxRank === minRank) return 0.9;
 
-  // Linear normalization: most negative rank → 1.0, least negative → 0.3
+  // Linear normalization: most negative → 1.0, least negative → 0.3
   return 0.3 + 0.7 * ((maxRank - rank) / (maxRank - minRank));
 }
 
 /**
  * Fast recall — keyword search only, no LLM, no embeddings.
- * Designed to be called before every agent turn (sub-50ms target).
+ * Designed to run on every host turn via MCP Resource (sub-50ms target).
  *
- * In aggressive mode (default), always returns at least `alwaysInjectTopN`
- * memories even if relevance is moderate. In balanced mode, applies a
- * relevance threshold. In conservative mode, only returns high-relevance hits.
+ * When aggressive=true (default):
+ *   - Always returns up to maxMemories regardless of relevance score
+ *   - Uses minRelevance as a soft floor, not a hard cutoff
+ *   - Injects even medium-relevance memories to boost context in long sessions
+ *
+ * When aggressive=false:
+ *   - Only returns memories above minRelevance threshold
+ *   - May return zero memories if nothing matches well
  */
 export async function recall(
   query: string,
@@ -89,11 +96,11 @@ export async function recall(
 ): Promise<RecallResult> {
   const start = performance.now();
   const cfg = options.recallConfig || DEFAULT_RECALL_CONFIG;
-  const limit = options.limit || cfg.maxMemoriesPerTurn;
+  const limit = options.limit || cfg.maxMemories;
   const memories: RecallMemory[] = [];
 
   // Step 1: Fast keyword search on active memories (FTS5 — sub-10ms)
-  // Fetch extra results so we can filter by relevance
+  // Fetch extra so we can score and filter
   const fetchLimit = Math.max(limit * 2, 15);
   const activeResults = options.search.discover(query, fetchLimit);
   const allRanks = activeResults.map((r) => r.rank);
@@ -116,7 +123,7 @@ export async function recall(
     }
   }
 
-  // Step 2: If active results insufficient, search archive (still fast — FTS5)
+  // Step 2: Archive fallback if active results are thin
   let totalArchived = 0;
   if (memories.length < limit) {
     try {
@@ -139,7 +146,7 @@ export async function recall(
               path: `archive:${ar.category}/${ar.id}`,
               fromArchive: true,
               snippet: ar.snippet,
-              relevanceScore: 0.5, // Archive results get moderate default relevance
+              relevanceScore: 0.5,
             });
           }
         }
@@ -150,8 +157,20 @@ export async function recall(
     }
   }
 
-  // Step 3: Apply relevance filtering based on mode
-  const filtered = applyModeFilter(memories, cfg, limit);
+  // Step 3: Apply filtering
+  const sorted = [...memories].sort((a, b) => b.relevanceScore - a.relevanceScore);
+  let filtered: RecallMemory[];
+
+  if (cfg.aggressive) {
+    // Aggressive: return up to maxMemories. Use minRelevance as soft floor —
+    // always include top 3 even if below threshold, then add remaining above threshold.
+    const guaranteed = sorted.slice(0, 3);
+    const rest = sorted.slice(3).filter((m) => m.relevanceScore >= cfg.minRelevance);
+    filtered = [...guaranteed, ...rest].slice(0, limit);
+  } else {
+    // Non-aggressive: hard cutoff at minRelevance
+    filtered = sorted.filter((m) => m.relevanceScore >= cfg.minRelevance).slice(0, limit);
+  }
 
   const elapsed = performance.now() - start;
 
@@ -162,7 +181,7 @@ export async function recall(
     durationMs: elapsed,
     traceId: options.traceId,
     details: {
-      mode: cfg.mode,
+      aggressive: cfg.aggressive,
       totalCandidates: memories.length,
       filtered: filtered.length,
     },
@@ -173,54 +192,14 @@ export async function recall(
     totalActive: activeResults.length,
     totalArchived,
     recallTimeMs: Math.round(elapsed * 100) / 100,
-    mode: cfg.mode,
+    aggressive: cfg.aggressive,
   };
 }
 
 /**
- * Apply mode-based filtering to candidate memories.
- */
-function applyModeFilter(
-  memories: RecallMemory[],
-  cfg: RecallConfig,
-  limit: number
-): RecallMemory[] {
-  // Sort by relevance score (highest first)
-  const sorted = [...memories].sort((a, b) => b.relevanceScore - a.relevanceScore);
-
-  switch (cfg.mode) {
-    case "aggressive": {
-      // Always inject at least the top N + any additional high-relevance ones
-      const topN = sorted.slice(0, cfg.alwaysInjectTopN);
-      const remaining = sorted.slice(cfg.alwaysInjectTopN);
-      const highRelevance = remaining.filter((m) => m.relevanceScore >= cfg.minRelevanceScore);
-      const combined = [...topN, ...highRelevance];
-      return combined.slice(0, limit);
-    }
-
-    case "balanced": {
-      // Only include memories above the relevance threshold
-      const filtered = sorted.filter((m) => m.relevanceScore >= cfg.minRelevanceScore);
-      return filtered.slice(0, limit);
-    }
-
-    case "conservative": {
-      // Only high-relevance memories (>0.8)
-      const filtered = sorted.filter((m) => m.relevanceScore >= 0.8);
-      return filtered.slice(0, limit);
-    }
-
-    default:
-      return sorted.slice(0, limit);
-  }
-}
-
-/**
  * Format recall results as a host-friendly <gnosys-recall> block.
- * This is the format injected into agent context on every turn.
- *
- * When no strong memories exist, returns a lightweight marker so the
- * host knows the recall system is active and working.
+ * This is what gets injected into the model context on every turn
+ * via the MCP Resource. Citation-heavy with [[wikilinks]].
  */
 export function formatRecall(result: RecallResult): string {
   if (result.memories.length === 0) {
@@ -248,12 +227,13 @@ export function formatRecall(result: RecallResult): string {
  * Format recall results as a concise CLI-friendly output.
  */
 export function formatRecallCLI(result: RecallResult): string {
+  const mode = result.aggressive ? "aggressive" : "filtered";
   if (result.memories.length === 0) {
-    return `[Gnosys Recall] No relevant memories found. (mode: ${result.mode}, ${result.recallTimeMs}ms)`;
+    return `[Gnosys Recall] No relevant memories found. (${mode}, ${result.recallTimeMs}ms)`;
   }
 
   const lines: string[] = [
-    `[Gnosys Recall] ${result.memories.length} memories (mode: ${result.mode}, ${result.recallTimeMs}ms)`,
+    `[Gnosys Recall] ${result.memories.length} memories (${mode}, ${result.recallTimeMs}ms)`,
     "",
   ];
 
@@ -262,7 +242,7 @@ export function formatRecallCLI(result: RecallResult): string {
     const score = m.relevanceScore.toFixed(2);
     lines.push(`• ${m.title}${archive} (relevance: ${score})`);
     lines.push(`  Category: ${m.category} | Confidence: ${m.confidence}`);
-    lines.push(`  Path: ${m.path}`);
+    lines.push(`  Path: [[${m.path}]]`);
     if (m.snippet) {
       lines.push(`  ${m.snippet.substring(0, 150).replace(/\n/g, " ").trim()}`);
     }

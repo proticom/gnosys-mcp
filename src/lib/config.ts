@@ -68,18 +68,13 @@ const ArchiveConfigSchema = z.object({
 
 // ─── Recall Schema ─────────────────────────────────────────────────────
 
-const RecallModeEnum = z.enum(["aggressive", "balanced", "conservative"]);
-export type RecallMode = z.infer<typeof RecallModeEnum>;
-
 const RecallConfigSchema = z.object({
-  /** Recall mode: aggressive (always inject top N), balanced (relevance threshold), conservative (high relevance only) */
-  mode: RecallModeEnum.default("aggressive"),
-  /** Minimum relevance score (0-1) for inclusion in balanced/conservative modes */
-  minRelevanceScore: z.number().min(0).max(1).default(0.65),
-  /** Maximum memories per recall turn */
-  maxMemoriesPerTurn: z.number().int().min(1).max(20).default(8),
-  /** In aggressive mode, always inject at least this many top memories */
-  alwaysInjectTopN: z.number().int().min(0).max(10).default(3),
+  /** When true, inject memories even at medium relevance (boosts recall for long sessions) */
+  aggressive: z.boolean().default(true),
+  /** Max memories to inject per turn */
+  maxMemories: z.number().int().min(1).max(20).default(8),
+  /** Minimum relevance score (0-1). Lower = more memories returned. Aggressive mode uses this as a soft floor. */
+  minRelevance: z.number().min(0).max(1).default(0.4),
 });
 
 export type RecallConfig = z.infer<typeof RecallConfigSchema>;
@@ -143,12 +138,11 @@ export const GnosysConfigSchema = z.object({
   /** Two-tier memory archive settings */
   archive: ArchiveConfigSchema.default({ maxActiveDays: 90, minConfidence: 0.3 }),
 
-  /** Recall hook configuration (always-on context injection) */
+  /** Recall — automatic memory injection on every turn */
   recall: RecallConfigSchema.default({
-    mode: "aggressive",
-    minRelevanceScore: 0.65,
-    maxMemoriesPerTurn: 8,
-    alwaysInjectTopN: 3,
+    aggressive: true,
+    maxMemories: 8,
+    minRelevance: 0.4,
   }),
 });
 
@@ -367,10 +361,9 @@ export function generateConfigTemplate(): string {
         minConfidence: 0.3,
       },
       recall: {
-        mode: "aggressive",
-        minRelevanceScore: 0.65,
-        maxMemoriesPerTurn: 8,
-        alwaysInjectTopN: 3,
+        aggressive: true,
+        maxMemories: 8,
+        minRelevance: 0.4,
       },
     },
     null,

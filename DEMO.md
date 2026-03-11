@@ -494,11 +494,11 @@ When you `gnosys ask` a question, both active and archived memories are searched
 For long-running agent orchestrators (OpenClaw, AutoGPT, CrewAI, etc.), Gnosys provides always-on recall that injects memory context before every agent turn:
 
 ```bash
-# Aggressive mode (default) — always injects top 3+ memories
+# Aggressive mode (default) — always injects top 3 + rest above relevance floor
 gnosys recall "almond milk nutrition facts"
 
-# Balanced mode — only injects above relevance threshold
-gnosys recall "organic certification" --mode balanced
+# Filtered mode — hard cutoff at minRelevance
+gnosys recall "organic certification" --no-aggressive
 
 # Host-friendly format for MCP injection
 gnosys recall "almond milk" --host
@@ -510,16 +510,19 @@ gnosys recall "almond milk" --host
 
 # When nothing matches:
 # <gnosys: no-strong-recall-needed>
+
+# Configure recall from CLI
+gnosys config set recall aggressive true
+gnosys config set recall maxMemories 12
 ```
 
-Configure recall aggressiveness in `gnosys.json`:
+Configure recall in `gnosys.json`:
 ```json
 {
   "recall": {
-    "mode": "aggressive",
-    "minRelevanceScore": 0.65,
-    "maxMemoriesPerTurn": 8,
-    "alwaysInjectTopN": 3
+    "aggressive": true,
+    "maxMemories": 8,
+    "minRelevance": 0.4
   }
 }
 ```

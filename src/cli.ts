@@ -1686,8 +1686,54 @@ configCmd
         console.log(`LM Studio model set to: ${value}`);
         break;
 
+      case "recall": {
+        // gnosys config set recall <field> <value>
+        // Supported: recall aggressive true/false, recall maxMemories <n>, recall minRelevance <n>
+        const recallField = value;
+        const recallValue = extra[0];
+        if (!recallField || !recallValue) {
+          console.error("Usage: gnosys config set recall <aggressive|maxMemories|minRelevance> <value>");
+          process.exit(1);
+        }
+        if (!cfg.recall) cfg.recall = { aggressive: true, maxMemories: 8, minRelevance: 0.4 };
+        switch (recallField) {
+          case "aggressive":
+            if (recallValue !== "true" && recallValue !== "false") {
+              console.error(`Invalid value: "${recallValue}". Use "true" or "false".`);
+              process.exit(1);
+            }
+            cfg.recall.aggressive = recallValue === "true";
+            console.log(`Recall aggressive mode: ${cfg.recall.aggressive ? "enabled" : "disabled"}`);
+            break;
+          case "maxMemories": {
+            const n = parseInt(recallValue, 10);
+            if (isNaN(n) || n < 1 || n > 20) {
+              console.error("maxMemories must be between 1 and 20");
+              process.exit(1);
+            }
+            cfg.recall.maxMemories = n;
+            console.log(`Recall maxMemories set to: ${n}`);
+            break;
+          }
+          case "minRelevance": {
+            const f = parseFloat(recallValue);
+            if (isNaN(f) || f < 0 || f > 1) {
+              console.error("minRelevance must be between 0 and 1");
+              process.exit(1);
+            }
+            cfg.recall.minRelevance = f;
+            console.log(`Recall minRelevance set to: ${f}`);
+            break;
+          }
+          default:
+            console.error(`Unknown recall field: "${recallField}". Valid: aggressive, maxMemories, minRelevance`);
+            process.exit(1);
+        }
+        break;
+      }
+
       default:
-        console.error(`Unknown config key: "${key}". Valid: provider, model, task, ollama-url, ollama-model, anthropic-model, groq-model, openai-model, openai-url, lmstudio-url, lmstudio-model`);
+        console.error(`Unknown config key: "${key}". Valid: provider, model, task, ollama-url, ollama-model, anthropic-model, groq-model, openai-model, openai-url, lmstudio-url, lmstudio-model, recall`);
         process.exit(1);
     }
 
@@ -1908,8 +1954,16 @@ program
       console.log("");
     }
 
-    // Check config — SOC routing
+    // Check config — SOC routing + recall
     const cfg = stores.length > 0 ? await loadConfig(stores[0].path) : DEFAULT_CONFIG;
+
+    console.log("Recall (Automatic Memory Injection):");
+    const recallMode = cfg.recall?.aggressive !== false ? "aggressive" : "filtered";
+    console.log(`  Mode: ${recallMode}`);
+    console.log(`  Max memories per turn: ${cfg.recall?.maxMemories ?? 8}`);
+    console.log(`  Min relevance: ${cfg.recall?.minRelevance ?? 0.4}`);
+    console.log("");
+
     console.log("System of Cognition (SOC):");
     console.log(`  Default provider: ${cfg.llm.defaultProvider}`);
 
@@ -2057,11 +2111,12 @@ program
   .command("recall <query>")
   .description("Always-on memory recall — injects most relevant memories as context (sub-50ms, no LLM)")
   .option("--limit <n>", "Max memories to return (default from config)")
-  .option("--mode <mode>", "Recall mode: aggressive | balanced | conservative (default from config)")
+  .option("--aggressive", "Force aggressive mode (inject even medium-relevance memories)")
+  .option("--no-aggressive", "Force filtered mode (hard cutoff at minRelevance)")
   .option("--trace-id <id>", "Trace ID for audit correlation")
   .option("--json", "Output raw JSON instead of formatted text")
   .option("--host", "Output in host-friendly <gnosys-recall> format (default for MCP)")
-  .action(async (query: string, opts: { limit?: string; mode?: string; traceId?: string; json?: boolean; host?: boolean }) => {
+  .action(async (query: string, opts: { limit?: string; aggressive?: boolean; traceId?: string; json?: boolean; host?: boolean }) => {
     const resolver = new GnosysResolver();
     await resolver.resolve();
     const stores = resolver.getStores();
@@ -2080,7 +2135,7 @@ program
     const cfg = await loadConfig(storePath);
     const recallConfig = {
       ...cfg.recall,
-      ...(opts.mode ? { mode: opts.mode as "aggressive" | "balanced" | "conservative" } : {}),
+      ...(opts.aggressive !== undefined ? { aggressive: opts.aggressive } : {}),
     };
 
     // Build search index

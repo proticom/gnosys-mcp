@@ -54,7 +54,7 @@ let config: GnosysConfig = DEFAULT_CONFIG;
 // Create MCP server
 const server = new McpServer({
   name: "gnosys",
-  version: "1.3.1",
+  version: "1.4.0",
 });
 
 // These are initialized in main() after resolver runs
@@ -1820,15 +1820,18 @@ async function reindexAllStores(): Promise<void> {
   }
 }
 
-// ─── Resource: gnosys://recall ──────────────────────────────────────────
-// Always-on memory resource. MCP hosts that support resources can subscribe
-// to this for automatic context injection on every turn.
+// ─── Resource: gnosys://recall (AUTOMATIC MEMORY INJECTION) ────────────
+// This is the primary recall mechanism. MCP hosts (Cursor, Claude Desktop,
+// Claude Code, Cowork) read this resource on every turn, automatically
+// injecting relevant memories into the model context — no tool call needed.
+//
+// Priority 1 + audience: assistant = hosts inject this before every message.
 server.resource(
-  "gnosys_recall_context",
+  "gnosys_recall",
   "gnosys://recall",
   {
     description:
-      "Always-on memory context. Subscribe to this resource for automatic memory injection on every agent turn. Returns the most relevant memories as a <gnosys-recall> block. Priority 1 (highest) — designed to be read before every tool call.",
+      "Automatic memory injection. Hosts read this resource on every turn to inject the most relevant memories as context. Returns a <gnosys-recall> block with [[wikilinks]] and relevance scores. Priority 1 (highest) — designed for always-on context injection without any tool call. Configure aggressiveness in gnosys.json: recall.aggressive (default: true).",
     mimeType: "text/markdown",
     annotations: {
       audience: ["assistant"],
@@ -1848,11 +1851,9 @@ server.resource(
       };
     }
 
-    // Use a generic recall for resource subscriptions (no specific query)
-    // The resource acts as a heartbeat — the tool provides query-specific recall
     const storePath = resolver.getWriteTarget()?.store.getStorePath() || "";
     const result = await recall("*", {
-      limit: config.recall?.maxMemoriesPerTurn || 8,
+      limit: config.recall?.maxMemories || 8,
       search,
       resolver,
       storePath,
@@ -1871,10 +1872,12 @@ server.resource(
   }
 );
 
-// ─── Tool: gnosys_recall ─────────────────────────────────────────────────
+// ─── Tool: gnosys_recall (query-specific fallback) ──────────────────────
+// For hosts that don't support MCP Resources, or when the agent wants to
+// recall memories for a specific query. The resource above is preferred.
 server.tool(
   "gnosys_recall",
-  "Always-on memory recall — call BEFORE every agent turn. Injects the most relevant memories as context. Sub-50ms, no LLM. In aggressive mode (default), always returns at least 3 memories. Returns <gnosys-recall> block for host injection. When no strong matches exist, returns <gnosys: no-strong-recall-needed> marker.",
+  "Fast memory recall — inject relevant memories as context. Returns <gnosys-recall> block. In aggressive mode (default), always returns top memories even at medium relevance. Prefer the gnosys://recall MCP Resource for automatic injection (no tool call needed).",
   {
     query: z
       .string()
@@ -1883,12 +1886,9 @@ server.tool(
       ),
     limit: z.number().optional().describe("Max memories to return (default from config, max 15)"),
     traceId: z.string().optional().describe("Optional trace ID from the outer orchestrator for audit correlation"),
-    mode: z
-      .enum(["aggressive", "balanced", "conservative"])
-      .optional()
-      .describe("Override recall mode for this call. Default: from gnosys.json config (aggressive)"),
+    aggressive: z.boolean().optional().describe("Override aggressive mode for this call. Default: from gnosys.json (true)"),
   },
-  async ({ query, limit, traceId, mode }) => {
+  async ({ query, limit, traceId, aggressive }) => {
     if (!search) {
       return {
         content: [{ type: "text" as const, text: "<gnosys: no-strong-recall-needed>" }],
@@ -1898,11 +1898,11 @@ server.tool(
     const storePath = resolver.getWriteTarget()?.store.getStorePath() || "";
     const recallConfig = {
       ...config.recall,
-      ...(mode ? { mode } : {}),
+      ...(aggressive !== undefined ? { aggressive } : {}),
     };
 
     const result = await recall(query, {
-      limit: Math.min(limit || recallConfig.maxMemoriesPerTurn, 15),
+      limit: Math.min(limit || recallConfig.maxMemories, 15),
       search,
       resolver,
       storePath,

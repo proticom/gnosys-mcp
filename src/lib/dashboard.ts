@@ -53,6 +53,11 @@ export interface DashboardData {
       note: string;
     }>;
   };
+  recall: {
+    aggressive: boolean;
+    maxMemories: number;
+    minRelevance: number;
+  };
   performance: {
     activeSearchMs: number;
     archiveSearchMs: number;
@@ -222,6 +227,11 @@ export async function collectDashboardData(
       synthesis,
       providerStatus,
     },
+    recall: {
+      aggressive: config.recall?.aggressive !== false,
+      maxMemories: config.recall?.maxMemories ?? 8,
+      minRelevance: config.recall?.minRelevance ?? 0.4,
+    },
     performance,
     version,
   };
@@ -297,6 +307,14 @@ export function formatDashboard(data: DashboardData): string {
   } else {
     lines.push("║  Not built (run gnosys reindex-graph)               ║");
   }
+
+  // Recall
+  lines.push("╟──────────────────────────────────────────────────────╢");
+  lines.push("║  RECALL (AUTOMATIC MEMORY INJECTION)                ║");
+  lines.push("╟──────────────────────────────────────────────────────╢");
+  const recallMode = data.recall.aggressive ? "aggressive" : "filtered";
+  const recallLine = `  Mode: ${recallMode} | Max: ${data.recall.maxMemories} | Min relevance: ${data.recall.minRelevance}`.padEnd(53);
+  lines.push(`║${recallLine}║`);
 
   // SOC
   lines.push("╟──────────────────────────────────────────────────────╢");
