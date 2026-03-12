@@ -19,6 +19,8 @@ export {
   getSandboxDir,
   handleRequest,
   startServer,
+  initDreamMode,
   type SandboxRequest,
   type SandboxResponse,
+  type DreamState,
 } from "./server.js";
