@@ -4,10 +4,10 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/gnosys-mcp"><img src="https://img.shields.io/npm/v/gnosys-mcp.svg" alt="npm version"></a>
-  <a href="https://github.com/proticom/gnosys-mcp/actions"><img src="https://github.com/proticom/gnosys-mcp/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/proticom/gnosys/actions"><img src="https://github.com/proticom/gnosys/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://gnosys.ai"><img src="https://img.shields.io/badge/docs-gnosys.ai-C04C4C" alt="docs"></a>
   <a href="https://gnosys.ai/guide.html"><img src="https://img.shields.io/badge/user%20guide-gnosys.ai%2Fguide-555560" alt="user guide"></a>
-  <a href="https://github.com/proticom/gnosys-mcp/blob/master/LICENSE"><img src="https://img.shields.io/npm/l/gnosys-mcp.svg" alt="license"></a>
+  <a href="https://github.com/proticom/gnosys/blob/master/LICENSE"><img src="https://img.shields.io/npm/l/gnosys-mcp.svg" alt="license"></a>
 </p>
 
 ---
@@ -673,6 +673,22 @@ When enabled and the MCP server is running, Dream Mode automatically triggers af
 
 The `gnosys_dream` MCP tool lets agents trigger dream cycles programmatically.
 
+### Sandbox Protocol (v3.0)
+
+The sandbox daemon exposes Dream Mode, preferences, and sync through its IPC protocol. This enables helper libraries and agents to interact with these features without MCP:
+
+| Method | Description |
+|---|---|
+| `dream_status` | Returns current Dream Mode state (enabled, idle timer, dreams completed, isDreaming) |
+| `pref_set` | Set a user preference (stored as `scope: user` memory) |
+| `pref_get` | Retrieve a preference by key |
+| `pref_list` | List all user preferences |
+| `pref_delete` | Remove a preference |
+| `pref_search` | Search preferences by query |
+| `sync` | Generate and inject agent rules from preferences + project conventions |
+
+Dream Mode integrates with the sandbox: every request resets the idle timer, and the dream scheduler runs automatically when the sandbox is idle. The `sync` method generates a `<!-- GNOSYS:START -->` / `<!-- GNOSYS:END -->` protected block in agent rules files (CLAUDE.md, .cursorrules, etc.) that is safely replaced on each sync without disturbing user-written content.
+
 ---
 
 ## Multi-Project Support
@@ -838,7 +854,7 @@ gnosys audit --days 7 --operation recall --json
 gnosys --help               # List all commands
 gnosys init                  # Initialize a new store
 gnosys add "raw input"       # Add memory via LLM
-gnosys add-structured ...    # Add memory with explicit fields
+gnosys add-structured ...    # Add memory with explicit fields (--user/--global for scope)
 gnosys commit-context "..."  # Extract memories from conversation
 gnosys bootstrap <dir>       # Batch-import existing markdown files
 gnosys import <file> ...     # Bulk import CSV/JSON/JSONL data
@@ -890,6 +906,12 @@ gnosys export --to <dir> --all  # Include summaries, reviews, and graph
 gnosys export --to <dir> --overwrite  # Overwrite existing export
 gnosys serve                 # Start MCP server (stdio)
 gnosys serve --with-maintenance  # MCP server + maintenance every 6h
+
+# v3.0: Sandbox Runtime
+gnosys sandbox start         # Start the background sandbox daemon
+gnosys sandbox stop          # Stop the sandbox daemon
+gnosys sandbox status        # Show sandbox process status
+gnosys helper generate       # Generate agent helper library
 
 # v3.0: Centralized Brain
 gnosys projects              # List all registered projects
@@ -997,8 +1019,8 @@ Gnosys is open source (MIT) and actively developed. Here's how to get involved:
 - **Demo vault:** See [DEMO.md](DEMO.md) for a full walkthrough with USDA + NVD data
 
 **Contribute:**
-- [GitHub Discussions](https://github.com/proticom/gnosys-mcp/discussions) — share ideas, ask questions, show what you've built
-- [Issues](https://github.com/proticom/gnosys-mcp/issues) — bug reports and feature requests
+- [GitHub Discussions](https://github.com/proticom/gnosys/discussions) — share ideas, ask questions, show what you've built
+- [Issues](https://github.com/proticom/gnosys/issues) — bug reports and feature requests
 - PRs welcome — especially for new import connectors, LLM providers, and Obsidian plugins
 
 **What's next:**

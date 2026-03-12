@@ -691,6 +691,8 @@ program
   .option("--authority <authority>", "Authority level", "declared")
   .option("--confidence <n>", "Confidence 0-1", "0.8")
   .option("-s, --store <store>", "Target store", undefined)
+  .option("--user", "Store as user-scoped memory (scope: user)")
+  .option("--global", "Store as global-scoped memory (scope: global)")
   .action(
     async (opts: {
       title: string;
@@ -702,7 +704,61 @@ program
       authority: string;
       confidence: string;
       store?: string;
+      user?: boolean;
+      global?: boolean;
     }) => {
+      // ─── Phase 9b: --user / --global route through central DB ─────
+      if (opts.user || opts.global) {
+        let centralDb: GnosysDB | null = null;
+        try {
+          centralDb = GnosysDB.openCentral();
+          if (!centralDb.isAvailable()) {
+            console.error("Central DB not available.");
+            process.exit(1);
+          }
+          const scope = opts.global ? "global" : "user";
+          const now = new Date().toISOString();
+          const id = `mem-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          const projectId = opts.global ? null : await resolveProjectId();
+
+          centralDb.insertMemory({
+            id,
+            title: opts.title,
+            category: opts.category,
+            content: `# ${opts.title}\n\n${opts.content}`,
+            summary: null,
+            tags: opts.tags,
+            relevance: opts.relevance || opts.content.slice(0, 200),
+            author: opts.author,
+            authority: opts.authority,
+            confidence: parseFloat(opts.confidence),
+            reinforcement_count: 0,
+            content_hash: "",
+            status: "active",
+            tier: "active",
+            supersedes: null,
+            superseded_by: null,
+            last_reinforced: null,
+            created: now,
+            modified: now,
+            embedding: null,
+            source_path: null,
+            project_id: projectId,
+            scope,
+          });
+
+          console.log(`Memory added (scope: ${scope}): ${opts.title}`);
+          console.log(`ID: ${id}`);
+          return;
+        } catch (err) {
+          console.error(`Error: ${err instanceof Error ? err.message : err}`);
+          process.exit(1);
+        } finally {
+          centralDb?.close();
+        }
+      }
+
+      // ─── Default: file-based store (original behavior) ────────────
       const resolver = await getResolver();
       const writeTarget = resolver.getWriteTarget(
         (opts.store as any) || undefined

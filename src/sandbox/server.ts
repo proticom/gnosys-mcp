@@ -4,6 +4,8 @@
  * Lightweight background Node process that holds a GnosysDB connection
  * and processes requests over a Unix domain socket (or named pipe on Windows).
  *
+ * Phase 9b: Integrates Dream Mode (idle-triggered), preferences, and sync.
+ *
  * No Docker. No external deps. Just Node + better-sqlite3.
  */
 
@@ -13,7 +15,10 @@ import path from "path";
 import os from "os";
 import { GnosysDB, DbMemory } from "../lib/db.js";
 import { federatedSearch } from "../lib/federated.js";
-import { setPreference, getPreference, getAllPreferences } from "../lib/preferences.js";
+import { setPreference, getPreference, getAllPreferences, deletePreference, searchPreferences, Preference } from "../lib/preferences.js";
+import { GnosysDreamEngine, DreamScheduler, DreamConfig, DreamReport, DEFAULT_DREAM_CONFIG } from "../lib/dream.js";
+import { DEFAULT_CONFIG, GnosysConfig } from "../lib/config.js";
+import { syncRules, generateRulesBlock, RulesGenResult } from "../lib/rulesGen.js";
 
 // ─── Socket + PID paths ─────────────────────────────────────────────────
 
@@ -49,9 +54,82 @@ export interface SandboxResponse {
   error?: string;
 }
 
+// ─── Dream Mode State ────────────────────────────────────────────────────
+
+/** Sandbox-level dream state for status reporting. */
+export interface DreamState {
+  enabled: boolean;
+  idleMinutes: number;
+  lastDreamReport: DreamReport | null;
+  dreamsCompleted: number;
+  isDreaming: boolean;
+}
+
+let dreamState: DreamState = {
+  enabled: false,
+  idleMinutes: DEFAULT_DREAM_CONFIG.idleMinutes,
+  lastDreamReport: null,
+  dreamsCompleted: 0,
+  isDreaming: false,
+};
+
+let dreamScheduler: DreamScheduler | null = null;
+
+/**
+ * Initialize Dream Mode in the sandbox.
+ * Called once during server startup.
+ */
+export function initDreamMode(
+  db: GnosysDB,
+  config: GnosysConfig,
+  dreamConfig?: Partial<DreamConfig>
+): DreamScheduler | null {
+  const mergedConfig: DreamConfig = {
+    ...DEFAULT_DREAM_CONFIG,
+    ...config.dream,
+    ...dreamConfig,
+    enabled: true, // Always enable in sandbox if caller invokes this
+  };
+
+  dreamState.enabled = true;
+  dreamState.idleMinutes = mergedConfig.idleMinutes;
+
+  const engine = new GnosysDreamEngine(db, config, mergedConfig);
+
+  // Create a scheduler that wraps progress tracking
+  const scheduler = new DreamScheduler(engine, mergedConfig);
+
+  // Monkey-patch the scheduler's private checkIdle to track dream state
+  const originalStart = scheduler.start.bind(scheduler);
+  scheduler.start = function () {
+    originalStart();
+
+    // Override the internal check interval to track state
+    const CHECK_INTERVAL = 60_000;
+    const origCheckIdle = (scheduler as any).checkIdle;
+    if (origCheckIdle) {
+      (scheduler as any).checkIdle = async function () {
+        dreamState.isDreaming = scheduler.isDreaming();
+        await origCheckIdle.call(scheduler);
+        dreamState.isDreaming = scheduler.isDreaming();
+        if (!scheduler.isDreaming() && dreamState.isDreaming) {
+          dreamState.dreamsCompleted++;
+        }
+      };
+    }
+  };
+
+  return scheduler;
+}
+
 // ─── Request Handler ─────────────────────────────────────────────────────
 
 export function handleRequest(db: GnosysDB, req: SandboxRequest): SandboxResponse {
+  // Record activity for idle detection (Dream Mode)
+  if (dreamScheduler) {
+    dreamScheduler.recordActivity();
+  }
+
   try {
     switch (req.method) {
       case "ping":
@@ -225,8 +303,104 @@ export function handleRequest(db: GnosysDB, req: SandboxRequest): SandboxRespons
         };
       }
 
+      // ─── Phase 9b: Preference methods ───────────────────────────────
+
+      case "pref_set": {
+        const { key, value, title: prefTitle, tags: prefTags, confidence: prefConf } = req.params as Record<string, any>;
+        if (!key || !value) return { id: req.id, ok: false, error: "key and value are required" };
+
+        const pref = setPreference(db, key as string, value as string, {
+          title: prefTitle as string | undefined,
+          tags: prefTags ? (Array.isArray(prefTags) ? prefTags : JSON.parse(prefTags as string)) : undefined,
+          confidence: prefConf ? Number(prefConf) : undefined,
+        });
+
+        return { id: req.id, ok: true, result: pref };
+      }
+
+      case "pref_get": {
+        const { key } = req.params as Record<string, any>;
+        if (!key) return { id: req.id, ok: false, error: "key is required" };
+
+        const pref = getPreference(db, key as string);
+        if (!pref) return { id: req.id, ok: false, error: `Preference not found: ${key}` };
+        return { id: req.id, ok: true, result: pref };
+      }
+
+      case "pref_list": {
+        const prefs = getAllPreferences(db);
+        return {
+          id: req.id,
+          ok: true,
+          result: prefs.map((p) => ({ key: p.key, value: p.value, title: p.title })),
+        };
+      }
+
+      case "pref_delete": {
+        const { key } = req.params as Record<string, any>;
+        if (!key) return { id: req.id, ok: false, error: "key is required" };
+
+        const deleted = deletePreference(db, key as string);
+        return { id: req.id, ok: true, result: { deleted } };
+      }
+
+      case "pref_search": {
+        const { query } = req.params as Record<string, any>;
+        if (!query) return { id: req.id, ok: false, error: "query is required" };
+
+        const results = searchPreferences(db, query as string);
+        return { id: req.id, ok: true, result: results };
+      }
+
+      // ─── Phase 9b: Dream Mode status ────────────────────────────────
+
+      case "dream_status": {
+        return {
+          id: req.id,
+          ok: true,
+          result: {
+            ...dreamState,
+            isDreaming: dreamScheduler?.isDreaming() ?? false,
+          },
+        };
+      }
+
+      // ─── Phase 9b: Sync rules ───────────────────────────────────────
+
+      case "sync": {
+        const { project_dir, agent_rules_target, project_id } = req.params as Record<string, any>;
+        if (!project_dir) return { id: req.id, ok: false, error: "project_dir is required" };
+        if (!agent_rules_target) return { id: req.id, ok: false, error: "agent_rules_target is required" };
+
+        // syncRules is async — but we handle it synchronously via blocking
+        // Actually, we need to return a promise-based result. Since the handler is sync,
+        // we'll use a simpler approach: generate the block and inject directly.
+        const preferences = getAllPreferences(db);
+        let projectConventions: DbMemory[] = [];
+        if (project_id) {
+          const projectMems = db.getMemoriesByProject(project_id as string);
+          projectConventions = projectMems.filter(
+            (m) => (m.category === "decisions" || m.category === "conventions") && m.status === "active"
+          );
+        }
+
+        const block = generateRulesBlock(preferences, projectConventions);
+        return {
+          id: req.id,
+          ok: true,
+          result: {
+            block,
+            prefCount: preferences.length,
+            conventionCount: projectConventions.length,
+          },
+        };
+      }
+
       case "shutdown":
-        // Graceful shutdown
+        // Stop dream scheduler before shutting down
+        if (dreamScheduler) {
+          dreamScheduler.stop();
+        }
         setTimeout(() => {
           db.close();
           process.exit(0);
@@ -262,6 +436,30 @@ export function startServer(dbPath?: string): net.Server {
   if (!db.isAvailable()) {
     console.error("Failed to open GnosysDB. Is better-sqlite3 installed?");
     process.exit(1);
+  }
+
+  // ─── Phase 9b: Initialize Dream Mode ─────────────────────────────
+  // loadConfig is async and needs a store path — in sandbox mode we use defaults
+  // and allow env-based overrides.
+  const config: GnosysConfig = {
+    ...DEFAULT_CONFIG,
+    dream: {
+      ...DEFAULT_CONFIG.dream,
+      enabled: process.env.GNOSYS_DREAM_ENABLED !== "false",
+      idleMinutes: parseInt(process.env.GNOSYS_DREAM_IDLE_MINUTES || "10", 10),
+    },
+  };
+
+  if (config.dream?.enabled !== false) {
+    try {
+      dreamScheduler = initDreamMode(db, config);
+      if (dreamScheduler) {
+        dreamScheduler.start();
+        console.log(`Dream Mode enabled (idle threshold: ${dreamState.idleMinutes}min)`);
+      }
+    } catch (err) {
+      console.error(`Dream Mode init failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   const server = net.createServer((socket) => {
@@ -308,6 +506,7 @@ export function startServer(dbPath?: string): net.Server {
   // Cleanup on exit
   const cleanup = () => {
     try {
+      if (dreamScheduler) dreamScheduler.stop();
       db.close();
       if (fs.existsSync(socketPath)) fs.unlinkSync(socketPath);
       if (fs.existsSync(getPidPath())) fs.unlinkSync(getPidPath());
