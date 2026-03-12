@@ -3,7 +3,7 @@
 **Version:** 1.1
 **Date:** March 11, 2026
 **Authors:** Proticom + Claude
-**Status:** Phase 8a + 8b Implemented
+**Status:** Phase 8a + 8b + 8c Implemented
 
 ---
 
@@ -216,14 +216,16 @@ If `~/.gnosys/gnosys.db` is placed on a network share (Dropbox, NAS, iCloud Driv
 | 8b.7 | Preference updates increment reinforcement_count | ✅ |
 | 8b.8 | Tests: 164 passing (19 new for preferences + rules generation) | ✅ |
 
-### Phase 8c: CLI Parity
+### Phase 8c: CLI Parity ✅ COMPLETE
 
-| # | Task | Acceptance Criteria |
-|---|------|---------------------|
-| 8c.1 | CLI for core read/write | `add`, `update`, `reinforce` from terminal |
-| 8c.2 | CLI for search/retrieval | `discover`, `read`, `search`, `ask`, `recall` |
-| 8c.3 | CLI reads projectId from local config | Auto-detects from `.gnosys/gnosys.json` |
-| 8c.4 | `--json` output flag | Script-friendly output for all commands |
+| # | Task | Status |
+|---|------|--------|
+| 8c.1 | CLI for core read/write (`add`, `update`, `reinforce` from terminal) | ✅ (existed pre-8c) |
+| 8c.2 | CLI for search/retrieval (`discover`, `read`, `search`, `ask`, `recall`) | ✅ (existed pre-8c) |
+| 8c.3 | CLI reads projectId from local config (auto-detects from `.gnosys/gnosys.json`) | ✅ |
+| 8c.4 | `--json` output flag for `list`, `stats`, `projects`, `read`, `discover`, `search`, `pref get` | ✅ |
+| 8c.5 | Fix dotenv v17 stdout pollution (switch to `dotenv.parse()` for clean piped output) | ✅ |
+| 8c.6 | Tests: 169 passing (5 new CLI --json tests) | ✅ |
 
 ### Phase 8d: Federated Search + Ambiguity Detection
 

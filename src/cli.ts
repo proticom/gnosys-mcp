@@ -9,6 +9,7 @@ import path from "path";
 import fs from "fs/promises";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
+import { readFileSync } from "fs";
 import { GnosysResolver } from "./lib/resolver.js";
 import { GnosysSearch } from "./lib/search.js";
 import { GnosysTagRegistry } from "./lib/tags.js";
@@ -31,11 +32,29 @@ import { setPreference, getPreference, getAllPreferences, deletePreference } fro
 import { syncRules } from "./lib/rulesGen.js";
 
 // Load API keys from ~/.config/gnosys/.env (same as MCP server)
+// IMPORTANT: We use dotenv.parse() instead of dotenv.config() because
+// dotenv v17+ writes injection notices to stdout, which corrupts
+// --json output and piped usage. parse() is a pure function with no side effects.
 const home = process.env.HOME || process.env.USERPROFILE || "/tmp";
-dotenv.config({ path: path.join(home, ".config", "gnosys", ".env") });
-
-// Also load .env from current directory as fallback
-dotenv.config();
+try {
+  const envFile = readFileSync(path.join(home, ".config", "gnosys", ".env"), "utf8");
+  const parsed = dotenv.parse(envFile);
+  for (const [key, val] of Object.entries(parsed)) {
+    if (!(key in process.env)) process.env[key] = val;
+  }
+} catch {
+  // .env file not found — that's fine, env vars may be set elsewhere
+}
+// Also try .env from current directory as fallback
+try {
+  const localEnv = readFileSync(".env", "utf8");
+  const localParsed = dotenv.parse(localEnv);
+  for (const [key, val] of Object.entries(localParsed)) {
+    if (!(key in process.env)) process.env[key] = val;
+  }
+} catch {
+  // No local .env — fine
+}
 
 // Read version from package.json at build time
 const __filename = fileURLToPath(import.meta.url);
@@ -51,6 +70,27 @@ async function getResolver(): Promise<GnosysResolver> {
   return resolver;
 }
 
+/**
+ * v3.0: Resolve projectId from nearest .gnosys/gnosys.json.
+ * Used by CLI write commands to tag memories with the correct project.
+ */
+async function resolveProjectId(dir?: string): Promise<string | null> {
+  const result = await findProjectIdentity(dir || process.cwd());
+  return result?.identity.projectId || null;
+}
+
+/**
+ * Output helper: if --json flag is set, output JSON; otherwise call the
+ * human-readable formatter function.
+ */
+function outputResult(json: boolean, data: unknown, humanFn: () => void): void {
+  if (json) {
+    console.log(JSON.stringify(data, null, 2));
+  } else {
+    humanFn();
+  }
+}
+
 program
   .name("gnosys")
   .description("Gnosys — Agent-first persistent memory system (SQLite core + Dream Mode + Obsidian export)")
@@ -62,7 +102,8 @@ program
   .description(
     "Read a specific memory. Supports layer prefix (e.g., project:decisions/auth.md)"
   )
-  .action(async (memoryPath: string) => {
+  .option("--json", "Output as JSON")
+  .action(async (memoryPath: string, opts: { json?: boolean }) => {
     const resolver = await getResolver();
     const memory = await resolver.readMemory(memoryPath);
     if (!memory) {
@@ -70,8 +111,10 @@ program
       process.exit(1);
     }
     const raw = await fs.readFile(memory.filePath, "utf-8");
-    console.log(`[Source: ${memory.sourceLabel}]\n`);
-    console.log(raw);
+    outputResult(!!opts.json, { path: memoryPath, source: memory.sourceLabel, content: raw }, () => {
+      console.log(`[Source: ${memory.sourceLabel}]\n`);
+      console.log(raw);
+    });
   });
 
 // ─── gnosys discover <query> ─────────────────────────────────────────────
@@ -79,7 +122,8 @@ program
   .command("discover <query>")
   .description("Discover relevant memories by keyword. Searches relevance clouds, titles, and tags — returns metadata only, no content.")
   .option("-n, --limit <number>", "Max results", "20")
-  .action(async (query: string, opts: { limit: string }) => {
+  .option("--json", "Output as JSON")
+  .action(async (query: string, opts: { limit: string; json?: boolean }) => {
     const resolver = await getResolver();
     const stores = resolver.getStores();
     if (stores.length === 0) {
@@ -95,18 +139,22 @@ program
 
     const results = search.discover(query, parseInt(opts.limit));
     if (results.length === 0) {
-      console.log(`No memories found for "${query}". Try gnosys search for full-text.`);
+      outputResult(!!opts.json, { query, results: [] }, () => {
+        console.log(`No memories found for "${query}". Try gnosys search for full-text.`);
+      });
       search.close();
       return;
     }
 
-    console.log(`Found ${results.length} relevant memories for "${query}":\n`);
-    for (const r of results) {
-      console.log(`  ${r.title}`);
-      console.log(`  ${r.relative_path}`);
-      if (r.relevance) console.log(`  Relevance: ${r.relevance}`);
-      console.log();
-    }
+    outputResult(!!opts.json, { query, count: results.length, results }, () => {
+      console.log(`Found ${results.length} relevant memories for "${query}":\n`);
+      for (const r of results) {
+        console.log(`  ${r.title}`);
+        console.log(`  ${r.relative_path}`);
+        if (r.relevance) console.log(`  Relevance: ${r.relevance}`);
+        console.log();
+      }
+    });
     search.close();
   });
 
@@ -115,7 +163,8 @@ program
   .command("search <query>")
   .description("Search memories by keyword across all stores")
   .option("-n, --limit <number>", "Max results", "20")
-  .action(async (query: string, opts: { limit: string }) => {
+  .option("--json", "Output as JSON")
+  .action(async (query: string, opts: { limit: string; json?: boolean }) => {
     const resolver = await getResolver();
     const stores = resolver.getStores();
     if (stores.length === 0) {
@@ -131,20 +180,24 @@ program
 
     const results = search.search(query, parseInt(opts.limit));
     if (results.length === 0) {
-      console.log(`No results for "${query}".`);
+      outputResult(!!opts.json, { query, results: [] }, () => {
+        console.log(`No results for "${query}".`);
+      });
       search.close();
       return;
     }
 
-    console.log(`Found ${results.length} results for "${query}":\n`);
-    for (const r of results) {
-      console.log(`  ${r.title}`);
-      console.log(`  ${r.relative_path}`);
-      console.log(
-        `  ${r.snippet.replace(/>>>/g, "").replace(/<<</g, "")}`
-      );
-      console.log();
-    }
+    outputResult(!!opts.json, { query, count: results.length, results }, () => {
+      console.log(`Found ${results.length} results for "${query}":\n`);
+      for (const r of results) {
+        console.log(`  ${r.title}`);
+        console.log(`  ${r.relative_path}`);
+        console.log(
+          `  ${r.snippet.replace(/>>>/g, "").replace(/<<</g, "")}`
+        );
+        console.log();
+      }
+    });
     search.close();
   });
 
@@ -155,8 +208,9 @@ program
   .option("-c, --category <category>", "Filter by category")
   .option("-t, --tag <tag>", "Filter by tag")
   .option("-s, --store <store>", "Filter by store layer")
+  .option("--json", "Output as JSON")
   .action(
-    async (opts: { category?: string; tag?: string; store?: string }) => {
+    async (opts: { category?: string; tag?: string; store?: string; json?: boolean }) => {
       const resolver = await getResolver();
       let memories = await resolver.getAllMemories();
 
@@ -180,14 +234,26 @@ program
         });
       }
 
-      console.log(`${memories.length} memories:\n`);
-      for (const m of memories) {
-        console.log(
-          `  [${m.sourceLabel}] [${m.frontmatter.status}] ${m.frontmatter.title}`
-        );
-        console.log(`    ${m.sourceLabel}:${m.relativePath}`);
-        console.log();
-      }
+      outputResult(!!opts.json, {
+        count: memories.length,
+        memories: memories.map((m) => ({
+          id: m.frontmatter.id,
+          title: m.frontmatter.title,
+          category: m.frontmatter.category,
+          status: m.frontmatter.status,
+          source: m.sourceLabel,
+          path: `${m.sourceLabel}:${m.relativePath}`,
+        })),
+      }, () => {
+        console.log(`${memories.length} memories:\n`);
+        for (const m of memories) {
+          console.log(
+            `  [${m.sourceLabel}] [${m.frontmatter.status}] ${m.frontmatter.title}`
+          );
+          console.log(`    ${m.sourceLabel}:${m.relativePath}`);
+          console.log();
+        }
+      });
     }
   );
 
@@ -1033,37 +1099,42 @@ program
 program
   .command("stats")
   .description("Show summary statistics for the memory store")
-  .action(async () => {
+  .option("--json", "Output as JSON")
+  .action(async (opts: { json?: boolean }) => {
     const resolver = await getResolver();
     const allMemories = await resolver.getAllMemories();
 
     if (allMemories.length === 0) {
-      console.log("No memories found.");
+      outputResult(!!opts.json, { totalCount: 0 }, () => {
+        console.log("No memories found.");
+      });
       return;
     }
 
     const stats = computeStats(allMemories);
 
-    console.log(`Gnosys Store Statistics:\n`);
-    console.log(`  Total memories: ${stats.totalCount}`);
-    console.log(`  Average confidence: ${stats.averageConfidence}`);
-    console.log(`  Date range: ${stats.oldestCreated} → ${stats.newestCreated}`);
-    console.log(`  Last modified: ${stats.lastModified}`);
+    outputResult(!!opts.json, stats, () => {
+      console.log(`Gnosys Store Statistics:\n`);
+      console.log(`  Total memories: ${stats.totalCount}`);
+      console.log(`  Average confidence: ${stats.averageConfidence}`);
+      console.log(`  Date range: ${stats.oldestCreated} → ${stats.newestCreated}`);
+      console.log(`  Last modified: ${stats.lastModified}`);
 
-    console.log(`\n  By category:`);
-    for (const [cat, count] of Object.entries(stats.byCategory).sort((a, b) => b[1] - a[1])) {
-      console.log(`    ${cat}: ${count}`);
-    }
+      console.log(`\n  By category:`);
+      for (const [cat, count] of Object.entries(stats.byCategory).sort((a, b) => b[1] - a[1])) {
+        console.log(`    ${cat}: ${count}`);
+      }
 
-    console.log(`\n  By status:`);
-    for (const [st, count] of Object.entries(stats.byStatus)) {
-      console.log(`    ${st}: ${count}`);
-    }
+      console.log(`\n  By status:`);
+      for (const [st, count] of Object.entries(stats.byStatus)) {
+        console.log(`    ${st}: ${count}`);
+      }
 
-    console.log(`\n  By author:`);
-    for (const [author, count] of Object.entries(stats.byAuthor)) {
-      console.log(`    ${author}: ${count}`);
-    }
+      console.log(`\n  By author:`);
+      for (const [author, count] of Object.entries(stats.byAuthor)) {
+        console.log(`    ${author}: ${count}`);
+      }
+    });
   });
 
 // ─── gnosys links <path> ─────────────────────────────────────────────────
@@ -2537,7 +2608,8 @@ program
 program
   .command("projects")
   .description("List all registered projects in the central DB")
-  .action(async () => {
+  .option("--json", "Output as JSON")
+  .action(async (opts: { json?: boolean }) => {
     let centralDb: GnosysDB | null = null;
     try {
       centralDb = GnosysDB.openCentral();
@@ -2553,16 +2625,22 @@ program
         return;
       }
 
-      console.log(`${projects.length} registered project(s):\n`);
-      for (const p of projects) {
-        const memCount = centralDb.getMemoriesByProject(p.id).length;
-        console.log(`  ${p.name}`);
-        console.log(`    ID:        ${p.id}`);
-        console.log(`    Directory: ${p.working_directory}`);
-        console.log(`    Memories:  ${memCount}`);
-        console.log(`    Created:   ${p.created}`);
-        console.log();
-      }
+      const projectData = projects.map((p) => ({
+        ...p,
+        memoryCount: centralDb!.getMemoriesByProject(p.id).length,
+      }));
+
+      outputResult(!!opts.json, { count: projects.length, projects: projectData }, () => {
+        console.log(`${projects.length} registered project(s):\n`);
+        for (const p of projectData) {
+          console.log(`  ${p.name}`);
+          console.log(`    ID:        ${p.id}`);
+          console.log(`    Directory: ${p.working_directory}`);
+          console.log(`    Memories:  ${p.memoryCount}`);
+          console.log(`    Created:   ${p.created}`);
+          console.log();
+        }
+      });
     } catch (err) {
       console.error(`Error: ${err instanceof Error ? err.message : err}`);
       process.exit(1);
@@ -2607,7 +2685,8 @@ prefCmd
 prefCmd
   .command("get [key]")
   .description("Get a preference by key, or list all preferences if no key given.")
-  .action(async (key?: string) => {
+  .option("--json", "Output as JSON")
+  .action(async (key: string | undefined, opts: { json?: boolean }) => {
     let centralDb: GnosysDB | null = null;
     try {
       centralDb = GnosysDB.openCentral();
@@ -2622,22 +2701,28 @@ prefCmd
           console.log(`No preference found for key "${key}".`);
           return;
         }
-        console.log(`${pref.title} (${pref.key})\n`);
-        console.log(pref.value);
-        console.log(`\nConfidence: ${pref.confidence}`);
-        console.log(`Modified: ${pref.modified}`);
+        outputResult(!!opts.json, pref, () => {
+          console.log(`${pref.title} (${pref.key})\n`);
+          console.log(pref.value);
+          console.log(`\nConfidence: ${pref.confidence}`);
+          console.log(`Modified: ${pref.modified}`);
+        });
       } else {
         const prefs = getAllPreferences(centralDb);
         if (prefs.length === 0) {
-          console.log("No preferences set. Use 'gnosys pref set <key> <value>' to add some.");
+          outputResult(!!opts.json, { preferences: [] }, () => {
+            console.log("No preferences set. Use 'gnosys pref set <key> <value>' to add some.");
+          });
           return;
         }
-        console.log(`${prefs.length} user preference(s):\n`);
-        for (const p of prefs) {
-          console.log(`  ${p.title} (${p.key})`);
-          console.log(`    ${p.value.split("\n")[0]}`);
-          console.log();
-        }
+        outputResult(!!opts.json, { count: prefs.length, preferences: prefs }, () => {
+          console.log(`${prefs.length} user preference(s):\n`);
+          for (const p of prefs) {
+            console.log(`  ${p.title} (${p.key})`);
+            console.log(`    ${p.value.split("\n")[0]}`);
+            console.log();
+          }
+        });
       }
     } catch (err) {
       console.error(`Error: ${err instanceof Error ? err.message : err}`);
