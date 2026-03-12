@@ -568,57 +568,140 @@ nav {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 14px;
-  padding: 40px;
-  text-align: center;
+  padding: 40px 32px;
   margin-top: 48px;
 }
 
-.arch-layers {
+/* Top row: agents → MCP router */
+.arch-top-row {
   display: flex;
+  align-items: center;
   justify-content: center;
-  gap: 24px;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 32px;
+}
+
+/* Core hub: SQLite at center with branches */
+.arch-core {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 0;
   flex-wrap: wrap;
 }
 
-.arch-layer {
+.arch-branch-left,
+.arch-branch-right {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 16px;
+  padding: 0 20px;
+}
+
+.arch-center {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
-  padding: 24px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  min-width: 160px;
-  transition: border-color 0.2s;
-}
-.arch-layer:hover { border-color: var(--accent-lighter); }
-
-.arch-layer-icon {
-  font-size: 28px;
-  color: var(--text-secondary);
+  gap: 8px;
 }
 
-.arch-layer-icon svg {
-  width: 28px;
-  height: 28px;
-}
-
-.arch-layer-name {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.arch-layer-desc {
-  font-size: 12px;
-  color: var(--text-muted);
-  text-align: center;
-}
-
-.arch-arrow {
+.arch-connector {
   display: flex;
   align-items: center;
   color: var(--text-muted);
-  font-size: 20px;
+}
+
+.arch-connector svg {
+  width: 24px;
+  height: 24px;
+}
+
+/* Shared node styling */
+.arch-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 18px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  min-width: 140px;
+  text-align: center;
+  transition: border-color 0.2s;
+}
+.arch-node:hover { border-color: var(--accent-lighter); }
+
+.arch-node-primary {
+  border-color: var(--accent);
+  background: var(--accent-faint);
+  min-width: 170px;
+  padding: 24px 20px;
+}
+.arch-node-primary:hover { border-color: var(--accent); }
+
+.arch-node-icon {
+  font-size: 26px;
+  color: var(--text-secondary);
+}
+.arch-node-primary .arch-node-icon { color: var(--accent); }
+
+.arch-node-icon svg {
+  width: 26px;
+  height: 26px;
+}
+
+.arch-node-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.arch-node-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.arch-node-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-faint);
+  padding: 2px 8px;
+  border-radius: 6px;
+  letter-spacing: 0.02em;
+}
+.arch-node-primary .arch-node-badge {
+  background: rgba(255,255,255,0.15);
+}
+
+/* Down arrow between top row and core */
+.arch-down-arrow {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 24px;
+  color: var(--text-muted);
+}
+.arch-down-arrow svg {
+  width: 24px;
+  height: 24px;
+}
+
+/* Horizontal connector arrows */
+.arch-h-arrow {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+  padding: 0 4px;
+}
+.arch-h-arrow svg { width: 20px; height: 20px; }
+
+/* Responsive */
+@media (max-width: 800px) {
+  .arch-core { flex-direction: column; align-items: center; }
+  .arch-branch-left, .arch-branch-right { flex-direction: row; padding: 16px 0; }
+  .arch-h-arrow svg { transform: rotate(90deg); }
 }
 
 /* ── CTA ── */
@@ -1234,32 +1317,71 @@ This project uses Gnosys for persistent memory via MCP.
   <div class="container">
     <div class="section-label">Architecture</div>
     <h2 class="section-title">No black boxes</h2>
-    <p class="section-desc">A unified SQLite database is the source of truth. Markdown files are dual-written as a human-readable safety net. Export to Obsidian with one command. Git tracks every change.</p>
+    <p class="section-desc">SQLite is the source of truth. Markdown files are dual-written as a safety net. Dream Mode consolidates knowledge while you sleep. Export to Obsidian with one command.</p>
 
     <div class="arch-visual">
-      <div class="arch-layers">
-        <div class="arch-layer">
-          <div class="arch-layer-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="10" x="3" y="11" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" x2="8" y1="16" y2="16"/><line x1="16" x2="16" y1="16" y2="16"/></svg></div>
-          <div class="arch-layer-name">AI Agent</div>
-          <div class="arch-layer-desc">Claude, Cursor, or any<br>MCP-compatible client</div>
+      <!-- Top row: AI agents → Gnosys MCP router -->
+      <div class="arch-top-row">
+        <div class="arch-node">
+          <div class="arch-node-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="10" x="3" y="11" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" x2="8" y1="16" y2="16"/><line x1="16" x2="16" y1="16" y2="16"/></svg></div>
+          <div class="arch-node-name">AI Agents</div>
+          <div class="arch-node-desc">Claude, Cursor, Windsurf,<br>or any MCP client</div>
         </div>
-        <div class="arch-arrow"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></div>
-        <div class="arch-layer">
-          <div class="arch-layer-icon" style="color: var(--accent);">&#x2B22;</div>
-          <div class="arch-layer-name">Gnosys MCP</div>
-          <div class="arch-layer-desc">17 tools for memory<br>operations over stdio</div>
+        <div class="arch-h-arrow"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></div>
+        <div class="arch-node">
+          <div class="arch-node-icon" style="color: var(--accent);">&#x2B22;</div>
+          <div class="arch-node-name">Gnosys MCP Server</div>
+          <div class="arch-node-desc">35 tools + multi-project<br>routing over stdio</div>
+          <div class="arch-node-badge">projectRoot</div>
         </div>
-        <div class="arch-arrow"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></div>
-        <div class="arch-layer">
-          <div class="arch-layer-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg></div>
-          <div class="arch-layer-name">.gnosys/</div>
-          <div class="arch-layer-desc">Markdown + YAML<br>in a git repo</div>
+      </div>
+
+      <!-- Down arrow -->
+      <div class="arch-down-arrow">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m5 12 7 7 7-7"/></svg>
+      </div>
+
+      <!-- Core hub: branches ← SQLite → branches -->
+      <div class="arch-core">
+        <!-- Left branch: Markdown + Git -->
+        <div class="arch-branch-left">
+          <div class="arch-node">
+            <div class="arch-node-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg></div>
+            <div class="arch-node-name">.gnosys/</div>
+            <div class="arch-node-desc">Markdown + YAML<br>dual-write safety net</div>
+            <div class="arch-node-badge">git-tracked</div>
+          </div>
         </div>
-        <div class="arch-arrow"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></div>
-        <div class="arch-layer">
-          <div class="arch-layer-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none" stroke="currentColor" stroke-width="21" stroke-miterlimit="10"><path d="M94.4,331.7c-3,9.6-.5,20.2,6.6,27.5l73,74.8c4.8,4.9,11.2,7.8,18,8.3l42.4,3.2c27.6,2.1,58.3,13.5,84.8,20.7,18.3,5.1,36.7-9.1,39.8-27.6"/><path d="M363.5,414.8c3.6-13,9-25.4,16.1-36.9,17.7-26.3,30.3-46.9,36.6-57.6,1.1-1.9,1.7-3.9,1.9-6"/><path d="M418.1,314.3c1.6-4.5.9-9.6-2.2-13.4-14-18.1-26-37.7-35.6-58.5"/><path d="M380.3,242.4c-5.4-21.6-6.3-47.6-6.4-61.6"/><path d="M369.2,166.1c0-2.5-.3-4.9-.9-7.2"/><path d="M368.3,158.9c-1-4-2.8-7.8-5.3-11.1"/><path d="M363,147.8L290.5,55.8"/><path d="M289.3,54.4c-10.3-11.5-28-12.5-39.4-2.1"/><path d="M249.9,52.3l-86.2,77.5c-4,3.6-6.9,8.3-8.3,13.4"/><path d="M154.5,147.8c-3.3,22-8.3,59.1-10.6,70.1"/><path d="M143.9,217.9c.3.2.5.3.8.5"/><path d="M145.1,218.8c7.7,5.3,16.2,11.5,24.4,19.2"/><path d="M169.5,238c3.5,3.4,7,7,10.4,10.9"/><path d="M180,249c2,2.3,4,4.8,5.9,7.3"/><path d="M186.1,256.7c.9,1.3,1.8,2.6,2.8,3.8"/><path d="M189,260.7c.5.7,1,1.4,1.4,2.2"/><path d="M191,263.8c.6,1,1.2,1.9,1.7,2.9"/><path d="M194.3,269.1c2.5,4.4,4.9,9.2,6.9,14.2"/><path d="M202.5,286.7c.4.9.7,1.9,1,2.9"/><path d="M205,294.1c.3.9.6,1.9.9,2.8"/><path d="M206.6,299.6l4.3-1"/><path d="M96.5,324.8l45.6-101.5c.6-1.2,1-2.5,1.4-3.8"/><path d="M207.6,303.7c3.6,16.5,4.4,35.4.8,57.3"/><path d="M207.2,367.6c-3.9,19.7-11.3,41.6-23.1,66.1"/><path d="M269.4,291.9c-17.3-1.2-36.2,1.6-62.7,7.7"/><path d="M274.5,296.9c-10.5-1.1-21.2-.8-32,.4"/><path d="M255.1,219.4c1.1,19.1,5.6,41.2,16.8,70.1"/><path d="M293.4,78.4c1.1,15.7-4.9,30.2-11.9,44.3"/><path d="M263.2,160.9c-4.6,12.7-7.4,26.1-8.3,39.6-.3,6-.3,12.3,0,18.9"/><path d="M273,292.3c9.9,1,19.4,3.4,29.7,7.3,43.4,16.2,60.2,51.7,72.7,81.5"/><path d="M303.9,303.9c14.4,5.8,28.2,15.2,41,29.5"/><path d="M346.6,335.3c9.8,11.3,19,25.5,27.4,43.1"/><path d="M291.7,63.3c1,4.8,1.5,9.7,1.6,14.6"/></svg></div>
-          <div class="arch-layer-name">Obsidian</div>
-          <div class="arch-layer-desc">Browse, search, graph<br>your knowledge vault</div>
+
+        <!-- Left arrow -->
+        <div class="arch-h-arrow"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg></div>
+
+        <!-- Center: SQLite core -->
+        <div class="arch-center">
+          <div class="arch-node arch-node-primary">
+            <div class="arch-node-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg></div>
+            <div class="arch-node-name">gnosys.db</div>
+            <div class="arch-node-desc">FTS5 + embeddings<br>WAL mode &middot; source of truth</div>
+            <div class="arch-node-badge">SQLite core</div>
+          </div>
+          <div class="arch-node" style="margin-top: 12px;">
+            <div class="arch-node-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg></div>
+            <div class="arch-node-name">Dream Mode</div>
+            <div class="arch-node-desc">Idle-time consolidation:<br>decay &middot; critique &middot; summarize</div>
+          </div>
+        </div>
+
+        <!-- Right arrow -->
+        <div class="arch-h-arrow"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></div>
+
+        <!-- Right branch: Obsidian export -->
+        <div class="arch-branch-right">
+          <div class="arch-node">
+            <div class="arch-node-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none" stroke="currentColor" stroke-width="21" stroke-miterlimit="10"><path d="M94.4,331.7c-3,9.6-.5,20.2,6.6,27.5l73,74.8c4.8,4.9,11.2,7.8,18,8.3l42.4,3.2c27.6,2.1,58.3,13.5,84.8,20.7,18.3,5.1,36.7-9.1,39.8-27.6"/><path d="M363.5,414.8c3.6-13,9-25.4,16.1-36.9,17.7-26.3,30.3-46.9,36.6-57.6,1.1-1.9,1.7-3.9,1.9-6"/><path d="M418.1,314.3c1.6-4.5.9-9.6-2.2-13.4-14-18.1-26-37.7-35.6-58.5"/><path d="M380.3,242.4c-5.4-21.6-6.3-47.6-6.4-61.6"/><path d="M369.2,166.1c0-2.5-.3-4.9-.9-7.2"/><path d="M368.3,158.9c-1-4-2.8-7.8-5.3-11.1"/><path d="M363,147.8L290.5,55.8"/><path d="M289.3,54.4c-10.3-11.5-28-12.5-39.4-2.1"/><path d="M249.9,52.3l-86.2,77.5c-4,3.6-6.9,8.3-8.3,13.4"/><path d="M154.5,147.8c-3.3,22-8.3,59.1-10.6,70.1"/><path d="M143.9,217.9c.3.2.5.3.8.5"/><path d="M145.1,218.8c7.7,5.3,16.2,11.5,24.4,19.2"/><path d="M169.5,238c3.5,3.4,7,7,10.4,10.9"/><path d="M180,249c2,2.3,4,4.8,5.9,7.3"/><path d="M186.1,256.7c.9,1.3,1.8,2.6,2.8,3.8"/><path d="M189,260.7c.5.7,1,1.4,1.4,2.2"/><path d="M191,263.8c.6,1,1.2,1.9,1.7,2.9"/><path d="M194.3,269.1c2.5,4.4,4.9,9.2,6.9,14.2"/><path d="M202.5,286.7c.4.9.7,1.9,1,2.9"/><path d="M205,294.1c.3.9.6,1.9.9,2.8"/><path d="M206.6,299.6l4.3-1"/><path d="M96.5,324.8l45.6-101.5c.6-1.2,1-2.5,1.4-3.8"/><path d="M207.6,303.7c3.6,16.5,4.4,35.4.8,57.3"/><path d="M207.2,367.6c-3.9,19.7-11.3,41.6-23.1,66.1"/><path d="M269.4,291.9c-17.3-1.2-36.2,1.6-62.7,7.7"/><path d="M274.5,296.9c-10.5-1.1-21.2-.8-32,.4"/><path d="M255.1,219.4c1.1,19.1,5.6,41.2,16.8,70.1"/><path d="M293.4,78.4c1.1,15.7-4.9,30.2-11.9,44.3"/><path d="M263.2,160.9c-4.6,12.7-7.4,26.1-8.3,39.6-.3,6-.3,12.3,0,18.9"/><path d="M273,292.3c9.9,1,19.4,3.4,29.7,7.3,43.4,16.2,60.2,51.7,72.7,81.5"/><path d="M303.9,303.9c14.4,5.8,28.2,15.2,41,29.5"/><path d="M346.6,335.3c9.8,11.3,19,25.5,27.4,43.1"/><path d="M291.7,63.3c1,4.8,1.5,9.7,1.6,14.6"/></svg></div>
+            <div class="arch-node-name">Obsidian</div>
+            <div class="arch-node-desc">One-command export<br>browse &middot; search &middot; graph</div>
+            <div class="arch-node-badge">export bridge</div>
+          </div>
         </div>
       </div>
     </div>
