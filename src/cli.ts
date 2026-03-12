@@ -26,6 +26,7 @@ import { GnosysAsk } from "./lib/ask.js";
 import { getLLMProvider, isProviderAvailable, LLMProvider } from "./lib/llm.js";
 import { GnosysDB } from "./lib/db.js";
 import { migrate, formatMigrationReport } from "./lib/migrate.js";
+import { createProjectIdentity, readProjectIdentity, findProjectIdentity } from "./lib/projectIdentity.js";
 
 // Load API keys from ~/.config/gnosys/.env (same as MCP server)
 const home = process.env.HOME || process.env.USERPROFILE || "/tmp";
@@ -286,83 +287,113 @@ program
 // ─── gnosys init ─────────────────────────────────────────────────────────
 program
   .command("init")
-  .description("Initialize a new .gnosys store in the current directory")
+  .description("Initialize Gnosys in the current directory. Creates project identity, registers in central DB, and sets up store.")
   .option("-d, --directory <dir>", "Target directory (default: cwd)")
-  .action(async (opts: { directory?: string }) => {
+  .option("-n, --name <name>", "Project name (default: directory basename)")
+  .action(async (opts: { directory?: string; name?: string }) => {
     const targetDir = opts.directory
       ? path.resolve(opts.directory)
       : process.cwd();
     const storePath = path.join(targetDir, ".gnosys");
 
+    // Check if already exists — re-sync identity instead of failing
+    let isResync = false;
     try {
       await fs.stat(storePath);
-      console.error(`A .gnosys store already exists at ${storePath}`);
-      process.exit(1);
+      isResync = true;
     } catch {
-      // Good
+      // Good — fresh init
     }
 
-    await fs.mkdir(storePath, { recursive: true });
-    await fs.mkdir(path.join(storePath, ".config"), { recursive: true });
+    if (!isResync) {
+      await fs.mkdir(storePath, { recursive: true });
+      await fs.mkdir(path.join(storePath, ".config"), { recursive: true });
 
-    const defaultRegistry = {
-      domain: [
-        "architecture", "api", "auth", "database", "devops",
-        "frontend", "backend", "testing", "security", "performance",
-      ],
-      type: [
-        "decision", "concept", "convention", "requirement",
-        "observation", "fact", "question",
-      ],
-      concern: ["dx", "scalability", "maintainability", "reliability"],
-      status_tag: ["draft", "stable", "deprecated", "experimental"],
-    };
-    await fs.writeFile(
-      path.join(storePath, ".config", "tags.json"),
-      JSON.stringify(defaultRegistry, null, 2),
-      "utf-8"
-    );
+      const defaultRegistry = {
+        domain: [
+          "architecture", "api", "auth", "database", "devops",
+          "frontend", "backend", "testing", "security", "performance",
+        ],
+        type: [
+          "decision", "concept", "convention", "requirement",
+          "observation", "fact", "question",
+        ],
+        concern: ["dx", "scalability", "maintainability", "reliability"],
+        status_tag: ["draft", "stable", "deprecated", "experimental"],
+      };
+      await fs.writeFile(
+        path.join(storePath, ".config", "tags.json"),
+        JSON.stringify(defaultRegistry, null, 2),
+        "utf-8"
+      );
 
-    // Write default gnosys.json config
-    await fs.writeFile(
-      path.join(storePath, "gnosys.json"),
-      generateConfigTemplate() + "\n",
-      "utf-8"
-    );
+      // Write default gnosys.json config (LLM settings)
+      await fs.writeFile(
+        path.join(storePath, ".config", "gnosys-config.json"),
+        generateConfigTemplate() + "\n",
+        "utf-8"
+      );
 
-    const changelog = `# Gnosys Changelog\n\n## ${new Date().toISOString().split("T")[0]}\n\n- Store initialized\n`;
-    await fs.writeFile(
-      path.join(storePath, "CHANGELOG.md"),
-      changelog,
-      "utf-8"
-    );
+      const changelog = `# Gnosys Changelog\n\n## ${new Date().toISOString().split("T")[0]}\n\n- Store initialized\n`;
+      await fs.writeFile(
+        path.join(storePath, "CHANGELOG.md"),
+        changelog,
+        "utf-8"
+      );
 
-    try {
-      const { execSync } = await import("child_process");
-      execSync("git init", { cwd: storePath, stdio: "pipe" });
-      // Ensure git has a user identity for the initial commit
       try {
-        execSync("git config user.name", { cwd: storePath, stdio: "pipe" });
+        const { execSync } = await import("child_process");
+        execSync("git init", { cwd: storePath, stdio: "pipe" });
+        try {
+          execSync("git config user.name", { cwd: storePath, stdio: "pipe" });
+        } catch {
+          execSync('git config user.name "Gnosys"', { cwd: storePath, stdio: "pipe" });
+          execSync('git config user.email "gnosys@local"', { cwd: storePath, stdio: "pipe" });
+        }
+        execSync("git add -A && git add -f .config/", { cwd: storePath, stdio: "pipe" });
+        execSync('git commit -m "Initialize Gnosys store"', {
+          cwd: storePath,
+          stdio: "pipe",
+        });
       } catch {
-        execSync('git config user.name "Gnosys"', { cwd: storePath, stdio: "pipe" });
-        execSync('git config user.email "gnosys@local"', { cwd: storePath, stdio: "pipe" });
+        // Git not available
       }
-      execSync("git add -A && git add -f .config/", { cwd: storePath, stdio: "pipe" });
-      execSync('git commit -m "Initialize Gnosys store"', {
-        cwd: storePath,
-        stdio: "pipe",
-      });
-    } catch {
-      // Git not available
     }
 
-    console.log(`Gnosys store initialized at ${storePath}`);
-    console.log(`\nCreated:`);
-    console.log(`  .config/      (internal config)`);
-    console.log(`  gnosys.json   (configuration — edit to customize)`);
-    console.log(`  tags.json     (tag registry)`);
-    console.log(`  CHANGELOG.md`);
-    console.log(`  git repo`);
+    // v3.0: Create/update project identity and register in central DB
+    let centralDb: GnosysDB | null = null;
+    try {
+      centralDb = GnosysDB.openCentral();
+      if (!centralDb.isAvailable()) centralDb = null;
+    } catch {
+      centralDb = null;
+    }
+
+    const identity = await createProjectIdentity(targetDir, {
+      projectName: opts.name,
+      centralDb: centralDb || undefined,
+    });
+
+    if (centralDb) centralDb.close();
+
+    const action = isResync ? "re-synced" : "initialized";
+    console.log(`Gnosys store ${action} at ${storePath}`);
+    console.log(`\nProject Identity:`);
+    console.log(`  ID:        ${identity.projectId}`);
+    console.log(`  Name:      ${identity.projectName}`);
+    console.log(`  Directory: ${identity.workingDirectory}`);
+    console.log(`  Agent:     ${identity.agentRulesTarget || "none detected"}`);
+    console.log(`  Central DB: ${centralDb ? "registered ✓" : "not available"}`);
+
+    if (!isResync) {
+      console.log(`\nCreated:`);
+      console.log(`  gnosys.json   (project identity)`);
+      console.log(`  .config/      (internal config)`);
+      console.log(`  tags.json     (tag registry)`);
+      console.log(`  CHANGELOG.md`);
+      console.log(`  git repo`);
+    }
+
     console.log(`\nStart adding memories with: gnosys add "your knowledge here"`);
   });
 
@@ -1922,36 +1953,7 @@ program
     }
   });
 
-// ─── gnosys migrate ─────────────────────────────────────────────────────
-program
-  .command("migrate")
-  .description("Migrate v1.x data (Markdown + archive.db) into unified gnosys.db (v2.0)")
-  .option("--verbose", "Show detailed progress")
-  .action(async (opts: { verbose?: boolean }) => {
-    const resolver = await getResolver();
-    const stores = resolver.getStores();
-    if (stores.length === 0) {
-      console.error("No stores found. Run gnosys init first.");
-      process.exit(1);
-    }
-
-    const storePath = stores[0].path;
-
-    // Check if already migrated
-    const db = new GnosysDB(storePath);
-    if (db.isMigrated()) {
-      const counts = db.getMemoryCount();
-      console.log(`Already migrated. gnosys.db has ${counts.active} active + ${counts.archived} archived memories.`);
-      console.log("To re-migrate, delete gnosys.db and run this command again.");
-      db.close();
-      return;
-    }
-    db.close();
-
-    console.log("Migrating v1.x data → gnosys.db...\n");
-    const stats = await migrate(storePath, { verbose: opts.verbose });
-    console.log(formatMigrationReport(stats));
-  });
+// NOTE: gnosys migrate is defined below (near the end) with --to-central support
 
 // ─── gnosys doctor ──────────────────────────────────────────────────────
 program
@@ -2374,6 +2376,196 @@ program
       console.log(JSON.stringify(entries, null, 2));
     } else {
       console.log(formatAuditTimeline(entries));
+    }
+  });
+
+// ─── gnosys backup ──────────────────────────────────────────────────────
+program
+  .command("backup")
+  .description("Create a backup of the central Gnosys database")
+  .option("-o, --output <dir>", "Backup output directory (default: ~/.gnosys/)")
+  .action(async (opts: { output?: string }) => {
+    let centralDb: GnosysDB | null = null;
+    try {
+      centralDb = GnosysDB.openCentral();
+      if (!centralDb.isAvailable()) {
+        console.error("Central DB not available (better-sqlite3 missing).");
+        process.exit(1);
+      }
+
+      const backupPath = centralDb.backup(opts.output);
+      console.log(`Backup created: ${backupPath}`);
+
+      const counts = centralDb.getMemoryCount();
+      console.log(`  Memories: ${counts.total} (${counts.active} active, ${counts.archived} archived)`);
+      console.log(`  Projects: ${centralDb.getAllProjects().length}`);
+    } catch (err) {
+      console.error(`Backup failed: ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    } finally {
+      centralDb?.close();
+    }
+  });
+
+// ─── gnosys restore ─────────────────────────────────────────────────────
+program
+  .command("restore <backupFile>")
+  .description("Restore the central Gnosys database from a backup")
+  .action(async (backupFile: string) => {
+    const resolved = path.resolve(backupFile);
+    try {
+      const db = GnosysDB.restore(resolved);
+      const counts = db.getMemoryCount();
+      console.log(`Database restored from ${resolved}`);
+      console.log(`  Memories: ${counts.total} (${counts.active} active, ${counts.archived} archived)`);
+      console.log(`  Projects: ${db.getAllProjects().length}`);
+      db.close();
+    } catch (err) {
+      console.error(`Restore failed: ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    }
+  });
+
+// ─── gnosys migrate --to-central ────────────────────────────────────────
+program
+  .command("migrate")
+  .description("Migrate data. Use --to-central to move per-project stores into the central DB.")
+  .option("--to-central", "Migrate all discovered per-project stores into ~/.gnosys/gnosys.db")
+  .option("-v, --verbose", "Verbose output")
+  .action(async (opts: { toCentral?: boolean; verbose?: boolean }) => {
+    if (!opts.toCentral) {
+      // Legacy v1→v2 migration (existing behavior)
+      const resolver = await getResolver();
+      const writeTarget = resolver.getWriteTarget();
+      if (!writeTarget) {
+        console.error("No writable store found. Run 'gnosys init' first.");
+        process.exit(1);
+      }
+      const stats = await migrate(writeTarget.store.getStorePath(), { verbose: opts.verbose });
+      console.log(formatMigrationReport(stats));
+      return;
+    }
+
+    // v3.0: Migrate per-project stores into central DB
+    console.log("Migrating per-project stores to central DB (~/.gnosys/gnosys.db)...\n");
+
+    let centralDb: GnosysDB | null = null;
+    try {
+      centralDb = GnosysDB.openCentral();
+      if (!centralDb.isAvailable()) {
+        console.error("Central DB not available (better-sqlite3 missing).");
+        process.exit(1);
+      }
+    } catch (err) {
+      console.error(`Cannot open central DB: ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    }
+
+    // Discover all registered project stores
+    const resolver = await getResolver();
+    const detectedStores = await resolver.detectAllStores();
+    const projectDirs = detectedStores
+      .filter(s => s.hasGnosys)
+      .map(s => s.path);
+
+    if (projectDirs.length === 0) {
+      console.log("No per-project stores found to migrate.");
+      centralDb.close();
+      return;
+    }
+
+    console.log(`Found ${projectDirs.length} project store(s) to migrate:\n`);
+
+    let totalMemories = 0;
+    let totalProjects = 0;
+
+    for (const projectDir of projectDirs) {
+      const storePath = path.join(projectDir, ".gnosys");
+      const log = opts.verbose ? console.log : () => {};
+
+      try {
+        // Create project identity if it doesn't exist
+        const identity = await createProjectIdentity(projectDir, {
+          centralDb: centralDb!,
+        });
+
+        log(`  [${identity.projectName}] ID: ${identity.projectId}`);
+
+        // Open per-project DB and import memories
+        const projectDb = new GnosysDB(storePath);
+        if (!projectDb.isAvailable() || !projectDb.isMigrated()) {
+          log(`  [${identity.projectName}] No migrated gnosys.db — skipping`);
+          continue;
+        }
+
+        const memories = projectDb.getAllMemories();
+        let count = 0;
+        centralDb!.transaction(() => {
+          for (const mem of memories) {
+            centralDb!.insertMemory({
+              ...mem,
+              project_id: identity.projectId,
+              scope: "project",
+            });
+            count++;
+          }
+        });
+
+        projectDb.close();
+        totalMemories += count;
+        totalProjects++;
+        console.log(`  ✓ ${identity.projectName}: ${count} memories migrated`);
+      } catch (err) {
+        console.error(`  ✗ ${projectDir}: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+
+    centralDb!.close();
+
+    console.log(`\n╔════════════════════════════════════════╗`);
+    console.log(`║  Central Migration Complete            ║`);
+    console.log(`╚════════════════════════════════════════╝`);
+    console.log(`  Projects migrated: ${totalProjects}`);
+    console.log(`  Memories imported:  ${totalMemories}`);
+    console.log(`\n  Per-project gnosys.db files are untouched.`);
+    console.log(`  Central DB: ${GnosysDB.getCentralDbPath()}`);
+  });
+
+// ─── gnosys projects ────────────────────────────────────────────────────
+program
+  .command("projects")
+  .description("List all registered projects in the central DB")
+  .action(async () => {
+    let centralDb: GnosysDB | null = null;
+    try {
+      centralDb = GnosysDB.openCentral();
+      if (!centralDb.isAvailable()) {
+        console.error("Central DB not available (better-sqlite3 missing).");
+        process.exit(1);
+      }
+
+      const projects = centralDb.getAllProjects();
+      if (projects.length === 0) {
+        console.log("No projects registered. Run 'gnosys init' in a project directory.");
+        centralDb.close();
+        return;
+      }
+
+      console.log(`${projects.length} registered project(s):\n`);
+      for (const p of projects) {
+        const memCount = centralDb.getMemoriesByProject(p.id).length;
+        console.log(`  ${p.name}`);
+        console.log(`    ID:        ${p.id}`);
+        console.log(`    Directory: ${p.working_directory}`);
+        console.log(`    Memories:  ${memCount}`);
+        console.log(`    Created:   ${p.created}`);
+        console.log();
+      }
+    } catch (err) {
+      console.error(`Error: ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    } finally {
+      centralDb?.close();
     }
   });
 

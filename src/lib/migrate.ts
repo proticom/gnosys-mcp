@@ -111,6 +111,8 @@ export async function migrate(
         modified: mem.frontmatter.modified,
         embedding: null,
         source_path: mem.relativePath,
+        project_id: null,
+        scope: "project",
       });
 
       titleMap.set(mem.frontmatter.title, mem.frontmatter.id);
@@ -163,6 +165,8 @@ export async function migrate(
             modified: (frontmatter.modified as string) || row.archived_date,
             embedding: null,
             source_path: row.original_path,
+            project_id: null,
+            scope: "project",
           });
 
           titleMap.set(row.title, row.id);

@@ -50,6 +50,7 @@ import { GnosysDB } from "./lib/db.js";
 import { syncMemoryToDb, syncUpdateToDb, syncArchiveToDb, syncDearchiveToDb, syncReinforcementToDb, auditToDb } from "./lib/dbWrite.js";
 import { GnosysDreamEngine, DreamScheduler, formatDreamReport } from "./lib/dream.js";
 import { GnosysExporter, formatExportReport } from "./lib/export.js";
+import { createProjectIdentity, readProjectIdentity, findProjectIdentity, checkDirectoryMismatch } from "./lib/projectIdentity.js";
 
 // Initialize resolver (discovers all layered stores)
 const resolver = new GnosysResolver();
@@ -69,6 +70,8 @@ let hybridSearch: GnosysHybridSearch | null = null;
 let askEngine: GnosysAsk | null = null;
 /** v2.0: Unified SQLite store (available after migration) */
 let gnosysDb: GnosysDB | null = null;
+/** v3.0: Central DB at ~/.gnosys/gnosys.db */
+let centralDb: GnosysDB | null = null;
 /** v2.0: Dream scheduler (idle-time consolidation) */
 let dreamScheduler: DreamScheduler | null = null;
 
@@ -94,12 +97,24 @@ interface ToolContext {
   config: GnosysConfig;
   search: GnosysSearch | null;
   gnosysDb: GnosysDB | null;
+  /** v3.0: Central DB at ~/.gnosys/gnosys.db */
+  centralDb: GnosysDB | null;
+  /** v3.0: Project identity from .gnosys/gnosys.json */
+  projectId: string | null;
 }
 
 async function resolveToolContext(projectRoot?: string): Promise<ToolContext> {
   if (!projectRoot) {
     // Default context — use module-level state
     const writeTarget = resolver.getWriteTarget();
+    // v3.0: Try to read project identity from the write target's parent dir
+    let projectId: string | null = null;
+    if (writeTarget) {
+      const parentDir = path.dirname(writeTarget.store.getStorePath());
+      const identity = await readProjectIdentity(parentDir);
+      projectId = identity?.projectId || null;
+    }
+
     return {
       resolver,
       store: writeTarget?.store || null,
@@ -107,6 +122,8 @@ async function resolveToolContext(projectRoot?: string): Promise<ToolContext> {
       config,
       search,
       gnosysDb,
+      centralDb,
+      projectId,
     };
   }
 
@@ -117,6 +134,10 @@ async function resolveToolContext(projectRoot?: string): Promise<ToolContext> {
   let scopedConfig = DEFAULT_CONFIG;
   let scopedDb: GnosysDB | null = null;
   let scopedSearch: GnosysSearch | null = null;
+
+  // v3.0: Read project identity
+  const identity = await readProjectIdentity(path.resolve(projectRoot));
+  const projectId = identity?.projectId || null;
 
   if (scopedStorePath) {
     try {
@@ -149,6 +170,8 @@ async function resolveToolContext(projectRoot?: string): Promise<ToolContext> {
     config: scopedConfig,
     search: scopedSearch,
     gnosysDb: scopedDb,
+    centralDb,
+    projectId,
   };
 }
 
@@ -733,96 +756,83 @@ server.tool(
 // ─── Tool: gnosys_init ───────────────────────────────────────────────────
 server.tool(
   "gnosys_init",
-  "Initialize a new .gnosys store in the given directory. Creates the directory structure, default tag registry, and git repo. You MUST pass the 'directory' parameter with the full absolute path to the project root.",
+  "Initialize Gnosys in a project directory. Creates .gnosys/ with project identity (gnosys.json), registers the project in the central DB (~/.gnosys/gnosys.db), and sets up tag registry + git. You MUST run this before any other Gnosys tool in a new project. Pass the full absolute path to the project root.",
   {
     directory: z
       .string()
       .describe(
-        "Absolute path to the project directory to create .gnosys/ in. Required."
+        "Absolute path to the project directory to initialize. Required."
       ),
+    projectName: z.string().optional().describe("Human-readable project name. Defaults to directory basename."),
     projectRoot: projectRootParam,
   },
-  async ({ directory, projectRoot }) => {
+  async ({ directory, projectName, projectRoot }) => {
     // Note: For gnosys_init, directory is the target, projectRoot is ignored since we're creating new
-    // Keeping projectRoot for API consistency
     const targetDir = path.resolve(directory);
     const storePath = path.join(targetDir, ".gnosys");
 
-    // Check if already exists
+    // Check if already exists — if so, re-sync identity instead of failing
+    let isResync = false;
     try {
       await fs.stat(storePath);
-      return {
-        content: [
-          {
-            type: "text",
-            text: `A .gnosys store already exists at ${storePath}.`,
-          },
-        ],
-        isError: true,
-      };
+      isResync = true;
     } catch {
       // Good — doesn't exist yet
     }
 
-    // Create directory structure
-    await fs.mkdir(storePath, { recursive: true });
-    await fs.mkdir(path.join(storePath, ".config"), { recursive: true });
+    if (!isResync) {
+      // Create directory structure
+      await fs.mkdir(storePath, { recursive: true });
+      await fs.mkdir(path.join(storePath, ".config"), { recursive: true });
 
-    // Seed default tag registry
-    const defaultRegistry = {
-      domain: [
-        "architecture",
-        "api",
-        "auth",
-        "database",
-        "devops",
-        "frontend",
-        "backend",
-        "testing",
-        "security",
-        "performance",
-      ],
-      type: [
-        "decision",
-        "concept",
-        "convention",
-        "requirement",
-        "observation",
-        "fact",
-        "question",
-      ],
-      concern: ["dx", "scalability", "maintainability", "reliability"],
-      status_tag: ["draft", "stable", "deprecated", "experimental"],
-    };
-    await fs.writeFile(
-      path.join(storePath, ".config", "tags.json"),
-      JSON.stringify(defaultRegistry, null, 2),
-      "utf-8"
-    );
+      // Seed default tag registry
+      const defaultRegistry = {
+        domain: [
+          "architecture", "api", "auth", "database", "devops",
+          "frontend", "backend", "testing", "security", "performance",
+        ],
+        type: [
+          "decision", "concept", "convention", "requirement",
+          "observation", "fact", "question",
+        ],
+        concern: ["dx", "scalability", "maintainability", "reliability"],
+        status_tag: ["draft", "stable", "deprecated", "experimental"],
+      };
+      await fs.writeFile(
+        path.join(storePath, ".config", "tags.json"),
+        JSON.stringify(defaultRegistry, null, 2),
+        "utf-8"
+      );
 
-    // Seed changelog
-    const changelog = `# Gnosys Changelog\n\n## ${new Date().toISOString().split("T")[0]}\n\n- Store initialized\n`;
-    await fs.writeFile(
-      path.join(storePath, "CHANGELOG.md"),
-      changelog,
-      "utf-8"
-    );
+      // Seed changelog
+      const changelog = `# Gnosys Changelog\n\n## ${new Date().toISOString().split("T")[0]}\n\n- Store initialized\n`;
+      await fs.writeFile(
+        path.join(storePath, "CHANGELOG.md"),
+        changelog,
+        "utf-8"
+      );
 
-    // Init git
-    try {
-      const { execSync } = await import("child_process");
-      execSync("git init", { cwd: storePath, stdio: "pipe" });
-      execSync("git add -A", { cwd: storePath, stdio: "pipe" });
-      execSync('git commit -m "Initialize Gnosys store"', {
-        cwd: storePath,
-        stdio: "pipe",
-      });
-    } catch {
-      // Git not available — that's fine
+      // Init git
+      try {
+        const { execSync } = await import("child_process");
+        execSync("git init", { cwd: storePath, stdio: "pipe" });
+        execSync("git add -A", { cwd: storePath, stdio: "pipe" });
+        execSync('git commit -m "Initialize Gnosys store"', {
+          cwd: storePath,
+          stdio: "pipe",
+        });
+      } catch {
+        // Git not available — that's fine
+      }
     }
 
+    // v3.0: Create/update project identity and register in central DB
+    const identity = await createProjectIdentity(targetDir, {
+      projectName,
+      centralDb: centralDb || undefined,
+    });
+
     // Register this project so the resolver finds it on future restarts
-    // (MCP server cwd may not match the editor's project directory).
     await resolver.registerProject(targetDir);
 
     // Directly add the new store to the resolver (no re-resolve from cwd needed)
@@ -838,11 +848,12 @@ server.tool(
       await reindexAllStores();
     }
 
+    const action = isResync ? "re-synced" : "initialized";
     return {
       content: [
         {
           type: "text",
-          text: `Gnosys store initialized at ${storePath}\n\nCreated:\n- .config/ (internal config)\n- tags.json (tag registry)\n- CHANGELOG.md\n- git repo initialized\n\nThe store is ready. Use gnosys_discover to find existing memories or gnosys_add to create new ones.`,
+          text: `Gnosys store ${action} at ${storePath}\n\nProject Identity:\n- ID: ${identity.projectId}\n- Name: ${identity.projectName}\n- Directory: ${identity.workingDirectory}\n- Agent rules target: ${identity.agentRulesTarget || "none detected"}\n- Central DB: ${centralDb?.isAvailable() ? "registered ✓" : "not available"}\n\n${isResync ? "Identity re-synced." : "Created:\n- gnosys.json (project identity)\n- .config/ (internal config)\n- tags.json (tag registry)\n- CHANGELOG.md\n- git repo"}\n\nThe store is ready. Use gnosys_discover to find existing memories or gnosys_add to create new ones.`,
         },
       ],
     };
@@ -2372,6 +2383,21 @@ server.tool(
 
 // ─── Start the server ────────────────────────────────────────────────────
 async function main() {
+  // v3.0: Initialize central DB at ~/.gnosys/gnosys.db
+  try {
+    centralDb = GnosysDB.openCentral();
+    if (centralDb.isAvailable()) {
+      const projects = centralDb.getAllProjects();
+      console.error(`Central DB: ready ✓ (${projects.length} projects registered, schema v${centralDb.getSchemaVersion()})`);
+    } else {
+      centralDb = null;
+      console.error("Central DB: not available (better-sqlite3 missing)");
+    }
+  } catch (err) {
+    centralDb = null;
+    console.error(`Central DB: initialization failed — ${err instanceof Error ? err.message : err}`);
+  }
+
   // Discover and initialize all layered stores
   const stores = await resolver.resolve();
 

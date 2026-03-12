@@ -21,12 +21,16 @@ import { fnv1a } from "./db.js";
 /**
  * Sync a memory write to gnosys.db after it's been written to .md.
  * Call this after GnosysStore.writeMemory() or updateMemory().
+ *
+ * v3.0: Accepts optional projectId and scope for centralized brain.
  */
 export function syncMemoryToDb(
   db: GnosysDB,
   frontmatter: MemoryFrontmatter,
   content: string,
-  sourcePath?: string
+  sourcePath?: string,
+  projectId?: string | null,
+  scope?: string
 ): void {
   if (!db.isAvailable()) return;
 
@@ -55,6 +59,8 @@ export function syncMemoryToDb(
     created: frontmatter.created || new Date().toISOString().split("T")[0],
     modified: frontmatter.modified || new Date().toISOString().split("T")[0],
     source_path: sourcePath || null,
+    project_id: projectId || null,
+    scope: scope || "project",
   });
 }
 

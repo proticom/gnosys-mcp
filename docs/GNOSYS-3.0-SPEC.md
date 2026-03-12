@@ -1,0 +1,262 @@
+# Gnosys 3.0 — Centralized Brain Architecture
+
+**Version:** 1.1
+**Date:** March 11, 2026
+**Authors:** Proticom + Claude
+**Status:** Phase 8a Implemented
+
+---
+
+## 1. Executive Summary
+
+Gnosys 3.0 replaces the distributed per-project store architecture (v2.0) with a single centralized SQLite database at `~/.gnosys/gnosys.db`. This change enables cross-project search, user preference portability, and CLI parity with the MCP interface.
+
+The key insight: `.gnosys/` is gitignored in every project, so the distributed model provides no git portability benefit. A central store removes multi-project routing complexity while enabling capabilities impossible with distributed stores.
+
+### Core Principles
+
+- **One brain, many projects** — a single `~/.gnosys/gnosys.db` is the source of truth
+- **Init is mandatory** — `gnosys init` establishes project identity and anchors the local `.gnosys/` directory
+- **Preferences follow the user** — user-level preferences sync into agent rules files on every machine
+- **CLI parity** — every MCP tool has a CLI equivalent; not every consumer supports MCP
+- **Reads are federated, writes are scoped** — search queries hit project → user → global tiers; writes target a specific scope
+
+---
+
+## 2. Problem Statement
+
+| # | Problem | Impact |
+|---|---------|--------|
+| P1 | No cross-project search | Cannot find a decision made "last month" without knowing which project |
+| P2 | User preferences don't travel | "User prefers conventional commits" must be re-taught per project |
+| P3 | .gnosys/ is gitignored | The "knowledge travels with code" benefit is illusory |
+| P4 | Agent rules are static | .mdc / CLAUDE.md files are copy-pasted templates, not generated from preferences |
+| P5 | MCP-only interface | Scripts, CI, terminals, and simpler agents cannot access core operations |
+
+---
+
+## 3. Storage Architecture
+
+### 3.1 Directory Layout
+
+| Location | Purpose | Contents |
+|----------|---------|----------|
+| `~/.gnosys/` | User-level (or network share) | `gnosys.db` (central SQLite), `config.json` |
+| `<project>/.gnosys/` | Project-level (created by `gnosys init`) | `gnosys.json` (project identity), `vault/` (Obsidian export), `.config/` |
+
+The local `.gnosys/` directory is NOT eliminated — it becomes a config + identity + export directory, but is no longer a data store.
+
+### 3.2 Database Schema Changes (v3.0)
+
+Two new columns on the `memories` table:
+
+| Column | Type | Description | Default |
+|--------|------|-------------|---------|
+| `project_id` | TEXT | Links to project identity from `gnosys init`. NULL for user/global scope. | NULL |
+| `scope` | TEXT CHECK(...) | One of: `project`, `user`, `global`. Determines federated search visibility. | `project` |
+
+New `projects` table:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | TEXT PRIMARY KEY | UUID v4 |
+| `name` | TEXT NOT NULL | Human-readable project name |
+| `working_directory` | TEXT NOT NULL UNIQUE | Absolute path |
+| `user` | TEXT NOT NULL | Username |
+| `agent_rules_target` | TEXT | Path to generated rules file |
+| `obsidian_vault` | TEXT | Obsidian export path |
+| `created` | TEXT NOT NULL | ISO timestamp |
+| `modified` | TEXT NOT NULL | ISO timestamp |
+
+### 3.3 Schema Migration
+
+Existing v2.0 databases are migrated automatically via `ALTER TABLE ADD COLUMN`. Schema version tracked via SQLite `user_version` pragma (v1 → v2).
+
+---
+
+## 4. Project Identity (`gnosys init`)
+
+### 4.1 gnosys.json Schema
+
+Created by `gnosys init` in each project's `.gnosys/` directory:
+
+```json
+{
+  "projectId": "uuid-v4",
+  "projectName": "backend-api",
+  "workingDirectory": "/Users/youruser/code/backend-api",
+  "user": "youruser",
+  "agentRulesTarget": ".cursor/rules/gnosys.mdc",
+  "obsidianVault": ".gnosys/vault",
+  "createdAt": "2026-03-11T...",
+  "schemaVersion": 1
+}
+```
+
+### 4.2 Init Workflow
+
+`gnosys init` performs three operations:
+
+1. **Identity** — Creates `.gnosys/gnosys.json` with project metadata (or re-syncs if existing)
+2. **Central registration** — Registers project in `~/.gnosys/gnosys.db` projects table
+3. **Agent detection** — Detects Cursor (`.cursor/` exists) or Claude Code (`CLAUDE.md`) and sets `agentRulesTarget`
+
+### 4.3 Re-init Behavior
+
+Running `gnosys init` on an existing store no longer errors — it re-syncs the identity, preserving the stable `projectId`. This allows recovery from directory moves without orphaning memories.
+
+### 4.4 Agent Rules Integration
+
+Agent rules files (`.cursor/rules/gnosys.mdc`, `CLAUDE.md`, etc.) should instruct: "Run `gnosys init` before any other Gnosys command." The agent handles this automatically.
+
+---
+
+## 5. Preferences as Memories (Phase 8b)
+
+User preferences stored as regular Gnosys memories with `scope: 'user'` and `category: 'preferences'`. The memory system IS the config system.
+
+During `gnosys init` or `gnosys sync`, agent rules files are generated by combining:
+
+1. Base Gnosys tool instructions
+2. User preferences (from `scope: 'user'` memories)
+3. Project conventions (from `scope: 'project'` memories for current projectId)
+
+Generated content lives inside `<!-- GNOSYS:START -->` / `<!-- GNOSYS:END -->` blocks. User edits outside these blocks are never touched.
+
+---
+
+## 6. Federated Search (Phase 8d)
+
+| Tier | Scope | Boost | Description |
+|------|-------|-------|-------------|
+| 1 (highest) | project | Highest | Memories tagged with current projectId |
+| 2 | user | Medium | User-scoped preferences and cross-project decisions |
+| 3 (lowest) | global | Base | Shared knowledge, unscoped memories |
+
+No explicit "session" API needed. Recent access patterns serve as the implicit working set.
+
+---
+
+## 7. CLI Parity (Phase 8c)
+
+Every MCP tool has a CLI equivalent. The CLI reads `projectId` from local `.gnosys/gnosys.json`. The `--global` flag targets user/global scope.
+
+### Core Read/Write
+
+| CLI Command | MCP Equivalent |
+|-------------|----------------|
+| `gnosys add "text"` | `gnosys_add` |
+| `gnosys add --structured --title T` | `gnosys_add_structured` |
+| `gnosys update mem-042 --content "..."` | `gnosys_update` |
+| `gnosys reinforce mem-042` | `gnosys_reinforce` |
+
+### Search & Retrieval
+
+| CLI Command | MCP Equivalent |
+|-------------|----------------|
+| `gnosys discover "auth"` | `gnosys_discover` |
+| `gnosys read arch-014` | `gnosys_read` |
+| `gnosys search "auth decisions"` | `gnosys_search` |
+| `gnosys ask "what DB are we using?"` | `gnosys_ask` |
+| `gnosys recall "auth refactor"` | `gnosys_recall` |
+
+### System
+
+| CLI Command | MCP Equivalent |
+|-------------|----------------|
+| `gnosys init` | `gnosys_init` |
+| `gnosys sync` | *(new)* |
+| `gnosys backup` | *(new)* |
+| `gnosys restore <file>` | *(new)* |
+| `gnosys migrate --to-central` | *(new)* |
+| `gnosys projects` | *(new)* |
+
+---
+
+## 8. Cross-Machine Sync
+
+If `~/.gnosys/gnosys.db` is placed on a network share (Dropbox, NAS, iCloud Drive):
+- SQLite WAL mode handles concurrent reads
+- `gnosys init` on a new machine pulls user preferences immediately
+- Memories written on machine A are available on machine B
+
+---
+
+## 9. Migration from v2.0
+
+`gnosys migrate --to-central` scans all registered project stores, imports memories into the central DB tagged with generated projectIds, creates `.gnosys/gnosys.json` identity files, and preserves per-project `gnosys.db` as backups.
+
+---
+
+## 10. Phased Implementation Plan
+
+### Phase 8a: Central DB + Project Identity ✅ COMPLETE
+
+| # | Task | Status |
+|---|------|--------|
+| 8a.1 | Move default DB to `~/.gnosys/gnosys.db` | ✅ |
+| 8a.2 | Add `project_id` and `scope` columns + schema migration | ✅ |
+| 8a.3 | Update `gnosys init` for project identity (`gnosys.json`) | ✅ |
+| 8a.4 | Update `resolveToolContext` with central DB + project identity | ✅ |
+| 8a.5 | `gnosys backup` / `gnosys restore` commands | ✅ |
+| 8a.6 | `gnosys migrate --to-central` command | ✅ |
+| 8a.7 | `gnosys projects` command | ✅ |
+| 8a.8 | Tests: 145 passing, zero failures | ✅ |
+
+### Phase 8b: Preferences + Rules Generation
+
+| # | Task | Acceptance Criteria |
+|---|------|---------------------|
+| 8b.1 | Add `preferences` category | Memories with `category='preferences'` and `scope='user'` recognized |
+| 8b.2 | `gnosys init` generates agent rules file | Rules file combines base + user prefs + project conventions |
+| 8b.3 | IDE/agent environment detection | Detects Cursor, Claude Code, or custom |
+| 8b.4 | `gnosys sync` command | Regenerates rules from current preferences |
+| 8b.5 | `GNOSYS:START` / `GNOSYS:END` blocks | User edits outside blocks preserved |
+
+### Phase 8c: CLI Parity
+
+| # | Task | Acceptance Criteria |
+|---|------|---------------------|
+| 8c.1 | CLI for core read/write | `add`, `update`, `reinforce` from terminal |
+| 8c.2 | CLI for search/retrieval | `discover`, `read`, `search`, `ask`, `recall` |
+| 8c.3 | CLI reads projectId from local config | Auto-detects from `.gnosys/gnosys.json` |
+| 8c.4 | `--json` output flag | Script-friendly output for all commands |
+
+### Phase 8d: Federated Search + Ambiguity Detection
+
+| # | Task | Acceptance Criteria |
+|---|------|---------------------|
+| 8d.1 | Federated search with tier boosting | project > user > global ranking |
+| 8d.2 | Multi-project ambiguity detection | Error lists all projects when multiple found |
+| 8d.3 | Dream Mode project briefings | Pre-computed briefings per project |
+| 8d.4 | Implicit working set | Recency boost for current project |
+
+---
+
+## 11. Acceptance Criteria Summary
+
+| # | Criterion | Validation |
+|---|-----------|------------|
+| AC-1 | All memories in single `~/.gnosys/gnosys.db` | No per-project DBs for new projects |
+| AC-2 | `gnosys init` creates correct `gnosys.json` | Verify all required fields |
+| AC-3 | Cross-project search works | Create memories in A and B, search returns both |
+| AC-4 | User preferences persist across projects | Add pref in A, init in B, verify rules contain pref |
+| AC-5 | Agent rules are generated, not static | Modify pref + re-sync → file updates |
+| AC-6 | Every MCP tool has CLI equivalent | Run each CLI command |
+| AC-7 | Federated search respects tiers | project > user > global ordering |
+| AC-8 | Migration preserves all memories | Count + content match after migrate |
+| AC-9 | Directory moves don't orphan memories | Move dir, re-init, memories still accessible |
+| AC-10 | Stable projectId across re-inits | Same UUID before and after |
+
+---
+
+## 12. Key Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| Centralized over distributed | `.gnosys/` is gitignored — locality is illusory |
+| Init is mandatory | Captures project identity for scoping + preference pull |
+| Preferences as memories | No separate config system; memory system IS the config system |
+| CLI parity is first-class | Not every tool consumer supports MCP |
+| `GNOSYS:START/END` blocks in rules files | Prevents overwriting user edits |
+| `gnosys backup` / `gnosys restore` as first-class commands | Central DB is single point of failure — need explicit recovery |

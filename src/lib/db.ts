@@ -1,11 +1,11 @@
 /**
- * Gnosys DB — Agent-native SQLite core (v2.0).
+ * Gnosys DB — Agent-native SQLite core.
  *
- * Single gnosys.db replaces the previous split of:
- *   .md files (source of truth) + search.db + embeddings.db + archive.db + graph.json + audit.jsonl
+ * v2.0: Single gnosys.db per project (.gnosys/gnosys.db)
+ * v3.0: Central gnosys.db at ~/.gnosys/gnosys.db with project_id + scope columns
  *
  * 5 tables: memories, memories_fts, relationships, summaries, audit_log.
- * Schema locked by consensus (Edward + Claude + Grok, March 11, 2026).
+ * + projects table (v3.0) for project identity registry.
  */
 
 // Dynamic import — gracefully handles missing native module
@@ -45,7 +45,24 @@ export interface DbMemory {
   modified: string;
   embedding: Buffer | null;
   source_path: string | null;
+  // v3.0: Centralized Brain
+  project_id: string | null;  // UUID from gnosys.json — NULL for user/global
+  scope: string;              // "project" | "user" | "global"
 }
+
+/** v3.0: Project identity stored in central DB */
+export interface DbProject {
+  id: string;                  // UUID v4
+  name: string;                // Human-readable project name
+  working_directory: string;   // Absolute path
+  user: string;                // Username
+  agent_rules_target: string | null; // Path to generated rules file
+  obsidian_vault: string | null;     // Obsidian export path
+  created: string;
+  modified: string;
+}
+
+export type MemoryScope = "project" | "user" | "global";
 
 export interface DbRelationship {
   source_id: string;
@@ -85,7 +102,7 @@ export interface MigrationStats {
 
 // ─── Schema ─────────────────────────────────────────────────────────────
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS memories (
@@ -109,7 +126,9 @@ CREATE TABLE IF NOT EXISTS memories (
   created             TEXT NOT NULL,
   modified            TEXT NOT NULL,
   embedding           BLOB,
-  source_path         TEXT
+  source_path         TEXT,
+  project_id          TEXT,
+  scope               TEXT DEFAULT 'project' CHECK(scope IN ('project','user','global'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category);
@@ -118,6 +137,8 @@ CREATE INDEX IF NOT EXISTS idx_memories_tier ON memories(tier);
 CREATE INDEX IF NOT EXISTS idx_memories_confidence ON memories(confidence);
 CREATE INDEX IF NOT EXISTS idx_memories_last_reinforced ON memories(last_reinforced);
 CREATE INDEX IF NOT EXISTS idx_memories_content_hash ON memories(content_hash);
+CREATE INDEX IF NOT EXISTS idx_memories_project_id ON memories(project_id);
+CREATE INDEX IF NOT EXISTS idx_memories_scope ON memories(scope);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
   id,
@@ -168,6 +189,17 @@ CREATE TABLE IF NOT EXISTS audit_log (
 CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
 CREATE INDEX IF NOT EXISTS idx_audit_operation ON audit_log(operation);
 CREATE INDEX IF NOT EXISTS idx_audit_trace ON audit_log(trace_id);
+
+CREATE TABLE IF NOT EXISTS projects (
+  id                  TEXT PRIMARY KEY,
+  name                TEXT NOT NULL,
+  working_directory   TEXT NOT NULL UNIQUE,
+  user                TEXT NOT NULL,
+  agent_rules_target  TEXT,
+  obsidian_vault      TEXT,
+  created             TEXT NOT NULL,
+  modified            TEXT NOT NULL
+);
 `;
 
 // FTS5 sync triggers — created separately (can't use IF NOT EXISTS on triggers)
@@ -208,15 +240,43 @@ export class GnosysDB {
   private db: any = null;
   private storePath: string;
   private available = false;
+  private dbFilePath: string;
+
+  /**
+   * Get the central DB directory (~/.gnosys/).
+   * Creates it if it doesn't exist.
+   */
+  static getCentralDbDir(): string {
+    const home = process.env.HOME || process.env.USERPROFILE || "/tmp";
+    return path.join(home, ".gnosys");
+  }
+
+  /**
+   * Get the central DB file path (~/.gnosys/gnosys.db).
+   */
+  static getCentralDbPath(): string {
+    return path.join(GnosysDB.getCentralDbDir(), "gnosys.db");
+  }
+
+  /**
+   * Open the central DB at ~/.gnosys/gnosys.db.
+   * Creates ~/.gnosys/ directory if needed.
+   */
+  static openCentral(): GnosysDB {
+    const dir = GnosysDB.getCentralDbDir();
+    fs.mkdirSync(dir, { recursive: true });
+    return new GnosysDB(dir);
+  }
 
   constructor(storePath: string) {
     this.storePath = storePath;
+    this.dbFilePath = path.join(storePath, "gnosys.db");
 
     if (!Database) return;
 
     try {
-      const dbPath = path.join(storePath, "gnosys.db");
-      this.db = new Database(dbPath);
+      fs.mkdirSync(storePath, { recursive: true });
+      this.db = new Database(this.dbFilePath);
       enableWAL(this.db);
       this.db.pragma("foreign_keys = ON");
       this.applySchema();
@@ -224,6 +284,39 @@ export class GnosysDB {
     } catch {
       this.db = null;
     }
+  }
+
+  /**
+   * Create a backup of the database file.
+   * Returns the backup file path.
+   */
+  backup(backupDir?: string): string {
+    if (!this.available) throw new Error("Database not available");
+    const dir = backupDir || this.storePath;
+    fs.mkdirSync(dir, { recursive: true });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const backupPath = path.join(dir, `gnosys-backup-${timestamp}.db`);
+    this.db.backup(backupPath);
+    return backupPath;
+  }
+
+  /**
+   * Restore from a backup file. Closes current DB, copies backup over, re-opens.
+   */
+  static restore(backupPath: string, targetDir?: string): GnosysDB {
+    const dir = targetDir || GnosysDB.getCentralDbDir();
+    const targetPath = path.join(dir, "gnosys.db");
+
+    // Validate backup file exists
+    if (!fs.existsSync(backupPath)) {
+      throw new Error(`Backup file not found: ${backupPath}`);
+    }
+
+    // Copy backup over
+    fs.copyFileSync(backupPath, targetPath);
+
+    // Re-open
+    return new GnosysDB(dir);
   }
 
   private applySchema(): void {
@@ -237,11 +330,59 @@ export class GnosysDB {
       // Triggers may already exist — that's fine
     }
 
-    // Set schema version
-    const currentVersion = this.db.pragma("user_version", { simple: true });
-    if (currentVersion === 0) {
-      this.db.pragma(`user_version = ${SCHEMA_VERSION}`);
+    // Schema migration: v1 → v2 (add project_id, scope, projects table)
+    const currentVersion = this.db.pragma("user_version", { simple: true }) as number;
+    if (currentVersion < SCHEMA_VERSION) {
+      this.migrateSchema(currentVersion);
     }
+  }
+
+  /**
+   * Incremental schema migration.
+   * Each version bump adds columns/tables without dropping existing data.
+   */
+  private migrateSchema(fromVersion: number): void {
+    if (fromVersion < 2) {
+      // v1 → v2: Add project_id and scope columns to memories
+      try {
+        this.db.exec("ALTER TABLE memories ADD COLUMN project_id TEXT");
+      } catch {
+        // Column already exists — fine
+      }
+      try {
+        this.db.exec("ALTER TABLE memories ADD COLUMN scope TEXT DEFAULT 'project'");
+      } catch {
+        // Column already exists — fine
+      }
+
+      // Create indexes for new columns
+      try {
+        this.db.exec("CREATE INDEX IF NOT EXISTS idx_memories_project_id ON memories(project_id)");
+        this.db.exec("CREATE INDEX IF NOT EXISTS idx_memories_scope ON memories(scope)");
+      } catch {
+        // Indexes may already exist
+      }
+
+      // Create projects table
+      try {
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS projects (
+            id                  TEXT PRIMARY KEY,
+            name                TEXT NOT NULL,
+            working_directory   TEXT NOT NULL UNIQUE,
+            user                TEXT NOT NULL,
+            agent_rules_target  TEXT,
+            obsidian_vault      TEXT,
+            created             TEXT NOT NULL,
+            modified            TEXT NOT NULL
+          )
+        `);
+      } catch {
+        // Table may already exist
+      }
+    }
+
+    this.db.pragma(`user_version = ${SCHEMA_VERSION}`);
   }
 
   isAvailable(): boolean {
@@ -249,7 +390,11 @@ export class GnosysDB {
   }
 
   getDbPath(): string {
-    return path.join(this.storePath, "gnosys.db");
+    return this.dbFilePath;
+  }
+
+  getStorePath(): string {
+    return this.storePath;
   }
 
   // ─── Memory CRUD ────────────────────────────────────────────────────
@@ -259,8 +404,9 @@ export class GnosysDB {
       INSERT OR REPLACE INTO memories
         (id, title, category, content, summary, tags, relevance, author, authority,
          confidence, reinforcement_count, content_hash, status, tier, supersedes,
-         superseded_by, last_reinforced, created, modified, embedding, source_path)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         superseded_by, last_reinforced, created, modified, embedding, source_path,
+         project_id, scope)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -269,7 +415,8 @@ export class GnosysDB {
       mem.confidence, mem.reinforcement_count, mem.content_hash,
       mem.status, mem.tier, mem.supersedes || null,
       mem.superseded_by || null, mem.last_reinforced || null,
-      mem.created, mem.modified, mem.embedding || null, mem.source_path || null
+      mem.created, mem.modified, mem.embedding || null, mem.source_path || null,
+      mem.project_id || null, mem.scope || "project"
     );
   }
 
@@ -322,6 +469,65 @@ export class GnosysDB {
   getCategories(): string[] {
     const rows = this.db.prepare("SELECT DISTINCT category FROM memories WHERE tier = 'active' ORDER BY category").all() as { category: string }[];
     return rows.map((r) => r.category);
+  }
+
+  // ─── Scoped Queries (v3.0) ──────────────────────────────────────────
+
+  /**
+   * Get active memories scoped to a specific project.
+   */
+  getMemoriesByProject(projectId: string): DbMemory[] {
+    return this.db.prepare(
+      "SELECT * FROM memories WHERE project_id = ? AND tier = 'active' AND status = 'active'"
+    ).all(projectId) as DbMemory[];
+  }
+
+  /**
+   * Get memories by scope (project, user, global).
+   */
+  getMemoriesByScope(scope: MemoryScope): DbMemory[] {
+    return this.db.prepare(
+      "SELECT * FROM memories WHERE scope = ? AND tier = 'active' AND status = 'active'"
+    ).all(scope) as DbMemory[];
+  }
+
+  // ─── Project Identity (v3.0) ──────────────────────────────────────
+
+  insertProject(project: DbProject): void {
+    this.db.prepare(`
+      INSERT OR REPLACE INTO projects
+        (id, name, working_directory, user, agent_rules_target, obsidian_vault, created, modified)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      project.id, project.name, project.working_directory, project.user,
+      project.agent_rules_target || null, project.obsidian_vault || null,
+      project.created, project.modified
+    );
+  }
+
+  getProject(id: string): DbProject | null {
+    return (this.db.prepare("SELECT * FROM projects WHERE id = ?").get(id) as DbProject) || null;
+  }
+
+  getProjectByDirectory(dir: string): DbProject | null {
+    return (this.db.prepare("SELECT * FROM projects WHERE working_directory = ?").get(dir) as DbProject) || null;
+  }
+
+  getAllProjects(): DbProject[] {
+    return this.db.prepare("SELECT * FROM projects ORDER BY name").all() as DbProject[];
+  }
+
+  updateProject(id: string, updates: Partial<DbProject>): void {
+    const fields: string[] = [];
+    const values: unknown[] = [];
+    for (const [key, value] of Object.entries(updates)) {
+      if (key === "id") continue;
+      fields.push(`${key} = ?`);
+      values.push(value);
+    }
+    if (fields.length === 0) return;
+    values.push(id);
+    this.db.prepare(`UPDATE projects SET ${fields.join(", ")} WHERE id = ?`).run(...values);
   }
 
   // ─── FTS5 Search ────────────────────────────────────────────────────

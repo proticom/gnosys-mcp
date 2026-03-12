@@ -100,19 +100,18 @@ describe("gnosys init", () => {
     expect(log).toContain("Initialize Gnosys store");
   });
 
-  it("refuses to init if .gnosys already exists", () => {
+  it("re-syncs if .gnosys already exists (no error)", () => {
     // First init
     execSync(`node ${path.resolve("dist/cli.js")} init --directory ${tmpDir}`, {
       stdio: "pipe",
     });
 
-    // Second init should fail
-    expect(() =>
-      execSync(
-        `node ${path.resolve("dist/cli.js")} init --directory ${tmpDir}`,
-        { stdio: "pipe" }
-      )
-    ).toThrow();
+    // Second init should succeed (re-sync, not fail)
+    const output = execSync(
+      `node ${path.resolve("dist/cli.js")} init --directory ${tmpDir}`,
+      { encoding: "utf-8" }
+    );
+    expect(output).toContain("re-synced");
   });
 
   it("outputs helpful instructions", () => {
@@ -121,7 +120,41 @@ describe("gnosys init", () => {
       { encoding: "utf-8" }
     );
 
-    expect(output).toContain("Gnosys store initialized");
+    expect(output).toContain("Gnosys store");
     expect(output).toContain("gnosys add");
+  });
+
+  it("creates gnosys.json project identity file", async () => {
+    execSync(`node ${path.resolve("dist/cli.js")} init --directory ${tmpDir}`, {
+      stdio: "pipe",
+    });
+
+    const identityPath = path.join(tmpDir, ".gnosys", "gnosys.json");
+    const raw = await fs.readFile(identityPath, "utf-8");
+    const identity = JSON.parse(raw);
+    expect(identity).toHaveProperty("projectId");
+    expect(identity).toHaveProperty("projectName");
+    expect(identity).toHaveProperty("workingDirectory");
+    expect(identity.workingDirectory).toBe(tmpDir);
+  });
+
+  it("generates stable projectId on re-init", async () => {
+    execSync(`node ${path.resolve("dist/cli.js")} init --directory ${tmpDir}`, {
+      stdio: "pipe",
+    });
+
+    const identityPath = path.join(tmpDir, ".gnosys", "gnosys.json");
+    const raw1 = await fs.readFile(identityPath, "utf-8");
+    const id1 = JSON.parse(raw1).projectId;
+
+    // Re-init
+    execSync(`node ${path.resolve("dist/cli.js")} init --directory ${tmpDir}`, {
+      stdio: "pipe",
+    });
+
+    const raw2 = await fs.readFile(identityPath, "utf-8");
+    const id2 = JSON.parse(raw2).projectId;
+
+    expect(id1).toBe(id2);
   });
 });
