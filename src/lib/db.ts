@@ -290,13 +290,13 @@ export class GnosysDB {
    * Create a backup of the database file.
    * Returns the backup file path.
    */
-  backup(backupDir?: string): string {
+  async backup(backupDir?: string): Promise<string> {
     if (!this.available) throw new Error("Database not available");
     const dir = backupDir || this.storePath;
     fs.mkdirSync(dir, { recursive: true });
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
     const backupPath = path.join(dir, `gnosys-backup-${timestamp}.db`);
-    this.db.backup(backupPath);
+    await this.db.backup(backupPath);
     return backupPath;
   }
 
@@ -453,32 +453,56 @@ export class GnosysDB {
     if (fields.length === 0) return;
     values.push(id);
 
-    this.db.prepare(`UPDATE memories SET ${fields.join(", ")} WHERE id = ?`).run(...values);
+    const sql = `UPDATE memories SET ${fields.join(", ")} WHERE id = ?`;
+
+    try {
+      this.db.prepare(sql).run(...values);
+    } catch {
+      // FTS5 update trigger may fail if INSERT OR REPLACE left FTS inconsistent.
+      // Workaround: drop the trigger, update manually, rebuild FTS entry.
+      this.db.exec("DROP TRIGGER IF EXISTS memories_fts_au");
+      this.db.prepare(sql).run(...values);
+
+      // Recreate trigger
+      try {
+        this.db.exec(`
+          CREATE TRIGGER IF NOT EXISTS memories_fts_au AFTER UPDATE ON memories BEGIN
+            INSERT INTO memories_fts(memories_fts, id, title, category, tags, relevance, content, summary)
+            VALUES ('delete', old.id, old.title, old.category, old.tags, old.relevance, old.content, old.summary);
+            INSERT INTO memories_fts(id, title, category, tags, relevance, content, summary)
+            VALUES (new.id, new.title, new.category, new.tags, new.relevance, new.content, new.summary);
+          END;
+        `);
+      } catch {
+        // Trigger recreation failed — not critical
+      }
+    }
+
+    // Manually sync FTS: remove old entry, insert updated entry (reliable for standalone FTS5)
+    try {
+      this.db.prepare("DELETE FROM memories_fts WHERE id = ?").run(id);
+    } catch {
+      // Old FTS entry may not exist — that's OK
+    }
+
+    const newMem = this.db.prepare("SELECT * FROM memories WHERE id = ?").get(id) as DbMemory | undefined;
+    if (newMem) {
+      try {
+        this.db.prepare(
+          "INSERT INTO memories_fts(id, title, category, tags, relevance, content, summary) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        ).run(newMem.id, newMem.title, newMem.category, newMem.tags, newMem.relevance, newMem.content, newMem.summary);
+      } catch {
+        // FTS insert may fail — not critical
+      }
+    }
   }
 
   deleteMemory(id: string): void {
     // FTS5 delete trigger may fail if INSERT OR REPLACE left FTS inconsistent.
-    // Use a transaction: manually clean FTS first, then delete.
     try {
       this.db.prepare("DELETE FROM memories WHERE id = ?").run(id);
     } catch {
-      // FTS trigger failed — clean up FTS manually, then retry
-      try {
-        const mem = this.db.prepare("SELECT * FROM memories WHERE id = ?").get(id);
-        if (mem) {
-          // Remove FTS entry first (raw delete command)
-          this.db.prepare(
-            "INSERT INTO memories_fts(memories_fts, id, title, category, tags, relevance, content, summary) VALUES ('delete', ?, ?, ?, ?, ?, ?, ?)"
-          ).run(
-            (mem as DbMemory).id, (mem as DbMemory).title, (mem as DbMemory).category,
-            (mem as DbMemory).tags, (mem as DbMemory).relevance, (mem as DbMemory).content,
-            (mem as DbMemory).summary
-          );
-        }
-      } catch {
-        // FTS cleanup also failed — rebuild FTS later
-      }
-      // Delete without trigger
+      // FTS trigger failed — drop trigger, delete without it
       this.db.exec("DROP TRIGGER IF EXISTS memories_fts_ad");
       this.db.prepare("DELETE FROM memories WHERE id = ?").run(id);
       // Recreate trigger
@@ -492,6 +516,13 @@ export class GnosysDB {
       } catch {
         // Trigger recreation failed — not critical
       }
+    }
+
+    // Ensure FTS entry is also removed (direct DELETE is reliable for standalone FTS5)
+    try {
+      this.db.prepare("DELETE FROM memories_fts WHERE id = ?").run(id);
+    } catch {
+      // FTS entry may not exist — that's OK
     }
   }
 

@@ -2466,7 +2466,7 @@ program
         process.exit(1);
       }
 
-      const backupPath = centralDb.backup(opts.output);
+      const backupPath = await centralDb.backup(opts.output);
       console.log(`Backup created: ${backupPath}`);
 
       const counts = centralDb.getMemoryCount();
