@@ -728,7 +728,7 @@ footer a:hover { color: var(--accent-light); }
         </g>
       </svg>
     </a>
-    <span class="nav-version">v2.0</span>
+    <span class="nav-version">v3.0</span>
 
     <div class="nav-links">
       <a href="/guide.html">Docs</a>
@@ -845,7 +845,7 @@ footer a:hover { color: var(--accent-light); }
       <div class="hero-label">Reference</div>
       <h1 class="hero-title">Complete CLI & MCP Reference</h1>
       <div class="hero-meta">
-        <span class="version-badge">v1.1.0</span>
+        <span class="version-badge">v3.0</span>
       </div>
     </div>
 
@@ -1608,6 +1608,122 @@ Options:
           <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_export</div>
         </div>
 
+        <!-- v3.0 commands -->
+        <div class="command-card" id="cmd-projects">
+          <h3 class="command-name">gnosys projects</h3>
+          <p class="command-description">List all registered projects in the central database. Shows project name, working directory, and memory count.</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys projects [--json]</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_list_projects</div>
+        </div>
+
+        <div class="command-card" id="cmd-register">
+          <h3 class="command-name">gnosys register</h3>
+          <p class="command-description">Register a project directory in the central database. Auto-detects project identity from .git, package.json, Cargo.toml, etc.</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys register [-d &lt;directory&gt;] [--json]</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_register_project</div>
+        </div>
+
+        <div class="command-card" id="cmd-fsearch">
+          <h3 class="command-name">gnosys fsearch</h3>
+          <p class="command-description">Federated search across all scopes with tier boosting. Current project memories rank highest (1.8x), then project (1.5x), user (1.0x), global (0.7x). Includes recency and reinforcement boosting.</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys fsearch &lt;query&gt; [--limit &lt;n&gt;] [-d &lt;directory&gt;] [--no-global] [--json]</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_federated_search</div>
+        </div>
+
+        <div class="command-card" id="cmd-briefing">
+          <h3 class="command-name">gnosys briefing</h3>
+          <p class="command-description">Generate a project briefing — categories, recent activity, top tags, and a human-readable summary. Use --all for all registered projects.</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys briefing [-p &lt;project-id&gt;] [-a|--all] [-d &lt;directory&gt;] [--json]</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tool:</strong> gnosys_briefing</div>
+        </div>
+
+        <div class="command-card" id="cmd-preferences">
+          <h3 class="command-name">gnosys preferences</h3>
+          <p class="command-description">Manage user-level preferences that persist across all projects. Preferences are stored as scope='user' memories.</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys preferences set &lt;key&gt; &lt;value&gt;
+gnosys preferences get &lt;key&gt;
+gnosys preferences delete &lt;key&gt;
+gnosys preferences list [--json]</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tools:</strong> gnosys_preference_set, gnosys_preference_get, gnosys_preference_delete</div>
+        </div>
+
+        <div class="command-card" id="cmd-rules">
+          <h3 class="command-name">gnosys rules</h3>
+          <p class="command-description">Generate agent rules files for your IDE. Outputs Gnosys memory workflow instructions with project context. Supports Cursor (.mdc) and Claude Code (CLAUDE.md).</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys rules [--target cursor|claude] [-d &lt;directory&gt;] [--json]</code>
+            </div>
+          </div>
+        </div>
+
+        <div class="command-card" id="cmd-backup">
+          <h3 class="command-name">gnosys backup / restore</h3>
+          <p class="command-description">Backup and restore the central database. Backups are stored in ~/.gnosys/backups/ with automatic daily snapshots.</p>
+          <div class="command-block">
+            <div class="block-label">Usage</div>
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">
+                <svg class="copy-icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+              <code>gnosys backup [--json]
+gnosys restore [&lt;backup-file&gt;] [--json]</code>
+            </div>
+          </div>
+          <div class="mcp-tool"><strong>MCP Tools:</strong> gnosys_backup, gnosys_restore</div>
+        </div>
+
       </div>
 
       <!-- Agent Rules -->
@@ -1795,7 +1911,7 @@ function copyCode(btn) {
 // Generate Markdown Content
 function generateMarkdown() {
   const content = document.getElementById('md-content');
-  const text = `# Gnosys User Guide v1.1.0
+  const text = `# Gnosys User Guide v3.0
 
 Complete CLI & MCP Reference for the Gnosys persistent memory system.
 
@@ -2162,7 +2278,81 @@ Build or rebuild the wikilink graph (.gnosys/graph.json)
 
 Usage: \`gnosys reindex-graph\`
 
-MCP Tool: \`gnosys_reindex_graph\``;
+MCP Tool: \`gnosys_reindex_graph\`
+
+## v3.0: Centralized Brain
+
+### gnosys projects
+List all registered projects in the central database
+
+Usage: \`gnosys projects [--json]\`
+
+MCP Tool: \`gnosys_list_projects\`
+
+### gnosys register
+Register a project directory in the central database
+
+Usage: \`gnosys register [-d <directory>] [--json]\`
+
+MCP Tool: \`gnosys_register_project\`
+
+### gnosys fsearch
+Federated search across all scopes with tier boosting
+
+Usage: \`gnosys fsearch <query> [--limit <n>] [-d <directory>] [--no-global] [--json]\`
+
+MCP Tool: \`gnosys_federated_search\`
+
+### gnosys ambiguity
+Check if a query matches memories in multiple projects
+
+Usage: \`gnosys ambiguity <query> [--json]\`
+
+MCP Tool: \`gnosys_detect_ambiguity\`
+
+### gnosys briefing
+Generate a project briefing with categories, activity, and top tags
+
+Usage: \`gnosys briefing [-p <project-id>] [-a|--all] [-d <directory>] [--json]\`
+
+MCP Tool: \`gnosys_briefing\`
+
+### gnosys working-set
+Show recently modified memories for the current project
+
+Usage: \`gnosys working-set [-d <directory>] [-w <hours>] [--json]\`
+
+MCP Tool: \`gnosys_working_set\`
+
+### gnosys preferences
+Manage user-level preferences across all projects
+
+Usage: \`gnosys preferences set <key> <value>\`
+\`gnosys preferences get <key>\`
+\`gnosys preferences delete <key>\`
+\`gnosys preferences list [--json]\`
+
+MCP Tools: \`gnosys_preference_set\`, \`gnosys_preference_get\`, \`gnosys_preference_delete\`
+
+### gnosys rules
+Generate agent rules files for Cursor or Claude Code
+
+Usage: \`gnosys rules [--target cursor|claude] [-d <directory>] [--json]\`
+
+### gnosys sync
+Migrate per-project .gnosys data into the central database
+
+Usage: \`gnosys sync [-d <directory>] [--json]\`
+
+MCP Tool: \`gnosys_migrate_to_central\`
+
+### gnosys backup / restore
+Backup and restore the central database
+
+Usage: \`gnosys backup [--json]\`
+\`gnosys restore [<backup-file>] [--json]\`
+
+MCP Tools: \`gnosys_backup\`, \`gnosys_restore\``;
 
   // Append agent rules from DOM (loaded dynamically from /rules/)
   var rulesSection = '\n\n## Agent Rules\n\n';
