@@ -16,7 +16,7 @@
 
 **Gnosys** gives LLMs — and humans — a knowledge layer that survives across sessions and scales to real-world datasets.
 
-In v2.0, Gnosys is **agent-first**: a unified SQLite database (`gnosys.db`) is the primary store for all reads and writes, while Markdown files remain as a human-readable safety net. Dream Mode consolidates knowledge during idle time. One-command export regenerates a full Obsidian vault from the database. Multi-project support routes memory calls across parallel workspaces without conflicts.
+In v3.0, Gnosys is a **centralized brain**: a single SQLite database at `~/.gnosys/gnosys.db` unifies all projects, user preferences, and global knowledge under one roof. Every memory is scoped (`project`, `user`, or `global`) and tagged with a `project_id`. Federated search ranks results across scopes with tier boosting and recency awareness. Preferences drive automatic agent rules generation. Project briefings give instant status. Dream Mode consolidates knowledge during idle time. One-command export regenerates a full Obsidian vault. Multi-project routing with ambiguity detection keeps parallel workspaces conflict-free.
 
 It runs as a CLI and a complete MCP server that drops straight into Cursor, Claude Desktop, Claude Code, Cowork, Codex, or any MCP client.
 
@@ -36,17 +36,22 @@ Gnosys takes a different approach: every memory is a plain Markdown file with YA
 
 **What makes it different:**
 
-- **Agent-first SQLite** — unified `gnosys.db` handles all reads and writes at sub-10ms. Markdown files kept as a dual-write safety net.
-- **Dream Mode** — idle-time consolidation engine: confidence decay, self-critique, summary generation, and relationship discovery. Never deletes — only suggests reviews.
+- **Centralized brain (v3.0)** — single `~/.gnosys/gnosys.db` unifies all projects with `project_id` + `scope` columns. No more per-project silos.
+- **Federated search** — tier-boosted search across project (1.5x) → user (1.0x) → global (0.7x) scopes with recency and reinforcement boosts.
+- **Preferences as memories** — user preferences stored as scoped memories, driving automatic agent rules generation via `gnosys sync`.
+- **Project briefings** — instant project status: categories, recent activity, top tags, summary. Dream Mode pre-computes these.
+- **Ambiguity detection** — when a query hits multiple projects, Gnosys lists all candidates instead of guessing wrong.
+- **Agent-first SQLite** — sub-10ms reads/writes. Markdown files kept as a dual-write safety net.
+- **Dream Mode** — idle-time consolidation: confidence decay, self-critique, summary generation, relationship discovery. Never deletes — only suggests reviews.
 - **Transparent** — every memory has a human-readable `.md` file alongside the database. Export to Obsidian vault with one command.
-- **Multi-project** — MCP roots support + per-tool `projectRoot` routing. Multiple Cursor windows, multiple projects, zero race conditions.
-- **Freeform Ask** — ask natural-language questions and get synthesized answers with Obsidian wikilink citations from the entire vault.
-- **Hybrid Search** — combines FTS5 keyword search with semantic embeddings via Reciprocal Rank Fusion (RRF).
+- **Multi-project** — MCP roots + per-tool `projectRoot` routing + central project registry. Multiple Cursor windows, zero conflicts.
+- **Freeform Ask** — natural-language questions, synthesized answers with Obsidian wikilink citations.
+- **Hybrid Search** — FTS5 keyword + semantic embeddings via Reciprocal Rank Fusion (RRF).
 - **Versioned** — Git auto-commits every write. Full history, rollback, and diff support.
-- **Obsidian-native** — `gnosys export` generates a full Obsidian vault with YAML frontmatter, `[[wikilinks]]`, summaries, and graph data.
+- **Obsidian-native** — `gnosys export` generates a full vault with YAML frontmatter, `[[wikilinks]]`, summaries, and graph data.
 - **MCP-first** — drops into Cursor, Claude Desktop, Claude Code, Cowork, Codex, or any MCP client with one config line.
 - **Bulk import** — CSV, JSON, JSONL. Import entire datasets (USDA, NVD, your internal docs) in seconds.
-- **Layered stores** — project, personal, global, and optional read-only stores stacked by precedence.
+- **Backup & restore** — `gnosys backup` + `gnosys restore` for the central DB. Point-in-time recovery.
 - **Zero infrastructure** — no external databases, no Docker (unless you want it), no cloud services. Just `npm install`.
 
 ---
@@ -275,33 +280,48 @@ ANTHROPIC_API_KEY = "your-key-here"
 | `gnosys_stores` | Show active stores, MCP roots, and detected project stores |
 | `gnosys_tags` | List tag registry |
 | `gnosys_tags_add` | Add a new tag to the registry |
+| **v3.0: Centralized Brain** | |
+| `gnosys_projects` | List all registered projects in the central DB |
+| `gnosys_backup` | Create a point-in-time backup of the central DB |
+| `gnosys_restore` | Restore the central DB from a backup |
+| `gnosys_migrate_to_central` | Migrate project data into the central DB |
+| `gnosys_preference_set` | Set a user preference (stored as scoped memory) |
+| `gnosys_preference_get` | Get one or all preferences |
+| `gnosys_preference_delete` | Delete a preference |
+| `gnosys_sync` | Regenerate agent rules file from preferences + conventions |
+| `gnosys_federated_search` | Tier-boosted search across project → user → global scopes |
+| `gnosys_detect_ambiguity` | Check if a query matches multiple projects |
+| `gnosys_briefing` | Generate project briefing (categories, activity, tags, summary) |
+| `gnosys_working_set` | Get recently modified memories for the current project |
 
 ---
 
 ## How It Works
 
-A Gnosys store is a `.gnosys/` directory inside your project:
+### Central Brain (v3.0)
+
+In v3.0, Gnosys uses a **central database** at `~/.gnosys/gnosys.db` as the single source of truth across all projects. Each project also has a local `.gnosys/` directory with a `gnosys.json` identity file:
 
 ```
+~/.gnosys/
+  gnosys.db              # ← v3.0 central brain (all projects, users, globals)
+
 your-project/
   .gnosys/
-    gnosys.db            # ← v2.0 unified SQLite database (primary store)
+    gnosys.json          # ← v3.0 project identity (projectId, name, settings)
+    gnosys.db            # per-project SQLite database (legacy + local reads)
     decisions/           # dual-write .md files (human-readable safety net)
       use-postgresql.md
     architecture/
       three-layer-design.md
-    usda-foods/
-      almond-butter-creamy.md
-    nvd-cves/
-      cve-2024-1234.md
-    gnosys.json          # configuration
-    archive.db           # legacy two-tier archive (pre-v2.0)
     .config/tags.json    # tag registry
     CHANGELOG.md
     .git/                # auto-versioned
 ```
 
-In v2.0, `gnosys.db` is the primary store. All reads go through SQLite for sub-10ms performance. Writes dual-write to both `.md` files and the database. Run `gnosys migrate` to move existing v1.x data into the unified database.
+`gnosys init` creates the project identity, registers the project in the central DB, and auto-detects your IDE (Cursor, Claude Code) for rules file generation.
+
+All reads go through SQLite for sub-10ms performance. Writes dual-write to both `.md` files and the database. Run `gnosys migrate --to-central` to migrate existing v2.x project data into the central DB.
 
 Each memory is an atomic Markdown file with YAML frontmatter:
 
@@ -558,9 +578,9 @@ The `gnosys_maintain` MCP tool lets agents trigger maintenance programmatically 
 
 ---
 
-## Agent-First SQLite Core (v2.0)
+## Agent-First SQLite Core
 
-Gnosys 2.0 shifts from a human-first Markdown store to an **agent-first SQLite core**. The unified `gnosys.db` replaces four separate data stores (`.md` files, `archive.db`, `embeddings.db`, `graph.json`) with five tables: `memories`, `memories_fts` (FTS5), `relationships`, `summaries`, and `audit_log`.
+Gnosys uses an **agent-first SQLite core**. In v3.0, the central `~/.gnosys/gnosys.db` holds all memories across all projects, with `project_id` and `scope` columns for multi-project isolation. The schema has six tables: `memories`, `memories_fts` (FTS5), `relationships`, `summaries`, `audit_log`, and `projects`.
 
 ### Migration
 
@@ -580,11 +600,12 @@ Migration is one-shot and safe — your `.md` files remain untouched. After migr
 
 | Table | Purpose |
 |-------|---------|
-| `memories` | All memory data: frontmatter, content, embeddings (BLOB), timestamps |
+| `memories` | All memory data: frontmatter, content, embeddings, project_id, scope |
 | `memories_fts` | FTS5 full-text index — auto-synced via INSERT/UPDATE/DELETE triggers |
 | `relationships` | Typed edges between memories (wikilinks, Dream Mode discoveries) |
 | `summaries` | Category-level summaries generated by Dream Mode |
 | `audit_log` | Every operation logged with timestamps and trace IDs |
+| `projects` | v3.0: Project identity registry (id, name, working_directory) |
 
 The database uses WAL mode for concurrent access — multiple agents can read and write safely from parallel processes.
 
@@ -642,9 +663,9 @@ The `gnosys_dream` MCP tool lets agents trigger dream cycles programmatically.
 
 ---
 
-## Multi-Project Support (v2.0)
+## Multi-Project Support
 
-Gnosys 2.0 supports multiple projects in parallel — critical for developers using multiple Cursor windows or multi-root workspaces.
+Gnosys supports multiple projects in parallel — critical for developers using multiple Cursor windows or multi-root workspaces. In v3.0, the central DB's `projects` table acts as a registry, and federated search + ambiguity detection make cross-project workflows safe and predictable.
 
 ### The Problem
 
@@ -857,6 +878,21 @@ gnosys export --to <dir> --all  # Include summaries, reviews, and graph
 gnosys export --to <dir> --overwrite  # Overwrite existing export
 gnosys serve                 # Start MCP server (stdio)
 gnosys serve --with-maintenance  # MCP server + maintenance every 6h
+
+# v3.0: Centralized Brain
+gnosys projects              # List all registered projects
+gnosys backup                # Backup the central DB
+gnosys restore <file>        # Restore central DB from backup
+gnosys migrate --to-central  # Migrate project data to central DB
+gnosys pref set <key> <val>  # Set a user preference
+gnosys pref get [key]        # Get one or all preferences (--json)
+gnosys pref delete <key>     # Delete a preference
+gnosys sync                  # Regenerate agent rules from preferences
+gnosys fsearch "query"       # Federated search (project > user > global)
+gnosys ambiguity "query"     # Check for cross-project ambiguity
+gnosys briefing              # Project briefing (categories, activity, tags)
+gnosys briefing --all        # Briefings for all projects
+gnosys working-set           # Show implicit working set (recent memories)
 ```
 
 ---
@@ -875,41 +911,45 @@ npm run dev          # Run MCP server in dev mode (tsx)
 
 ```
 src/
-  index.ts          # MCP server — 35 tools + gnosys://recall resource
-  cli.ts            # CLI — thin wrapper around core modules
+  index.ts            # MCP server — 47+ tools + gnosys://recall resource
+  cli.ts              # CLI — full command suite with --json output
   lib/
-    db.ts           # v2.0: GnosysDB — unified SQLite database (5-table schema)
-    dbSearch.ts     # v2.0: Adapter bridging GnosysDB to search interfaces
-    dbWrite.ts      # v2.0: Dual-write helpers (sync .md → gnosys.db)
-    migrate.ts      # v2.0: One-shot migration from v1.x to gnosys.db
-    dream.ts        # v2.0: Dream Mode engine + idle scheduler
-    export.ts       # v2.0: Obsidian Export Bridge (gnosys.db → vault)
-    store.ts        # Core: read/write/update memory files (.md)
-    search.ts       # FTS5 search and discovery
-    embeddings.ts   # Lazy semantic embeddings (all-MiniLM-L6-v2)
-    hybridSearch.ts # Hybrid search with RRF fusion
-    ask.ts          # Freeform Q&A with LLM synthesis + citations
-    llm.ts          # LLM abstraction — System of Cognition (5 providers)
-    maintenance.ts  # Auto-maintenance: decay, dedup, consolidation, archiving
-    archive.ts      # Two-tier memory: active ↔ archive (SQLite)
-    recall.ts       # Ultra-fast recall hook for agent orchestrators
-    audit.ts        # Structured JSONL audit logging
-    lock.ts         # File-level write locking + WAL helper
-    dashboard.ts    # Aggregated system dashboard + performance monitoring
-    graph.ts        # Persistent wikilink graph (graph.json)
-    tags.ts         # Tag registry management
-    ingest.ts       # LLM-powered structuring (with retry logic)
-    import.ts       # Bulk import engine (CSV, JSON, JSONL)
-    config.ts       # gnosys.json loader with Zod validation + dream config
-    retry.ts        # Exponential backoff for LLM calls
-    resolver.ts     # Layered multi-store resolution + MCP roots + multi-project
-    lensing.ts      # Memory lensing (filtered views)
-    history.ts      # Git history and rollback
-    timeline.ts     # Knowledge evolution timeline
-    wikilinks.ts    # Obsidian wikilink graph
-    bootstrap.ts    # Bootstrap from source code
+    db.ts             # GnosysDB — central SQLite (6-table schema, project_id + scope)
+    dbSearch.ts       # Adapter bridging GnosysDB to search interfaces
+    dbWrite.ts        # Dual-write helpers (sync .md → gnosys.db)
+    migrate.ts        # Migration: v1.x → v2.0 → v3.0 central DB
+    dream.ts          # Dream Mode engine + idle scheduler
+    export.ts         # Obsidian Export Bridge (gnosys.db → vault)
+    federated.ts      # v3.0: Federated search, ambiguity detection, briefings, working set
+    preferences.ts    # v3.0: User preferences as scoped memories
+    rulesGen.ts       # v3.0: Agent rules generation (GNOSYS:START/END blocks)
+    projectIdentity.ts # v3.0: Project identity (gnosys.json) + central registry
+    store.ts          # Core: read/write/update memory files (.md)
+    search.ts         # FTS5 search and discovery
+    embeddings.ts     # Lazy semantic embeddings (all-MiniLM-L6-v2)
+    hybridSearch.ts   # Hybrid search with RRF fusion
+    ask.ts            # Freeform Q&A with LLM synthesis + citations
+    llm.ts            # LLM abstraction — System of Cognition (5 providers)
+    maintenance.ts    # Auto-maintenance: decay, dedup, consolidation, archiving
+    archive.ts        # Two-tier memory: active ↔ archive (SQLite)
+    recall.ts         # Ultra-fast recall hook for agent orchestrators
+    audit.ts          # Structured JSONL audit logging
+    lock.ts           # File-level write locking + WAL helper
+    dashboard.ts      # Aggregated system dashboard + performance monitoring
+    graph.ts          # Persistent wikilink graph (graph.json)
+    tags.ts           # Tag registry management
+    ingest.ts         # LLM-powered structuring (with retry logic)
+    import.ts         # Bulk import engine (CSV, JSON, JSONL)
+    config.ts         # gnosys.json loader with Zod validation
+    retry.ts          # Exponential backoff for LLM calls
+    resolver.ts       # Layered multi-store resolution + MCP roots + multi-project
+    lensing.ts        # Memory lensing (filtered views)
+    history.ts        # Git history and rollback
+    timeline.ts       # Knowledge evolution timeline
+    wikilinks.ts      # Obsidian wikilink graph
+    bootstrap.ts      # Bootstrap from source code
   prompts/
-    synthesize.md   # System prompt template for ask engine
+    synthesize.md     # System prompt template for ask engine
 ```
 
 ---
@@ -929,7 +969,7 @@ Real numbers from our demo vault (120 memories — 100 USDA foods + 20 NVD CVEs)
 | Graph reindex (120 memories) | <1s |
 | Storage per memory | ~1 KB `.md` file |
 | Embedding storage (120 memories) | ~0.3 MB |
-| Test suite | 143 tests, 0 errors |
+| Test suite | 183 tests, 0 errors |
 
 All benchmarks on Apple M-series hardware, Node.js 20+. Structured imports bypass LLM entirely. LLM-enriched imports depend on provider latency.
 
@@ -950,12 +990,12 @@ Gnosys is open source (MIT) and actively developed. Here's how to get involved:
 - PRs welcome — especially for new import connectors, LLM providers, and Obsidian plugins
 
 **What's next:**
+- Multi-machine sync (central DB replication via network shares)
 - Temporal memory versioning (valid_from / valid_until)
 - Cross-session "deep dream" overnight consolidation
-- Versioned export snapshots (Git-tagged)
-- Docker Hub published image for one-line deployment
 - Graph visualization in the dashboard
 - Obsidian community plugin for native vault integration
+- Docker Hub published image for one-line deployment
 
 ---
 

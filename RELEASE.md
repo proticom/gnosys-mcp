@@ -1,10 +1,66 @@
-# Release: v2.0.0
+# Release: v3.0.0
 
-**Tag:** `v2.0.0`
+**Tag:** `v3.0.0`
 
-**Title:** v2.0.0 — Agent-First SQLite Core + Dream Mode + Multi-Project Support
+**Title:** v3.0.0 — Centralized Brain + Federated Search + Preferences + Rules Generation
 
 **Release Notes:**
+
+## What's New in v3.0
+
+### Phase 8a — Central Brain Architecture
+- Centralized `~/.gnosys/gnosys.db` shared across all projects
+- `project_id` and `scope` columns on every memory (project / user / global)
+- Central project registry with `gnosys_register_project` and `gnosys_list_projects`
+- `gnosys init` auto-detects project identity from `.git`, `package.json`, `Cargo.toml`, etc.
+- One-shot migration: `gnosys_migrate_to_central` moves per-project data into central DB
+- Backup & restore: `gnosys_backup` / `gnosys_restore` with automatic daily snapshots
+
+### Phase 8b — Preferences & Rules Generation
+- User-level preferences stored as scope='user' memories (not tied to any project)
+- `gnosys_preference_set` / `gnosys_preference_get` / `gnosys_preference_delete` MCP tools
+- `gnosys preferences` CLI with `set`, `get`, `delete`, `list` subcommands
+- Agent rules generation: `gnosys rules` auto-generates `.cursor/rules/gnosys.mdc` or `CLAUDE.md` with memory workflow instructions
+- Rules include project-specific context from briefings when available
+
+### Phase 8c — CLI Parity
+- Every v3.0 MCP tool has a matching CLI command
+- `gnosys projects` — list registered projects
+- `gnosys register` — register a project directory
+- `gnosys sync` — migrate per-project data to central DB
+- `gnosys backup` / `gnosys restore` — central DB backup management
+- `gnosys preferences` — user preference CRUD
+- `gnosys rules` — generate agent rules files
+- All commands support `--json` output for scripting
+
+### Phase 8d — Federated Search + Ambiguity Detection + Briefings
+- `gnosys_federated_search` — cross-scope search with tier boosting (project 1.5x → user 1.0x → global 0.7x)
+- Current-project memories get extra 1.2x multiplier (1.8x total)
+- Recency boost (1.3x for memories modified in last 24h)
+- Reinforcement boost (capped at 0.25 extra)
+- `gnosys_detect_ambiguity` — warns when a query matches multiple projects
+- `gnosys_briefing` — project status summary with categories, recent activity, top tags
+- `gnosys_working_set` — implicit working set of recently modified memories
+
+### New MCP Tools (v3.0)
+- `gnosys_register_project`, `gnosys_list_projects`
+- `gnosys_backup`, `gnosys_restore`
+- `gnosys_migrate_to_central`, `gnosys_sync`
+- `gnosys_preference_set`, `gnosys_preference_get`, `gnosys_preference_delete`
+- `gnosys_federated_search`, `gnosys_detect_ambiguity`
+- `gnosys_briefing`, `gnosys_working_set`
+- Total: 47+ MCP tools + `gnosys://recall` resource
+
+### Infrastructure
+- 183 tests passing, zero TypeScript errors
+- 6-table schema: memories, memories_fts, relationships, summaries, audit_log, projects
+- New modules: `federated.ts`, `preferences.ts`, `rulesGen.ts`, `projectIdentity.ts`
+
+---
+
+# Previous Releases
+
+## v2.0.0 — Agent-First SQLite Core + Dream Mode + Multi-Project Support
 
 ## What's New in v2.0
 

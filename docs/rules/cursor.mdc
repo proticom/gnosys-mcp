@@ -13,6 +13,7 @@ You have access to persistent memory via Gnosys MCP tools. Use them proactively.
 - Call `gnosys_read` to load any relevant results
 - Trigger on: "remember when…", "what did we decide…", "recall", "check your memory", "do we have notes on…"
 - Use `gnosys_hybrid_search` for best search results, `gnosys_ask` for Q&A with citations
+- Use `gnosys_federated_search` for cross-project search with scope-aware boosting
 
 ## Write memories
 
@@ -20,8 +21,9 @@ You have access to persistent memory via Gnosys MCP tools. Use them proactively.
 - Also write when the user states a decision, preference, or opinion — even casually
 - Commit specs and plans BEFORE starting implementation
 - After significant work, commit findings (gotchas, what worked, what didn't)
+- User preferences (coding style, conventions) — use `gnosys_preference_set`
 
-## Tools
+## Core Tools
 
 - `gnosys_add` — write memory from freeform text (LLM structures it)
 - `gnosys_add_structured` — write with explicit title, category, content, tags, relevance
@@ -45,6 +47,23 @@ You have access to persistent memory via Gnosys MCP tools. Use them proactively.
 - `gnosys_init` — initialize a new store
 - `gnosys_bootstrap` / `gnosys_import` — bulk import
 - `gnosys_reindex` / `gnosys_reindex_graph` — rebuild indexes
+
+## v3.0: Centralized Brain
+
+- `gnosys_register_project` / `gnosys_list_projects` — project registry
+- `gnosys_backup` / `gnosys_restore` — central DB backup & restore
+- `gnosys_migrate_to_central` / `gnosys_sync` — migrate per-project data to central DB
+- `gnosys_preference_set` / `gnosys_preference_get` / `gnosys_preference_delete` — user preferences
+- `gnosys_federated_search` — cross-scope search with tier boosting (project > user > global)
+- `gnosys_detect_ambiguity` — warns when query matches multiple projects
+- `gnosys_briefing` — project status summary (categories, recent activity, top tags)
+- `gnosys_working_set` — recently modified memories for current context
+
+## Workflow: New project setup
+
+1. Run `gnosys init` in the project root to register it
+2. Run `gnosys rules --target cursor` to generate this rules file with project context
+3. Gnosys auto-detects the project from `.git`, `package.json`, etc.
 
 ## Categories
 
