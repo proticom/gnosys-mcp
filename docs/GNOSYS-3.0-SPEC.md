@@ -3,7 +3,7 @@
 **Version:** 1.1
 **Date:** March 11, 2026
 **Authors:** Proticom + Claude
-**Status:** Phase 8a + 8b + 8c Implemented
+**Status:** Phase 8a + 8b + 8c + 8d Implemented
 
 ---
 
@@ -227,14 +227,17 @@ If `~/.gnosys/gnosys.db` is placed on a network share (Dropbox, NAS, iCloud Driv
 | 8c.5 | Fix dotenv v17 stdout pollution (switch to `dotenv.parse()` for clean piped output) | ✅ |
 | 8c.6 | Tests: 169 passing (5 new CLI --json tests) | ✅ |
 
-### Phase 8d: Federated Search + Ambiguity Detection
+### Phase 8d: Federated Search + Ambiguity Detection ✅ COMPLETE
 
-| # | Task | Acceptance Criteria |
-|---|------|---------------------|
-| 8d.1 | Federated search with tier boosting | project > user > global ranking |
-| 8d.2 | Multi-project ambiguity detection | Error lists all projects when multiple found |
-| 8d.3 | Dream Mode project briefings | Pre-computed briefings per project |
-| 8d.4 | Implicit working set | Recency boost for current project |
+| # | Task | Status |
+|---|------|--------|
+| 8d.1 | Federated search with tier boosting (project 1.5x > user 1.0x > global 0.7x, current-project 1.8x) | ✅ |
+| 8d.2 | Multi-project ambiguity detection (lists all matching projects with memory counts) | ✅ |
+| 8d.3 | Dream Mode project briefings (categories, recent activity, top tags, summary) | ✅ |
+| 8d.4 | Implicit working set (recency 1.3x boost + `getWorkingSet()` + `formatWorkingSet()`) | ✅ |
+| 8d.5 | MCP tools: `gnosys_federated_search`, `gnosys_detect_ambiguity`, `gnosys_briefing`, `gnosys_working_set` | ✅ |
+| 8d.6 | CLI commands: `fsearch`, `ambiguity`, `briefing`, `working-set` (all with `--json`) | ✅ |
+| 8d.7 | Tests: 183 passing (14 new federated tests) | ✅ |
 
 ---
 

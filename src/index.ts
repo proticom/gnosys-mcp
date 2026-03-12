@@ -53,6 +53,7 @@ import { GnosysExporter, formatExportReport } from "./lib/export.js";
 import { createProjectIdentity, readProjectIdentity, findProjectIdentity, checkDirectoryMismatch } from "./lib/projectIdentity.js";
 import { setPreference, getPreference, getAllPreferences, deletePreference, Preference } from "./lib/preferences.js";
 import { syncRules, generateRulesBlock, removeRulesBlock } from "./lib/rulesGen.js";
+import { federatedSearch, federatedDiscover, detectAmbiguity, generateBriefing, generateAllBriefings, getWorkingSet, formatWorkingSet, detectCurrentProject } from "./lib/federated.js";
 
 // Initialize resolver (discovers all layered stores)
 const resolver = new GnosysResolver();
@@ -2573,6 +2574,177 @@ server.tool(
         text: `${action} rules file: ${result.filePath}\n\n  Preferences injected: ${result.prefCount}\n  Project conventions: ${result.conventionCount}\n\nContent is inside <!-- GNOSYS:START --> / <!-- GNOSYS:END --> markers.\nUser content outside these markers is preserved.`,
       }],
     };
+  }
+);
+
+// ─── Tool: gnosys_federated_search ───────────────────────────────────────
+
+server.tool(
+  "gnosys_federated_search",
+  "Search across all scopes (project → user → global) with tier boosting. Results from the current project rank highest. Returns score breakdown showing which boosts were applied.",
+  {
+    query: z.string().describe("Search query"),
+    limit: z.number().optional().describe("Max results (default: 20)"),
+    projectRoot: z.string().optional().describe("Project root directory for context detection"),
+    includeGlobal: z.boolean().optional().describe("Include global-scope memories (default: true)"),
+  },
+  async ({ query, limit, projectRoot, includeGlobal }) => {
+    if (!centralDb?.isAvailable()) {
+      return { content: [{ type: "text" as const, text: "Central DB not available. Run gnosys_init first." }], isError: true };
+    }
+
+    // Auto-detect current project
+    const projectId = await detectCurrentProject(centralDb, projectRoot || undefined);
+
+    const results = federatedSearch(centralDb, query, {
+      limit: limit || 20,
+      projectId,
+      includeGlobal: includeGlobal !== false,
+    });
+
+    if (results.length === 0) {
+      return { content: [{ type: "text" as const, text: `No results for "${query}" across any scope.` }] };
+    }
+
+    const lines = results.map((r, i) => {
+      const projectLabel = r.projectName ? ` [${r.projectName}]` : "";
+      const boostLabel = r.boosts.length > 0 ? ` (${r.boosts.join(", ")})` : "";
+      return `${i + 1}. **${r.title}** (${r.category})${projectLabel}\n   scope: ${r.scope} | score: ${r.score.toFixed(4)}${boostLabel}\n   ${r.snippet}`;
+    });
+
+    const contextNote = projectId ? `Context: project ${projectId}` : "Context: no project detected";
+    return {
+      content: [{ type: "text" as const, text: `${contextNote}\n\n${lines.join("\n\n")}` }],
+    };
+  }
+);
+
+// ─── Tool: gnosys_detect_ambiguity ──────────────────────────────────────
+
+server.tool(
+  "gnosys_detect_ambiguity",
+  "Check if a query matches memories in multiple projects. Use before write operations to confirm the target project when ambiguity exists.",
+  {
+    query: z.string().describe("Query to check for cross-project ambiguity"),
+  },
+  async ({ query }) => {
+    if (!centralDb?.isAvailable()) {
+      return { content: [{ type: "text" as const, text: "Central DB not available." }], isError: true };
+    }
+
+    const ambiguity = detectAmbiguity(centralDb, query);
+
+    if (!ambiguity) {
+      return { content: [{ type: "text" as const, text: `No ambiguity detected for "${query}" — matches at most one project.` }] };
+    }
+
+    const candidateLines = ambiguity.candidates.map(
+      (c) => `- **${c.projectName}** (${c.projectId})\n  Dir: ${c.workingDirectory}\n  Matching memories: ${c.memoryCount}`
+    );
+
+    return {
+      content: [{
+        type: "text" as const,
+        text: `⚠️ ${ambiguity.message}\n\nMatching projects:\n${candidateLines.join("\n\n")}`,
+      }],
+    };
+  }
+);
+
+// ─── Tool: gnosys_briefing ──────────────────────────────────────────────
+
+server.tool(
+  "gnosys_briefing",
+  "Generate a project briefing — a summary of memory state, categories, recent activity, and top tags. Use for dream mode pre-computation or quick project status.",
+  {
+    projectId: z.string().optional().describe("Project ID (auto-detects from cwd if omitted)"),
+    all: z.boolean().optional().describe("Generate briefings for ALL projects"),
+    projectRoot: z.string().optional().describe("Project root for auto-detection"),
+  },
+  async ({ projectId, all, projectRoot }) => {
+    if (!centralDb?.isAvailable()) {
+      return { content: [{ type: "text" as const, text: "Central DB not available." }], isError: true };
+    }
+
+    if (all) {
+      const briefings = generateAllBriefings(centralDb);
+      if (briefings.length === 0) {
+        return { content: [{ type: "text" as const, text: "No projects registered." }] };
+      }
+      const summaries = briefings.map((b) => `## ${b.projectName}\n${b.summary}`);
+      return {
+        content: [{ type: "text" as const, text: `# All Project Briefings\n\n${summaries.join("\n\n")}` }],
+      };
+    }
+
+    // Auto-detect project if not provided
+    let pid = projectId || null;
+    if (!pid) {
+      pid = await detectCurrentProject(centralDb, projectRoot || undefined);
+    }
+
+    if (!pid) {
+      return { content: [{ type: "text" as const, text: "No project specified and none detected from current directory." }], isError: true };
+    }
+
+    const briefing = generateBriefing(centralDb, pid);
+    if (!briefing) {
+      return { content: [{ type: "text" as const, text: `Project not found: ${pid}` }], isError: true };
+    }
+
+    const catLines = Object.entries(briefing.categories)
+      .sort((a, b) => b[1] - a[1])
+      .map(([cat, count]) => `  ${cat}: ${count}`);
+
+    const recentLines = briefing.recentActivity.map(
+      (r) => `  - ${r.title} (${r.modified})`
+    );
+
+    const tagLine = briefing.topTags.slice(0, 10).map((t) => `${t.tag}(${t.count})`).join(", ");
+
+    const text = [
+      `# Briefing: ${briefing.projectName}`,
+      `Directory: ${briefing.workingDirectory}`,
+      `Active memories: ${briefing.activeMemories} / ${briefing.totalMemories} total`,
+      "",
+      `## Categories\n${catLines.join("\n")}`,
+      "",
+      `## Recent Activity (7d)\n${recentLines.length > 0 ? recentLines.join("\n") : "  None"}`,
+      "",
+      `## Top Tags\n  ${tagLine || "None"}`,
+      "",
+      `## Summary\n${briefing.summary}`,
+    ].join("\n");
+
+    return { content: [{ type: "text" as const, text }] };
+  }
+);
+
+// ─── Tool: gnosys_working_set ───────────────────────────────────────────
+
+server.tool(
+  "gnosys_working_set",
+  "Get the implicit working set — recently modified memories for the current project. These represent the active context and get boosted in federated search.",
+  {
+    projectRoot: z.string().optional().describe("Project root for auto-detection"),
+    windowHours: z.number().optional().describe("Lookback window in hours (default: 24)"),
+  },
+  async ({ projectRoot, windowHours }) => {
+    if (!centralDb?.isAvailable()) {
+      return { content: [{ type: "text" as const, text: "Central DB not available." }], isError: true };
+    }
+
+    const pid = await detectCurrentProject(centralDb, projectRoot || undefined);
+    if (!pid) {
+      return { content: [{ type: "text" as const, text: "No project detected from current directory." }], isError: true };
+    }
+
+    const workingSet = getWorkingSet(centralDb, pid, {
+      windowHours: windowHours || 24,
+    });
+
+    const formatted = formatWorkingSet(workingSet);
+    return { content: [{ type: "text" as const, text: formatted }] };
   }
 );
 

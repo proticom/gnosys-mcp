@@ -2814,4 +2814,182 @@ program
     }
   });
 
+// ─── gnosys fsearch (federated search) ───────────────────────────────────
+program
+  .command("fsearch <query>")
+  .description("Federated search across all scopes with tier boosting (project > user > global)")
+  .option("-l, --limit <n>", "Max results", "20")
+  .option("-d, --directory <dir>", "Project directory for context")
+  .option("--no-global", "Exclude global-scope memories")
+  .option("--json", "Output as JSON")
+  .action(async (query: string, opts: { limit: string; directory?: string; global: boolean; json: boolean }) => {
+    let centralDb: GnosysDB | null = null;
+    try {
+      centralDb = GnosysDB.openCentral();
+      if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
+
+      const { federatedSearch, detectCurrentProject } = await import("./lib/federated.js");
+      const projectId = await detectCurrentProject(centralDb, opts.directory || undefined);
+      const results = federatedSearch(centralDb, query, {
+        limit: parseInt(opts.limit, 10),
+        projectId,
+        includeGlobal: opts.global,
+      });
+
+      if (opts.json) {
+        console.log(JSON.stringify({ query, projectId, count: results.length, results }, null, 2));
+      } else {
+        if (results.length === 0) { console.log(`No results for "${query}".`); return; }
+        const ctx = projectId ? `Context: project ${projectId}` : "No project detected";
+        console.log(ctx);
+        for (const [i, r] of results.entries()) {
+          const proj = r.projectName ? ` [${r.projectName}]` : "";
+          console.log(`\n${i + 1}. ${r.title} (${r.category})${proj}`);
+          console.log(`   scope: ${r.scope} | score: ${r.score.toFixed(4)} | boosts: ${r.boosts.join(", ")}`);
+          if (r.snippet) console.log(`   ${r.snippet.substring(0, 120)}`);
+        }
+      }
+    } catch (err) {
+      console.error(`Error: ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    } finally {
+      centralDb?.close();
+    }
+  });
+
+// ─── gnosys ambiguity ────────────────────────────────────────────────────
+program
+  .command("ambiguity <query>")
+  .description("Check if a query matches memories in multiple projects")
+  .option("--json", "Output as JSON")
+  .action(async (query: string, opts: { json: boolean }) => {
+    let centralDb: GnosysDB | null = null;
+    try {
+      centralDb = GnosysDB.openCentral();
+      if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
+
+      const { detectAmbiguity } = await import("./lib/federated.js");
+      const ambiguity = detectAmbiguity(centralDb, query);
+
+      if (opts.json) {
+        console.log(JSON.stringify({ query, ambiguous: !!ambiguity, ...(ambiguity || {}) }, null, 2));
+      } else if (!ambiguity) {
+        console.log(`No ambiguity for "${query}" — matches at most one project.`);
+      } else {
+        console.log(ambiguity.message);
+        for (const c of ambiguity.candidates) {
+          console.log(`\n  ${c.projectName} (${c.projectId})`);
+          console.log(`    Dir: ${c.workingDirectory}`);
+          console.log(`    Matching memories: ${c.memoryCount}`);
+        }
+      }
+    } catch (err) {
+      console.error(`Error: ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    } finally {
+      centralDb?.close();
+    }
+  });
+
+// ─── gnosys briefing ─────────────────────────────────────────────────────
+program
+  .command("briefing")
+  .description("Generate project briefing — memory state summary, categories, recent activity, top tags")
+  .option("-p, --project <id>", "Project ID (auto-detects if omitted)")
+  .option("-a, --all", "Generate briefings for all projects")
+  .option("-d, --directory <dir>", "Project directory for auto-detection")
+  .option("--json", "Output as JSON")
+  .action(async (opts: { project?: string; all?: boolean; directory?: string; json: boolean }) => {
+    let centralDb: GnosysDB | null = null;
+    try {
+      centralDb = GnosysDB.openCentral();
+      if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
+
+      const { generateBriefing, generateAllBriefings, detectCurrentProject } = await import("./lib/federated.js");
+
+      if (opts.all) {
+        const briefings = generateAllBriefings(centralDb);
+        if (opts.json) {
+          console.log(JSON.stringify({ count: briefings.length, briefings }, null, 2));
+        } else {
+          if (briefings.length === 0) { console.log("No projects registered."); return; }
+          for (const b of briefings) {
+            console.log(`\n## ${b.projectName}`);
+            console.log(b.summary);
+          }
+        }
+        return;
+      }
+
+      let pid = opts.project || null;
+      if (!pid) pid = await detectCurrentProject(centralDb, opts.directory || undefined);
+      if (!pid) { console.error("No project specified and none detected."); process.exit(1); }
+
+      const briefing = generateBriefing(centralDb, pid);
+      if (!briefing) { console.error(`Project not found: ${pid}`); process.exit(1); }
+
+      if (opts.json) {
+        console.log(JSON.stringify(briefing, null, 2));
+      } else {
+        console.log(`# Briefing: ${briefing.projectName}`);
+        console.log(`Directory: ${briefing.workingDirectory}`);
+        console.log(`Active memories: ${briefing.activeMemories} / ${briefing.totalMemories}`);
+        console.log(`\nCategories:`);
+        for (const [cat, count] of Object.entries(briefing.categories).sort((a, b) => b[1] - a[1])) {
+          console.log(`  ${cat}: ${count}`);
+        }
+        console.log(`\nRecent activity (7d):`);
+        if (briefing.recentActivity.length === 0) { console.log("  None"); }
+        for (const r of briefing.recentActivity) {
+          console.log(`  - ${r.title} (${r.modified})`);
+        }
+        console.log(`\nTop tags: ${briefing.topTags.slice(0, 10).map((t) => `${t.tag}(${t.count})`).join(", ") || "None"}`);
+        console.log(`\n${briefing.summary}`);
+      }
+    } catch (err) {
+      console.error(`Error: ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    } finally {
+      centralDb?.close();
+    }
+  });
+
+// ─── gnosys working-set ──────────────────────────────────────────────────
+program
+  .command("working-set")
+  .description("Show the implicit working set — recently modified memories for the current project")
+  .option("-d, --directory <dir>", "Project directory")
+  .option("-w, --window <hours>", "Lookback window in hours", "24")
+  .option("--json", "Output as JSON")
+  .action(async (opts: { directory?: string; window: string; json: boolean }) => {
+    let centralDb: GnosysDB | null = null;
+    try {
+      centralDb = GnosysDB.openCentral();
+      if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
+
+      const { getWorkingSet, formatWorkingSet, detectCurrentProject } = await import("./lib/federated.js");
+      const pid = await detectCurrentProject(centralDb, opts.directory || undefined);
+      if (!pid) { console.error("No project detected."); process.exit(1); }
+
+      const windowHours = parseInt(opts.window, 10);
+      const workingSet = getWorkingSet(centralDb, pid, { windowHours });
+
+      if (opts.json) {
+        console.log(JSON.stringify({
+          projectId: pid,
+          windowHours,
+          count: workingSet.length,
+          memories: workingSet.map((m) => ({ id: m.id, title: m.title, category: m.category, modified: m.modified })),
+        }, null, 2));
+      } else {
+        console.log(formatWorkingSet(workingSet));
+      }
+    } catch (err) {
+      console.error(`Error: ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    } finally {
+      centralDb?.close();
+    }
+  });
+
 program.parse();
