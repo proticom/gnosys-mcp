@@ -1,16 +1,16 @@
-# Gnosys v2.0 — Real-World Demo
+# Gnosys v3.0 — Real-World Demo
 
-This document shows Gnosys importing real data from two production APIs: **USDA FoodData Central** and **NVD (National Vulnerability Database)**, then demonstrates the v2.0 features: migration to the unified SQLite core, Dream Mode consolidation, and Obsidian export.
+This document shows Gnosys importing real data from two production APIs: **USDA FoodData Central** and **NVD (National Vulnerability Database)**, then demonstrates the v3.0 features: sandbox-first runtime, central SQLite brain, federated search, Dream Mode consolidation, and Obsidian export.
 
 ## What This Proves
 
 - Gnosys handles messy real-world JSON from government APIs
-- Bulk import creates atomic memories with rich YAML frontmatter
+- Bulk import creates atomic memories in the central `~/.gnosys/gnosys.db` with rich YAML frontmatter
 - Wikilinks (`[[vendor/product]]`, `[[Food Category]]`) work out of the box
-- Git auto-commits the entire batch in one shot
-- `gnosys migrate` unifies all data into a single `gnosys.db` for sub-10ms reads
-- Dream Mode discovers relationships and generates summaries across the vault
-- `gnosys export` regenerates a full Obsidian vault from the database
+- Dual-write keeps human-readable `.md` copies as a safety net and Obsidian export path
+- Federated search ranks results across project, user, and global scopes
+- Dream Mode discovers relationships and generates summaries across the knowledge base
+- `gnosys export` regenerates a full Obsidian vault from the central database
 
 ---
 
@@ -50,7 +50,9 @@ gnosys import usda-import-ready.json \
   Total:    100
 ```
 
-### Sample memory file: `.gnosys/usda-foods/almond-butter-creamy.md`
+### Sample dual-write file: `.gnosys/usda-foods/almond-butter-creamy.md`
+
+> **Note:** The primary record lives in `~/.gnosys/gnosys.db`. This `.md` file is the dual-write copy kept for safety and Obsidian export.
 
 ```yaml
 ---
@@ -129,7 +131,9 @@ gnosys import nvd-import-ready.json \
   Total:    20
 ```
 
-### Sample memory file: `.gnosys/nvd-cves/cve-1999-0095.md`
+### Sample dual-write file: `.gnosys/nvd-cves/cve-1999-0095.md`
+
+> **Note:** The primary record lives in `~/.gnosys/gnosys.db`. This `.md` file is the dual-write safety copy.
 
 ```yaml
 ---
@@ -154,29 +158,40 @@ The debug command in Sendmail is enabled, allowing attackers to execute commands
 
 ---
 
-## Vault Structure After Import
+## Storage Layout After Import
+
+### Central brain (primary store)
 
 ```
-.gnosys/
-├── usda-foods/          # 100 food memories
+~/.gnosys/
+└── gnosys.db            # All 120 memories in SQLite (sub-10ms reads)
+```
+
+### Project dual-write copies (safety net + Obsidian export)
+
+```
+your-project/.gnosys/
+├── gnosys.json           # Project identity (projectId, name)
+├── usda-foods/           # 100 food memory .md copies
 │   ├── almond-butter-creamy.md
 │   ├── apples-fuji-with-skin-raw.md
 │   ├── beef-ground-80-lean-meat-20-fat-raw.md
 │   ├── broccoli-raw.md
 │   ├── cheese-cheddar.md
 │   └── ... (100 files)
-├── nvd-cves/            # 20 CVE memories
+├── nvd-cves/             # 20 CVE memory .md copies
 │   ├── cve-1999-0095.md
 │   ├── cve-1999-0082.md
 │   └── ... (20 files)
-├── .config/
-│   └── tags.yml
-└── .git/                # Auto-versioned
+└── .config/
+    └── tags.yml
 ```
 
-## LLM Provider Configuration (v0.6+)
+The `.md` files are human-readable and Obsidian-compatible. Run `gnosys export --to ~/vaults/demo` to generate a clean Obsidian vault from the central DB at any time.
 
-Gnosys supports Anthropic (cloud) and Ollama (local) out of the box.
+## LLM Provider Configuration
+
+Gnosys supports five LLM providers: Anthropic, Ollama, Groq, OpenAI, and LM Studio.
 
 ```bash
 # Check current setup
@@ -244,7 +259,7 @@ gnosys search "sendmail"
 gnosys discover "nutrition diet protein"
 ```
 
-### Hybrid Search (v0.5+)
+### Hybrid Search
 
 Hybrid search combines FTS5 keyword search with semantic embeddings via Reciprocal Rank Fusion (RRF). First, build the embedding index:
 
@@ -270,7 +285,7 @@ gnosys semantic-search "foods good for heart health"
 gnosys hybrid-search "cheddar cheese protein" --mode keyword
 ```
 
-### Freeform Ask (v0.5+)
+### Freeform Ask
 
 Ask natural-language questions and get synthesized answers with citations:
 
@@ -330,7 +345,7 @@ gnosys import nvd-all.json --format json --mapping '...' --mode structured --ski
 
 ---
 
-## Vault Maintenance (v1.0+)
+## Maintenance
 
 After importing data and using the vault over time, run maintenance to keep things clean:
 
@@ -373,7 +388,7 @@ Actions (5):
 gnosys maintain --auto-apply
 ```
 
-All changes are safe Git commits with automatic rollback on failure.
+All changes are written to the central DB with dual-write `.md` updates. Use `gnosys backup` before maintenance for point-in-time recovery.
 
 ### Doctor with Maintenance Health
 
@@ -393,7 +408,7 @@ Maintenance Health:
 
 ---
 
-## Wikilink Graph (v1.1+)
+## Wikilink Graph
 
 Build a persistent JSON graph from all `[[wikilinks]]` in your memories:
 
@@ -415,11 +430,11 @@ Wikilink Graph:
   Most connected: CVE-1999-0095 (8 edges)
 ```
 
-The `graph.json` is fully regeneratable — delete it anytime, then re-run `gnosys reindex-graph`.
+The graph data is stored in the `relationships` table in `gnosys.db` and is fully regeneratable — re-run `gnosys reindex-graph` anytime.
 
 ---
 
-## System Dashboard (v1.1+)
+## System Dashboard
 
 Get a complete view of your Gnosys installation:
 
@@ -474,7 +489,7 @@ For JSON output (useful for MCP tools and scripts): `gnosys dashboard --json`
 
 ---
 
-## Two-Tier Memory (v1.2+)
+## Two-Tier Memory
 
 As your vault grows, maintenance automatically archives old, low-confidence memories to SQLite:
 
@@ -491,7 +506,7 @@ gnosys dearchive "almond butter nutrition"
 
 When you `gnosys ask` a question, both active and archived memories are searched. If an archived memory gets cited in the answer, it's automatically restored to the active layer and reinforced — no manual intervention needed.
 
-## Enterprise Reliability (v1.3+)
+## Enterprise Reliability
 
 For long-running agent orchestrators (OpenClaw, AutoGPT, CrewAI, etc.), Gnosys provides always-on recall that injects memory context before every agent turn:
 
@@ -553,34 +568,33 @@ Concurrent writes are safe — the locking system prevents corruption when multi
 
 ---
 
-## Migration to Agent-First SQLite (v2.0)
+## Central Brain (v3.0)
 
-Unify all data into a single `gnosys.db` for sub-10ms reads:
+In v3.0, all imports go directly to the central `~/.gnosys/gnosys.db`. There's no separate migration step needed for new imports. If you have existing v2.x data in per-project `.gnosys/gnosys.db` files, migrate with:
 
 ```bash
-gnosys migrate
+gnosys migrate --to-central
 ```
 
 ```
 Gnosys Migration Report
 ========================
 Memories migrated: 120
-  From active (.md): 120
-  From archive.db:   0
-Relationships:       45 (from graph.json)
-Embeddings:          120 (from embeddings.db)
-Audit entries:       342 (from audit.jsonl)
+  From project DB: 120
+Relationships:       45
+Embeddings:          120
+Audit entries:       342
 
-Database: .gnosys/gnosys.db (1.2 MB)
+Database: ~/.gnosys/gnosys.db (1.2 MB)
 FTS5 index: synced (120 documents)
 WAL mode: enabled
 ```
 
-After migration, all reads go through SQLite. Writes dual-write to both `.md` files and `gnosys.db` for safety.
+All reads and writes go through the central SQLite DB. Dual-write `.md` copies are maintained as a safety net and for Obsidian export.
 
 ---
 
-## Dream Mode (v2.0)
+## Dream Mode
 
 Run an idle-time consolidation cycle to organize and analyze the vault:
 
@@ -620,7 +634,7 @@ Dream Mode never deletes — it only suggests reviews and enriches the knowledge
 
 ---
 
-## Obsidian Export (v2.0)
+## Obsidian Export
 
 Export the entire `gnosys.db` to an Obsidian-compatible vault:
 
@@ -643,25 +657,25 @@ Open the exported folder in Obsidian to get graph view, wikilinks, backlinks, an
 
 ---
 
-## Multi-Project Support (v2.0)
+## Multi-Project Support (v3.0)
 
-When using multiple Cursor windows or a multi-root workspace, each project routes to its own `.gnosys/` store automatically. The MCP server discovers workspace roots via the MCP roots protocol and every tool call carries an optional `projectRoot` for stateless routing.
+In v3.0, the central `~/.gnosys/gnosys.db` holds all projects. Each project is identified by its `project_id` column, registered via `gnosys init`. The sandbox process holds the database connection and routes requests by project automatically.
 
 Debug with:
 
 ```bash
-gnosys stores
+gnosys projects
 ```
 
 ```
-Active Stores:
-  project: /Users/you/project-a/.gnosys (120 memories) [write]
+Registered Projects:
+  project-a (id: prj-a1b2c3) — /Users/you/project-a
+  project-b (id: prj-d4e5f6) — /Users/you/project-b
 
-MCP Roots:
-  /Users/you/project-a
-  /Users/you/project-b
-
-Detected Stores:
-  /Users/you/project-a/.gnosys (source: mcp-root, active: yes)
-  /Users/you/project-b/.gnosys (source: mcp-root, active: no)
+Central DB: ~/.gnosys/gnosys.db (1.2 MB)
+  Total memories: 120
+  project-a: 80 memories
+  project-b: 40 memories
 ```
+
+Federated search ranks results across all projects with tier boosting, and ambiguity detection warns when a query hits multiple projects.

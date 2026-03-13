@@ -1604,7 +1604,7 @@ server.tool(
 // ─── Tool: gnosys_import ─────────────────────────────────────────────────
 server.tool(
   "gnosys_import",
-  "Bulk import structured data (CSV, JSON, JSONL) into Gnosys memories. Map source fields to title/category/content/tags/relevance. Use mode='llm' for smart ingestion with keyword clouds, or 'structured' for fast direct mapping. For large datasets (>100 records with LLM), the CLI is recommended: npx gnosys-mcp import <file>",
+  "Bulk import structured data (CSV, JSON, JSONL) into Gnosys memories. Map source fields to title/category/content/tags/relevance. Use mode='llm' for smart ingestion with keyword clouds, or 'structured' for fast direct mapping. For large datasets (>100 records with LLM), the CLI is recommended: gnosys import <file>",
   {
     format: z.enum(["csv", "json", "jsonl"]).describe("Data format"),
     data: z.string().describe("File path, URL, or inline data"),
@@ -1703,7 +1703,7 @@ server.tool(
           "llm",
           concurrency || 5
         );
-        response += `\n\n💡 Tip: For large LLM imports, the CLI offers progress tracking and resume:\n  npx gnosys-mcp import ${data.length < 100 ? data : "<file>"} --format ${format} --mode llm --skip-existing`;
+        response += `\n\n💡 Tip: For large LLM imports, the CLI offers progress tracking and resume:\n  gnosys import ${data.length < 100 ? data : "<file>"} --format ${format} --mode llm --skip-existing`;
       }
 
       return { content: [{ type: "text", text: response }] };

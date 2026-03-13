@@ -6,7 +6,7 @@
 
 set -e
 
-REPO="proticom/gnosys-mcp"
+REPO="proticom/gnosys"
 
 echo "Enabling Discussions on $REPO..."
 gh repo edit "$REPO" --enable-discussions
@@ -32,10 +32,10 @@ This is the place to ask questions, share feedback, propose ideas, and discuss a
 
 **Useful links:**
 
-- [README](https://github.com/proticom/gnosys-mcp#readme) — full documentation
-- [DEMO.md](https://github.com/proticom/gnosys-mcp/blob/main/DEMO.md) — real-world import walkthrough (USDA + NVD)
+- [README](https://github.com/proticom/gnosys#readme) — full documentation
+- [DEMO.md](https://github.com/proticom/gnosys/blob/main/DEMO.md) — real-world import walkthrough (USDA + NVD)
 - [gnosys.ai](https://gnosys.ai) — official website
-- [npm package](https://www.npmjs.com/package/gnosys-mcp)
+- [npm package](https://www.npmjs.com/package/gnosys)
 
 Looking forward to hearing from you!
 EOF

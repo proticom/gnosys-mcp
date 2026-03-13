@@ -21,7 +21,7 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Runtime needs git for auto-commit and sqlite
+# Runtime needs git for history/rollback features
 RUN apk add --no-cache git
 
 # Copy built artifacts and production dependencies
