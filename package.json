@@ -1,6 +1,6 @@
 {
   "name": "gnosys-mcp",
-  "version": "3.0.0-alpha.2",
+  "version": "3.0.0-alpha.3",
   "description": "Gnosys — Persistent Memory for AI Agents and Universal Transparent Knowledge Engine. MCP server + CLI.",
   "type": "module",
   "main": "dist/index.js",

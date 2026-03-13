@@ -61,6 +61,8 @@ export interface FederatedSearchOptions {
   includeGlobal?: boolean;
   /** Recency window in hours (default: 24) */
   recencyWindowHours?: number;
+  /** Filter to specific scope(s). If set, only memories in these scopes are returned. */
+  scopeFilter?: MemoryScope[];
 }
 
 // ─── Boost Constants ────────────────────────────────────────────────────
@@ -90,6 +92,7 @@ export function federatedSearch(
     projectId = null,
     includeGlobal = true,
     recencyWindowHours = 24,
+    scopeFilter,
   } = opts;
 
   // Run FTS5 search across ALL memories (no scope filter at query time)
@@ -116,8 +119,11 @@ export function federatedSearch(
 
     const scope = (mem.scope || "project") as MemoryScope;
 
-    // Skip global if not requested
-    if (!includeGlobal && scope === "global") continue;
+    // Skip if scope filter is active and this scope isn't included
+    if (scopeFilter && scopeFilter.length > 0 && !scopeFilter.includes(scope)) continue;
+
+    // Skip global if not requested (legacy flag, scopeFilter takes precedence)
+    if (!scopeFilter && !includeGlobal && scope === "global") continue;
 
     // Base score: inverse of FTS rank position (higher = better)
     let score = 1 / (60 + i + 1);
@@ -197,6 +203,7 @@ export function federatedDiscover(
 
   const now = Date.now();
   const recencyThreshold = now - recencyWindowHours * 60 * 60 * 1000;
+  const scopeFilter = opts.scopeFilter;
 
   const scored: FederatedResult[] = [];
 
@@ -206,7 +213,8 @@ export function federatedDiscover(
     if (!mem || mem.status !== "active") continue;
 
     const scope = (mem.scope || "project") as MemoryScope;
-    if (!includeGlobal && scope === "global") continue;
+    if (scopeFilter && scopeFilter.length > 0 && !scopeFilter.includes(scope)) continue;
+    if (!scopeFilter && !includeGlobal && scope === "global") continue;
 
     let score = 1 / (60 + i + 1);
     const boosts: string[] = [];

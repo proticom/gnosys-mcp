@@ -691,6 +691,37 @@ Dream Mode integrates with the sandbox: every request resets the idle timer, and
 
 ---
 
+## Federated Search
+
+All major search commands (`search`, `discover`, `hybrid-search`, `recall`, `ask`) support federated search with tier boosting. Use `--federated` to search across all scopes in the central DB with automatic ranking:
+
+```bash
+# Federated search with tier boosting (project > user > global)
+gnosys search "auth tokens" --federated
+
+# Filter to specific scope(s)
+gnosys search "deploy config" --scope user
+gnosys search "best practices" --scope project,global
+
+# Dedicated federated search command with JSON output
+gnosys fsearch "authentication" --json --scope user,project
+
+# Federated recall for agents
+gnosys recall "payment logic" --federated --json
+
+# Ask with cross-scope context
+gnosys ask "What auth pattern do we use?" --federated
+
+# Multi-project scenario: specify project directory
+gnosys search "API design" --federated --directory /path/to/project-b
+```
+
+**Tier boosting** ranks results by scope: project memories get 1.5x boost (1.8x for the current project), user-scoped get 1.0x, and global get 0.7x. Recency (last 24h) adds a 1.3x boost, and reinforcement count adds up to 25%.
+
+Results always include `scope` and `boosts` fields so agents know where each memory came from.
+
+---
+
 ## Multi-Project Support
 
 Gnosys supports multiple projects in parallel — critical for developers using multiple Cursor windows or multi-root workspaces. In v3.0, the central DB's `projects` table acts as a registry, and federated search + ambiguity detection make cross-project workflows safe and predictable.
@@ -863,6 +894,7 @@ gnosys search "query"        # Full-text search with snippets
 gnosys hybrid-search "q"     # Hybrid keyword + semantic search
 gnosys semantic-search "q"   # Semantic similarity search
 gnosys ask "question"        # Ask a question, get cited answer
+# All search commands support: --federated --scope <project|user|global> --json
 gnosys read <path>           # Read a specific memory
 gnosys list                  # List all memories
 gnosys lens                  # Filtered views (category, tag, status, date...)
@@ -893,6 +925,7 @@ gnosys recall "query"            # Always-on recall (aggressive mode by default)
 gnosys recall "q" --no-aggressive  # Force filtered mode (hard cutoff)
 gnosys recall "q" --host         # Output in <gnosys-recall> host format
 gnosys recall "q" --json         # Recall as JSON for programmatic use
+gnosys recall "q" --federated    # Federated recall across all scopes
 gnosys audit                 # View audit trail (last 7 days)
 gnosys audit --days 30       # View last 30 days of operations
 gnosys audit --operation ask # Filter by operation type
@@ -923,6 +956,7 @@ gnosys pref get [key]        # Get one or all preferences (--json)
 gnosys pref delete <key>     # Delete a preference
 gnosys sync                  # Regenerate agent rules from preferences
 gnosys fsearch "query"       # Federated search (project > user > global)
+gnosys fsearch "q" --scope user  # Filter to specific scope(s)
 gnosys ambiguity "query"     # Check for cross-project ambiguity
 gnosys briefing              # Project briefing (categories, activity, tags)
 gnosys briefing --all        # Briefings for all projects

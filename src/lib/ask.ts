@@ -156,6 +156,8 @@ export class GnosysAsk {
       mode?: "keyword" | "semantic" | "hybrid";
       stream?: boolean;
       callbacks?: AskStreamCallbacks;
+      /** Additional context to prepend (e.g. from federated search) */
+      additionalContext?: string;
     }
   ): Promise<AskResult> {
     if (!this.provider) {
@@ -191,7 +193,11 @@ export class GnosysAsk {
 
     // Step 3: Build prompt
     const template = await this.loadPromptTemplate();
-    const context = this.formatContext(results);
+    let context = this.formatContext(results);
+    // Prepend federated/cross-scope context if provided
+    if (options?.additionalContext) {
+      context = `## Cross-Scope Context (Federated Search)\n${options.additionalContext}\n\n## Local Context\n${context}`;
+    }
     const systemPrompt = template
       .replace("{{CONTEXT}}", context)
       .replace("{{QUESTION}}", question);

@@ -120,10 +120,47 @@ program
 // ─── gnosys discover <query> ─────────────────────────────────────────────
 program
   .command("discover <query>")
-  .description("Discover relevant memories by keyword. Searches relevance clouds, titles, and tags — returns metadata only, no content.")
+  .description("Discover relevant memories by keyword. Use --federated for tier-boosted cross-scope discovery.")
   .option("-n, --limit <number>", "Max results", "20")
   .option("--json", "Output as JSON")
-  .action(async (query: string, opts: { limit: string; json?: boolean }) => {
+  .option("--federated", "Use federated discovery with tier boosting (project > user > global)")
+  .option("--scope <scope>", "Filter by scope: project, user, global (comma-separated for multiple)")
+  .option("-d, --directory <dir>", "Project directory for context")
+  .action(async (query: string, opts: { limit: string; json?: boolean; federated?: boolean; scope?: string; directory?: string }) => {
+    // Federated discover path
+    if (opts.federated || opts.scope) {
+      let centralDb: GnosysDB | null = null;
+      try {
+        centralDb = GnosysDB.openCentral();
+        if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
+
+        const { federatedDiscover, detectCurrentProject } = await import("./lib/federated.js");
+        const projectId = await detectCurrentProject(centralDb, opts.directory || undefined);
+        const scopeFilter = opts.scope ? opts.scope.split(",").map(s => s.trim()) as any : undefined;
+        const results = federatedDiscover(centralDb, query, {
+          limit: parseInt(opts.limit, 10),
+          projectId,
+          scopeFilter,
+        });
+
+        outputResult(!!opts.json, { query, projectId, count: results.length, results }, () => {
+          if (results.length === 0) { console.log(`No memories found for "${query}".`); return; }
+          for (const [i, r] of results.entries()) {
+            const proj = r.projectName ? ` [${r.projectName}]` : "";
+            console.log(`${i + 1}. ${r.title} (${r.category})${proj}`);
+            console.log(`   scope: ${r.scope} | score: ${r.score.toFixed(4)}`);
+          }
+        });
+      } catch (err) {
+        console.error(`Error: ${err instanceof Error ? err.message : err}`);
+        process.exit(1);
+      } finally {
+        centralDb?.close();
+      }
+      return;
+    }
+
+    // Legacy file-based discover path
     const resolver = await getResolver();
     const stores = resolver.getStores();
     if (stores.length === 0) {
@@ -161,10 +198,50 @@ program
 // ─── gnosys search <query> ───────────────────────────────────────────────
 program
   .command("search <query>")
-  .description("Search memories by keyword across all stores")
+  .description("Search memories by keyword. Use --federated for tier-boosted cross-scope search.")
   .option("-n, --limit <number>", "Max results", "20")
   .option("--json", "Output as JSON")
-  .action(async (query: string, opts: { limit: string; json?: boolean }) => {
+  .option("--federated", "Use federated search with tier boosting (project > user > global)")
+  .option("--scope <scope>", "Filter by scope: project, user, global (comma-separated for multiple)")
+  .option("-d, --directory <dir>", "Project directory for context")
+  .action(async (query: string, opts: { limit: string; json?: boolean; federated?: boolean; scope?: string; directory?: string }) => {
+    // Federated search path — uses central DB with tier boosting
+    if (opts.federated || opts.scope) {
+      let centralDb: GnosysDB | null = null;
+      try {
+        centralDb = GnosysDB.openCentral();
+        if (!centralDb.isAvailable()) { console.error("Central DB not available. Run 'gnosys migrate --to-central' first."); process.exit(1); }
+
+        const { federatedSearch, detectCurrentProject } = await import("./lib/federated.js");
+        const projectId = await detectCurrentProject(centralDb, opts.directory || undefined);
+        const scopeFilter = opts.scope ? opts.scope.split(",").map(s => s.trim()) as any : undefined;
+        const results = federatedSearch(centralDb, query, {
+          limit: parseInt(opts.limit, 10),
+          projectId,
+          scopeFilter,
+        });
+
+        outputResult(!!opts.json, { query, projectId, count: results.length, results }, () => {
+          if (results.length === 0) { console.log(`No results for "${query}".`); return; }
+          const ctx = projectId ? `Context: project ${projectId}` : "No project detected";
+          console.log(ctx);
+          for (const [i, r] of results.entries()) {
+            const proj = r.projectName ? ` [${r.projectName}]` : "";
+            console.log(`\n${i + 1}. ${r.title} (${r.category})${proj}`);
+            console.log(`   scope: ${r.scope} | score: ${r.score.toFixed(4)} | boosts: ${r.boosts.join(", ")}`);
+            if (r.snippet) console.log(`   ${r.snippet.substring(0, 120)}`);
+          }
+        });
+      } catch (err) {
+        console.error(`Error: ${err instanceof Error ? err.message : err}`);
+        process.exit(1);
+      } finally {
+        centralDb?.close();
+      }
+      return;
+    }
+
+    // Legacy file-based search path
     const resolver = await getResolver();
     const stores = resolver.getStores();
     if (stores.length === 0) {
@@ -1519,10 +1596,50 @@ program
 // ─── gnosys hybrid-search <query> ───────────────────────────────────────
 program
   .command("hybrid-search <query>")
-  .description("Search using hybrid keyword + semantic fusion (RRF)")
+  .description("Search using hybrid keyword + semantic fusion (RRF). Use --federated for cross-scope.")
   .option("-l, --limit <n>", "Max results", "15")
   .option("-m, --mode <mode>", "Search mode: keyword | semantic | hybrid", "hybrid")
-  .action(async (query: string, opts: { limit: string; mode: string }) => {
+  .option("--json", "Output as JSON")
+  .option("--federated", "Use federated search with tier boosting (project > user > global)")
+  .option("--scope <scope>", "Filter by scope: project, user, global (comma-separated)")
+  .option("-d, --directory <dir>", "Project directory for context")
+  .action(async (query: string, opts: { limit: string; mode: string; json?: boolean; federated?: boolean; scope?: string; directory?: string }) => {
+    // Federated path — uses central DB
+    if (opts.federated || opts.scope) {
+      let centralDb: GnosysDB | null = null;
+      try {
+        centralDb = GnosysDB.openCentral();
+        if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
+
+        const { federatedSearch, detectCurrentProject } = await import("./lib/federated.js");
+        const projectId = await detectCurrentProject(centralDb, opts.directory || undefined);
+        const scopeFilter = opts.scope ? opts.scope.split(",").map(s => s.trim()) as any : undefined;
+        const results = federatedSearch(centralDb, query, {
+          limit: parseInt(opts.limit, 10),
+          projectId,
+          scopeFilter,
+        });
+
+        outputResult(!!opts.json, { query, projectId, mode: "federated", count: results.length, results }, () => {
+          if (results.length === 0) { console.log(`No results for "${query}".`); return; }
+          console.log(`Found ${results.length} results for "${query}" (mode: federated):\n`);
+          for (const [i, r] of results.entries()) {
+            const proj = r.projectName ? ` [${r.projectName}]` : "";
+            console.log(`${i + 1}. ${r.title} (${r.category})${proj}`);
+            console.log(`   scope: ${r.scope} | score: ${r.score.toFixed(4)} | boosts: ${r.boosts.join(", ")}`);
+            if (r.snippet) console.log(`   ${r.snippet.substring(0, 120)}`);
+          }
+        });
+      } catch (err) {
+        console.error(`Error: ${err instanceof Error ? err.message : err}`);
+        process.exit(1);
+      } finally {
+        centralDb?.close();
+      }
+      return;
+    }
+
+    // Legacy file-based hybrid search
     const resolver = await getResolver();
     const stores = resolver.getStores();
     if (stores.length === 0) {
@@ -1544,15 +1661,19 @@ program
     const results = await hybridSearch.hybridSearch(query, parseInt(opts.limit), mode);
 
     if (results.length === 0) {
-      console.log(`No results for "${query}". Try gnosys reindex to build embeddings.`);
+      outputResult(!!opts.json, { query, mode, results: [] }, () => {
+        console.log(`No results for "${query}". Try gnosys reindex to build embeddings.`);
+      });
     } else {
-      console.log(`Found ${results.length} results for "${query}" (mode: ${mode}):\n`);
-      for (const r of results) {
-        console.log(`  ${r.title}`);
-        console.log(`    Path: ${r.relativePath}`);
-        console.log(`    Score: ${r.score.toFixed(4)} (via: ${r.sources.join("+")})`);
-        console.log(`    ${r.snippet.substring(0, 120)}...\n`);
-      }
+      outputResult(!!opts.json, { query, mode, count: results.length, results }, () => {
+        console.log(`Found ${results.length} results for "${query}" (mode: ${mode}):\n`);
+        for (const r of results) {
+          console.log(`  ${r.title}`);
+          console.log(`    Path: ${r.relativePath}`);
+          console.log(`    Score: ${r.score.toFixed(4)} (via: ${r.sources.join("+")})`);
+          console.log(`    ${r.snippet.substring(0, 120)}...\n`);
+        }
+      });
 
       // Reinforce used memories (best-effort)
       const writeTarget = resolver.getWriteTarget();
@@ -1612,12 +1733,15 @@ program
 program
   .command("ask <question>")
   .description(
-    "Ask a natural-language question and get a synthesized answer with citations"
+    "Ask a natural-language question and get a synthesized answer with citations. Use --federated for cross-scope."
   )
   .option("-l, --limit <n>", "Max memories to retrieve", "15")
   .option("-m, --mode <mode>", "Search mode: keyword | semantic | hybrid", "hybrid")
   .option("--no-stream", "Disable streaming output")
-  .action(async (question: string, opts: { limit: string; mode: string; stream: boolean }) => {
+  .option("--federated", "Use federated search with tier boosting (project > user > global)")
+  .option("--scope <scope>", "Filter by scope: project, user, global (comma-separated)")
+  .option("-d, --directory <dir>", "Project directory for context")
+  .action(async (question: string, opts: { limit: string; mode: string; stream: boolean; federated?: boolean; scope?: string; directory?: string }) => {
     const resolver = await getResolver();
     const stores = resolver.getStores();
     if (stores.length === 0) {
@@ -1648,6 +1772,33 @@ program
       process.exit(1);
     }
 
+    // If --federated, pre-retrieve from central DB and inject as context
+    let federatedContext: string | undefined;
+    if (opts.federated || opts.scope) {
+      let centralDb: GnosysDB | null = null;
+      try {
+        centralDb = GnosysDB.openCentral();
+        if (centralDb?.isAvailable()) {
+          const { federatedSearch: fSearch, detectCurrentProject } = await import("./lib/federated.js");
+          const projectId = await detectCurrentProject(centralDb, opts.directory || undefined);
+          const scopeFilter = opts.scope ? opts.scope.split(",").map(s => s.trim()) as any : undefined;
+          const fResults = fSearch(centralDb, question, {
+            limit: parseInt(opts.limit, 10),
+            projectId,
+            scopeFilter,
+          });
+          if (fResults.length > 0) {
+            federatedContext = fResults.map(r => {
+              const mem = centralDb!.getMemory(r.id);
+              return `## ${r.title} [scope:${r.scope}, score:${r.score.toFixed(3)}]\n${mem?.content || r.snippet}`;
+            }).join("\n\n");
+            console.error(`[federated] Found ${fResults.length} cross-scope memories as additional context`);
+          }
+        }
+      } catch { /* Central DB not available — fall through to normal ask */ }
+      finally { centralDb?.close(); }
+    }
+
     const mode = opts.mode as "keyword" | "semantic" | "hybrid";
     const useStream = opts.stream !== false;
 
@@ -1656,14 +1807,15 @@ program
         limit: parseInt(opts.limit),
         mode,
         stream: useStream,
+        additionalContext: federatedContext,
         callbacks: useStream
           ? {
               onToken: (token) => process.stdout.write(token),
               onSearchComplete: (count, searchMode) => {
-                console.log(`\n🔍 Found ${count} relevant memories (${searchMode} search)\n`);
+                console.log(`\n Found ${count} relevant memories (${searchMode} search)\n`);
               },
               onDeepQuery: (refined) => {
-                console.log(`\n🔄 Deep query: searching for "${refined}"...\n`);
+                console.log(`\n Deep query: searching for "${refined}"...\n`);
               },
             }
           : undefined,
@@ -2422,14 +2574,80 @@ program
 // ─── gnosys recall ───────────────────────────────────────────────────────
 program
   .command("recall <query>")
-  .description("Always-on memory recall — injects most relevant memories as context (sub-50ms, no LLM)")
+  .description("Always-on memory recall — injects most relevant memories as context. Use --federated for cross-scope.")
   .option("--limit <n>", "Max memories to return (default from config)")
   .option("--aggressive", "Force aggressive mode (inject even medium-relevance memories)")
   .option("--no-aggressive", "Force filtered mode (hard cutoff at minRelevance)")
   .option("--trace-id <id>", "Trace ID for audit correlation")
   .option("--json", "Output raw JSON instead of formatted text")
   .option("--host", "Output in host-friendly <gnosys-recall> format (default for MCP)")
-  .action(async (query: string, opts: { limit?: string; aggressive?: boolean; traceId?: string; json?: boolean; host?: boolean }) => {
+  .option("--federated", "Use federated search with tier boosting (project > user > global)")
+  .option("--scope <scope>", "Filter by scope: project, user, global (comma-separated)")
+  .option("-d, --directory <dir>", "Project directory for context")
+  .action(async (query: string, opts: { limit?: string; aggressive?: boolean; traceId?: string; json?: boolean; host?: boolean; federated?: boolean; scope?: string; directory?: string }) => {
+    // Federated recall path — returns tier-boosted results from central DB
+    if (opts.federated || opts.scope) {
+      let centralDb: GnosysDB | null = null;
+      try {
+        centralDb = GnosysDB.openCentral();
+        if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
+
+        const { federatedSearch, detectCurrentProject } = await import("./lib/federated.js");
+        const projectId = await detectCurrentProject(centralDb, opts.directory || undefined);
+        const scopeFilter = opts.scope ? opts.scope.split(",").map(s => s.trim()) as any : undefined;
+        const limit = opts.limit ? parseInt(opts.limit, 10) : 10;
+        const results = federatedSearch(centralDb, query, { limit, projectId, scopeFilter });
+
+        // Format as recall-like output with scope info
+        const recallResult = {
+          query,
+          projectId,
+          mode: "federated",
+          count: results.length,
+          memories: results.map(r => ({
+            id: r.id,
+            title: r.title,
+            category: r.category,
+            scope: r.scope,
+            score: r.score,
+            boosts: r.boosts,
+            snippet: r.snippet,
+            projectName: r.projectName,
+          })),
+        };
+
+        if (opts.json) {
+          console.log(JSON.stringify(recallResult, null, 2));
+        } else if (opts.host) {
+          const lines = [`<gnosys-recall query="${query}" mode="federated" count="${results.length}">`];
+          for (const r of results) {
+            lines.push(`  <memory id="${r.id}" scope="${r.scope}" score="${r.score.toFixed(4)}">`);
+            lines.push(`    ${r.title}: ${r.snippet?.substring(0, 200) || ""}`);
+            lines.push(`  </memory>`);
+          }
+          lines.push(`</gnosys-recall>`);
+          console.log(lines.join("\n"));
+        } else {
+          if (results.length === 0) { console.log(`No memories found for "${query}".`); }
+          else {
+            console.log(`Recall: ${results.length} memories for "${query}" (federated)\n`);
+            for (const r of results) {
+              const proj = r.projectName ? ` [${r.projectName}]` : "";
+              console.log(`  ${r.title}${proj} (${r.scope}, ${r.score.toFixed(4)})`);
+              if (r.snippet) console.log(`    ${r.snippet.substring(0, 100)}`);
+            }
+          }
+        }
+      } catch (err) {
+        console.error(`Error: ${err instanceof Error ? err.message : err}`);
+        process.exit(1);
+      } finally {
+        centralDb?.close();
+      }
+      return;
+    }
+
+    // Legacy file-based recall
     const resolver = new GnosysResolver();
     await resolver.resolve();
     const stores = resolver.getStores();
@@ -2877,8 +3095,9 @@ program
   .option("-l, --limit <n>", "Max results", "20")
   .option("-d, --directory <dir>", "Project directory for context")
   .option("--no-global", "Exclude global-scope memories")
+  .option("--scope <scope>", "Filter by scope: project, user, global (comma-separated)")
   .option("--json", "Output as JSON")
-  .action(async (query: string, opts: { limit: string; directory?: string; global: boolean; json: boolean }) => {
+  .action(async (query: string, opts: { limit: string; directory?: string; global: boolean; scope?: string; json: boolean }) => {
     let centralDb: GnosysDB | null = null;
     try {
       centralDb = GnosysDB.openCentral();
@@ -2886,10 +3105,12 @@ program
 
       const { federatedSearch, detectCurrentProject } = await import("./lib/federated.js");
       const projectId = await detectCurrentProject(centralDb, opts.directory || undefined);
+      const scopeFilter = opts.scope ? opts.scope.split(",").map(s => s.trim()) as any : undefined;
       const results = federatedSearch(centralDb, query, {
         limit: parseInt(opts.limit, 10),
         projectId,
         includeGlobal: opts.global,
+        scopeFilter,
       });
 
       if (opts.json) {
