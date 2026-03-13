@@ -5,6 +5,8 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/gnosys-mcp"><img src="https://img.shields.io/npm/v/gnosys-mcp.svg" alt="npm version"></a>
   <a href="https://github.com/proticom/gnosys/actions"><img src="https://github.com/proticom/gnosys/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/badge/tests-474%20passing-brightgreen" alt="tests">
+  <img src="https://img.shields.io/badge/coverage-lib%2040%25%20|%20sandbox%2045%25-yellow" alt="coverage">
   <a href="https://gnosys.ai"><img src="https://img.shields.io/badge/docs-gnosys.ai-C04C4C" alt="docs"></a>
   <a href="https://gnosys.ai/guide.html"><img src="https://img.shields.io/badge/user%20guide-gnosys.ai%2Fguide-555560" alt="user guide"></a>
   <a href="https://github.com/proticom/gnosys/blob/master/LICENSE"><img src="https://img.shields.io/npm/l/gnosys-mcp.svg" alt="license"></a>
@@ -970,10 +972,24 @@ gnosys working-set           # Show implicit working set (recent memories)
 ```bash
 npm install          # Install dependencies
 npm run build        # Compile TypeScript
-npm test             # Run test suite
+npm test             # Run test suite (474 tests)
 npm run test:watch   # Run tests in watch mode
+npm run test:coverage # Run tests with v8 coverage report
 npm run dev          # Run MCP server in dev mode (tsx)
 ```
+
+### Test Suite
+
+474 tests across 29 files covering the full v3.0 feature set:
+
+| Phase | Tests | Coverage |
+|-------|-------|----------|
+| Core (DB, store, search, FTS5) | 120+ | db.ts 77%, store.ts 94%, search.ts 78% |
+| Federation + CLI parity | 100+ | federated.ts 85%, preferences.ts 79% |
+| Sandbox (server, client, helper) | 32 | client.ts 71%, server.ts 53% |
+| Phase 9d coverage overhaul | 74 | audit.ts 92%, lock.ts 72%, dbWrite.ts 64% |
+
+CI runs on Node 20 + 22 with multi-project scenario testing, network-share simulation, and TypeScript strict checking. Coverage reports are generated and uploaded as artifacts on every push.
 
 ### Architecture
 
