@@ -93,7 +93,7 @@ function outputResult(json: boolean, data: unknown, humanFn: () => void): void {
 
 program
   .name("gnosys")
-  .description("Gnosys — Centralized persistent memory for AI agents. 47+ MCP tools, federated search, preferences, project briefings, Dream Mode, Obsidian export.")
+  .description("Gnosys — Persistent memory for AI agents. Sandbox-first runtime, central SQLite brain, federated search, preferences, Dream Mode, Obsidian export. Also runs as a full MCP server.")
   .version(pkg.version);
 
 // ─── gnosys read <path> ──────────────────────────────────────────────────

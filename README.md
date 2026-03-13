@@ -3,13 +3,13 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/gnosys-mcp"><img src="https://img.shields.io/npm/v/gnosys-mcp.svg" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/gnosys"><img src="https://img.shields.io/npm/v/gnosys.svg" alt="npm version"></a>
   <a href="https://github.com/proticom/gnosys/actions"><img src="https://github.com/proticom/gnosys/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/tests-495%20passing-brightgreen" alt="tests">
   <img src="https://img.shields.io/badge/coverage-lib%2040%25%20|%20sandbox%2045%25-yellow" alt="coverage">
   <a href="https://gnosys.ai"><img src="https://img.shields.io/badge/docs-gnosys.ai-C04C4C" alt="docs"></a>
   <a href="https://gnosys.ai/guide.html"><img src="https://img.shields.io/badge/user%20guide-gnosys.ai%2Fguide-555560" alt="user guide"></a>
-  <a href="https://github.com/proticom/gnosys/blob/master/LICENSE"><img src="https://img.shields.io/npm/l/gnosys-mcp.svg" alt="license"></a>
+  <a href="https://github.com/proticom/gnosys/blob/master/LICENSE"><img src="https://img.shields.io/npm/l/gnosys.svg" alt="license"></a>
 </p>
 
 ---
@@ -26,7 +26,7 @@ It also runs as a CLI and a complete MCP server that drops straight into Cursor,
 • NVD/CVE Database: 200k+ vulnerabilities auto-linked to packages, exploits, patches, and supersession history. Ask "which of our dependencies have active unpatched criticals?"
 • USDA FoodData Central: ~8k foods atomized with wikilinks to nutrients and substitutions. Ask "high-protein, low-sodium, high-potassium alternatives to X?"
 
-No vector DBs. No black boxes. No external services. Just SQLite, Git, Markdown, and Obsidian — the way knowledge should be.
+No vector DBs. No black boxes. No external services. Just SQLite, Markdown, and Obsidian — the way knowledge should be.
 
 ---
 
@@ -34,7 +34,7 @@ No vector DBs. No black boxes. No external services. Just SQLite, Git, Markdown,
 
 Most "memory for LLMs" solutions use vector databases, embeddings, or proprietary services. They're opaque — you can't see what the model remembers, can't edit it, can't version it, can't share it.
 
-Gnosys takes a different approach: every memory is a plain Markdown file with YAML frontmatter. The entire knowledge base is a Git repository and an Obsidian vault. You can read it, edit it, version it, grep it, and back it up with the tools you already use.
+Gnosys takes a different approach: the central brain is a single SQLite database (`~/.gnosys/gnosys.db`) with sub-10ms reads, while every memory is also dual-written as a plain Markdown file with YAML frontmatter. The Markdown layer is a human-readable safety net and Obsidian export path — you can read it, edit it, grep it, and back it up with the tools you already use.
 
 **What makes it different:**
 
@@ -50,9 +50,9 @@ Gnosys takes a different approach: every memory is a plain Markdown file with YA
 - **Multi-project** — MCP roots + per-tool `projectRoot` routing + central project registry. Multiple Cursor windows, zero conflicts.
 - **Freeform Ask** — natural-language questions, synthesized answers with Obsidian wikilink citations.
 - **Hybrid Search** — FTS5 keyword + semantic embeddings via Reciprocal Rank Fusion (RRF).
-- **Versioned** — Git auto-commits every write. Full history, rollback, and diff support.
+- **Dual-write** — every memory writes to both SQLite and a human-readable `.md` file. The Markdown layer is a safety net and export path, not the primary store.
 - **Obsidian-native** — `gnosys export` generates a full vault with YAML frontmatter, `[[wikilinks]]`, summaries, and graph data.
-- **MCP-first** — drops into Cursor, Claude Desktop, Claude Code, Cowork, Codex, or any MCP client with one config line.
+- **MCP-compatible** — also runs as a full MCP server that drops into Cursor, Claude Desktop, Claude Code, Cowork, Codex, or any MCP client with one config line.
 - **Bulk import** — CSV, JSON, JSONL. Import entire datasets (USDA, NVD, your internal docs) in seconds.
 - **Backup & restore** — `gnosys backup` + `gnosys restore` for the central DB. Point-in-time recovery.
 - **Zero infrastructure** — no external databases, no Docker (unless you want it), no cloud services. Just `npm install`.
@@ -72,7 +72,7 @@ gnosys import usda-foods.json \
   --mode structured --skip-existing
 ```
 
-Each food becomes an atomic memory with nutrient data and `[[wikilinks]]` to food categories:
+Each food lands in the central `~/.gnosys/gnosys.db` as an atomic memory with nutrient data and `[[wikilinks]]` to food categories. A dual-write `.md` copy is kept for safety and Obsidian export:
 
 ```yaml
 ---
@@ -104,7 +104,7 @@ gnosys import nvd-cves.json \
   --mode structured --skip-existing
 ```
 
-Each CVE links to affected packages via wikilinks:
+Each CVE lands in the central DB and links to affected packages via wikilinks:
 
 ```yaml
 ---
@@ -129,7 +129,7 @@ See [DEMO.md](DEMO.md) for the full step-by-step walkthrough.
 
 ```bash
 # Install
-npm install -g gnosys-mcp
+npm install -g gnosys
 
 # Initialize a project
 cd your-project
@@ -168,7 +168,7 @@ The helper auto-starts the sandbox if it's not running. No MCP required.
 ### npm (recommended)
 
 ```bash
-npm install -g gnosys-mcp
+npm install -g gnosys
 ```
 
 ### Docker
@@ -212,8 +212,8 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 {
   "mcpServers": {
     "gnosys": {
-      "command": "npx",
-      "args": ["gnosys-mcp"],
+      "command": "gnosys",
+      "args": ["serve"],
       "env": { "ANTHROPIC_API_KEY": "your-key-here" }
     }
   }
@@ -228,8 +228,8 @@ Add to `.cursor/mcp.json`:
 {
   "mcpServers": {
     "gnosys": {
-      "command": "npx",
-      "args": ["gnosys-mcp"],
+      "command": "gnosys",
+      "args": ["serve"],
       "env": { "ANTHROPIC_API_KEY": "your-key-here" }
     }
   }
@@ -239,7 +239,7 @@ Add to `.cursor/mcp.json`:
 ### Claude Code
 
 ```bash
-claude mcp add gnosys npx gnosys-mcp
+claude mcp add gnosys gnosys serve
 ```
 
 ### Codex
@@ -249,7 +249,7 @@ Add to `.codex/config.toml`:
 ```toml
 [mcp.gnosys]
 type = "local"
-command = ["npx", "gnosys-mcp"]
+command = ["gnosys", "serve"]
 
 [mcp.gnosys.env]
 ANTHROPIC_API_KEY = "your-key-here"
@@ -323,14 +323,12 @@ In v3.0, Gnosys uses a **central database** at `~/.gnosys/gnosys.db` as the sing
 your-project/
   .gnosys/
     gnosys.json          # ← v3.0 project identity (projectId, name, settings)
-    gnosys.db            # per-project SQLite database (legacy + local reads)
-    decisions/           # dual-write .md files (human-readable safety net)
+    decisions/           # dual-write .md copies (safety net + Obsidian export)
       use-postgresql.md
     architecture/
       three-layer-design.md
     .config/tags.json    # tag registry
     CHANGELOG.md
-    .git/                # auto-versioned
 ```
 
 `gnosys init` creates the project identity, registers the project in the central DB, and auto-detects your IDE (Cursor, Claude Code) for rules file generation.
@@ -431,7 +429,7 @@ A default `gnosys.json` is created during `gnosys init`. Validation is handled b
 
 ## Using with Obsidian
 
-In v2.0, the primary store is SQLite. Use the **Obsidian Export Bridge** to generate a full Obsidian vault from the database:
+The primary store is the central `~/.gnosys/gnosys.db`. Use the **Obsidian Export Bridge** to generate a full Obsidian vault from the database:
 
 ```bash
 # Export to an Obsidian-compatible vault
@@ -522,22 +520,17 @@ The embedding model (`all-MiniLM-L6-v2`) is lazy-loaded — it's only downloaded
 
 ---
 
-## Layered Stores
+## Memory Scopes
 
-Multiple stores stacked by precedence:
+In v3.0, the central `~/.gnosys/gnosys.db` holds all memories with `project_id` and `scope` columns replacing the old layered-store model:
 
-| Layer | Source | Writable | Use Case |
-|-------|--------|----------|----------|
-| **Project** | `.gnosys/` in project root | Yes (default) | Project-specific knowledge |
-| **Optional** | `GNOSYS_STORES` env var | Read-only | Shared reference data |
-| **Personal** | `GNOSYS_PERSONAL` env var | Yes (fallback) | Cross-project personal knowledge |
-| **Global** | `GNOSYS_GLOBAL` env var | Explicit only | Org-wide shared knowledge |
+| Scope | Description | Boost |
+|-------|-------------|-------|
+| **project** | Tied to a specific project (via `project_id`) | 1.5x (1.8x for current) |
+| **user** | Cross-project user preferences and knowledge | 1.0x |
+| **global** | Org-wide shared knowledge | 0.7x |
 
-```bash
-export GNOSYS_PERSONAL="$HOME/.gnosys-personal"
-export GNOSYS_GLOBAL="/shared/team/.gnosys"
-export GNOSYS_STORES="/path/to/reference-data"
-```
+Federated search ranks results across all scopes with tier boosting. Legacy env vars (`GNOSYS_STORES`, `GNOSYS_PERSONAL`, `GNOSYS_GLOBAL`) are still supported as read-only fallback stores for backward compatibility.
 
 ---
 
@@ -564,7 +557,7 @@ gnosys maintain --dry-run
 # Apply all changes automatically
 gnosys maintain --auto-apply
 
-# Background mode: runs every 6 hours alongside the MCP server
+# Background mode: runs every 6 hours alongside the sandbox
 gnosys serve --with-maintenance
 ```
 
@@ -728,13 +721,9 @@ Results always include `scope` and `boosts` fields so agents know where each mem
 
 Gnosys supports multiple projects in parallel — critical for developers using multiple Cursor windows or multi-root workspaces. In v3.0, the central DB's `projects` table acts as a registry, and federated search + ambiguity detection make cross-project workflows safe and predictable.
 
-### The Problem
+### How It Works
 
-In v1.x, the MCP server used `process.cwd()` to find the `.gnosys/` store. All Cursor windows sharing one MCP process would read and write to the same store, regardless of which project was active.
-
-### The Solution
-
-Every MCP tool now accepts an optional `projectRoot` parameter that routes the call to the correct `.gnosys/` store. This is **stateless** — each call carries its own routing context with no shared mutable state, so parallel agents across multiple windows never conflict.
+In v3.0, the central `~/.gnosys/gnosys.db` holds all projects, each identified by `project_id`. The sandbox process holds the database connection and routes requests by project. MCP tools accept an optional `projectRoot` parameter for explicit routing, and the CLI auto-detects the current project from `gnosys.json` in the working directory.
 
 ```
 # Agent in Window 1 (project-a):
@@ -810,7 +799,7 @@ Agent memory is a spectrum — from a single markdown file to full knowledge gra
 | **Examples** | CLAUDE.md, .cursorrules | Mem0, LangChain Memory | Graphiti/Zep, Mem0 Graph | — |
 | **Storage** | `.md` files | Embeddings in vector DB | Nodes/edges in graph DB | Unified SQLite DB + `.md` dual-write |
 | **Transparency** | Perfect | Lossy (embeddings) | High (query nodes) | High (SQLite + dual-write `.md` + Obsidian export) |
-| **Version history** | Git native | None built-in | None built-in | Git native |
+| **Version history** | Git native | None built-in | None built-in | Dual-write `.md` files (optional Git) |
 | **Keyword search** | Manual / grep | BM25 layer (some) | BM25 layer (some) | FTS5 (built-in) |
 | **Semantic search** | None | Vector similarity | Graph + vectors | Vector + FTS5 hybrid (RRF) |
 | **Relationship traversal** | None | None | Multi-hop graph queries | Wikilinks (manual encoding) |
@@ -836,22 +825,20 @@ Agent memory is a spectrum — from a single markdown file to full knowledge gra
 
 - **Zero infrastructure**: No vector DB to deploy, no graph DB to manage. SQLite is embedded.
 - **Full transparency**: Every memory is a readable, editable `.md` file. No opaque embeddings.
-- **Git versioning**: Complete history, rollback, diff, blame. No other memory system versions every write.
+- **Dual-write transparency**: Every memory has a human-readable `.md` file alongside the central DB. Optional Git versioning for rollback and diff.
 - **Obsidian native**: Browse, edit, graph view, wikilinks — all with your existing Obsidian setup.
 - **Hybrid search without a vector DB**: FTS5 keyword search is built-in. Semantic search is optional (local embeddings via Ollama, no API costs).
 - **Bulk import**: CSV, JSON, JSONL. Turn a dataset into a searchable knowledge base in seconds.
 - **Cost**: Genuinely free. No cloud service, no API costs if using local LLM providers.
-- **Two-tier memory**: Active memories stay lightning-fast as markdown files. Old/low-confidence memories automatically archive to SQLite — and auto-dearchive when needed by search or ask.
+- **Two-tier memory**: Active memories stay lightning-fast in SQLite. Old/low-confidence memories are automatically archived — and auto-dearchive when needed by search or ask.
 
 ### Two-Tier Memory (Active + Archive)
 
-> **Note:** In v2.0, the unified `gnosys.db` handles all memories. The two-tier archive system (`archive.db`) remains supported for pre-migration stores and as an additional archiving layer.
-
 Gnosys uses a two-tier architecture so your current work stays fast while safely growing to 100k+ memories:
 
-**Active layer** — `gnosys.db` (v2.0) or `.gnosys/<category>/*.md` (v1.x) — primary store for day-to-day work.
+**Active layer** — `~/.gnosys/gnosys.db` central brain. All reads and writes go here. Dual-write `.md` copies are kept as a safety net.
 
-**Archive layer** — `.gnosys/archive.db` — SQLite database for old or low-confidence memories.
+**Archive layer** — low-confidence memories within the same `gnosys.db`, marked with `tier: archive`. Searched as a fallback when active results are insufficient.
 
 The flow is fully automatic and bidirectional:
 1. `gnosys maintain --auto-apply` moves stale memories (>90 days unreinforced + confidence below 0.3) from active → archive
@@ -914,9 +901,9 @@ Configure in `gnosys.json`:
 
 No per-turn tool calls, no manual invocation — just configure the MCP server once and memories flow into every conversation automatically.
 
-**Concurrency safety** — Write locking with PID tracking prevents corruption when multiple agents write simultaneously. SQLite databases (archive + embeddings) use WAL mode for concurrent reads during writes. Stale lock detection auto-recovers from crashed processes.
+**Concurrency safety** — The central `gnosys.db` uses WAL mode with a 10-second busy timeout for concurrent reads and writes. Write locking with PID tracking prevents corruption when multiple agents write simultaneously. Stale lock detection auto-recovers from crashed processes.
 
-**Audit trail** — Every memory operation (read, write, recall, ask, maintain, archive, dearchive) is logged to `.gnosys/.config/audit.jsonl` with timestamps, durations, and optional traceIds for correlation with your outer orchestrator.
+**Audit trail** — Every memory operation (read, write, recall, ask, maintain, archive, dearchive) is logged to the `audit_log` table in `gnosys.db` with timestamps, durations, and optional traceIds for correlation with your outer orchestrator.
 
 ```bash
 gnosys audit --days 7 --operation recall --json
@@ -1128,8 +1115,8 @@ v3.0 is a major architectural upgrade. Here's what changed and how to migrate.
 ### Migration Steps
 
 ```bash
-# 1. Install v3.0
-npm install -g gnosys-mcp@3
+# 1. Install v3.0 (package renamed from gnosys-mcp to gnosys)
+npm install -g gnosys
 
 # 2. Start the sandbox
 gnosys sandbox start
