@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/gnosys"><img src="https://img.shields.io/npm/v/gnosys.svg" alt="npm version"></a>
   <a href="https://github.com/proticom/gnosys/actions"><img src="https://github.com/proticom/gnosys/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/tests-495%20passing-brightgreen" alt="tests">
+  <img src="https://img.shields.io/badge/tests-509%20passing-brightgreen" alt="tests">
   <img src="https://img.shields.io/badge/coverage-lib%2040%25%20|%20sandbox%2045%25-yellow" alt="coverage">
   <a href="https://gnosys.ai"><img src="https://img.shields.io/badge/docs-gnosys.ai-C04C4C" alt="docs"></a>
   <a href="https://gnosys.ai/guide.html"><img src="https://img.shields.io/badge/user%20guide-gnosys.ai%2Fguide-555560" alt="user guide"></a>
@@ -55,6 +55,9 @@ Gnosys takes a different approach: the central brain is a single SQLite database
 - **MCP-compatible** — also runs as a full MCP server that drops into Cursor, Claude Desktop, Claude Code, Cowork, Codex, or any MCP client with one config line.
 - **Bulk import** — CSV, JSON, JSONL. Import entire datasets (USDA, NVD, your internal docs) in seconds.
 - **Backup & restore** — `gnosys backup` + `gnosys restore` for the central DB. Point-in-time recovery.
+- **Reflection API** — `gnosys.reflect(outcome)` updates confidence, adds relationships, and consolidates memories based on real-world outcomes.
+- **Process tracing** — `gnosys trace <dir>` builds call chains from source code and stores them as procedural "how" memories with `leads_to`, `follows_from`, and `requires` relationships.
+- **Relationship traversal** — `gnosys.traverse(id)` walks relationship chains via BFS with depth limiting and type filtering.
 - **Zero infrastructure** — no external databases, no Docker (unless you want it), no cloud services. Just `npm install`.
 
 ---
@@ -531,6 +534,90 @@ In v3.0, the central `~/.gnosys/gnosys.db` holds all memories with `project_id` 
 | **global** | Org-wide shared knowledge | 0.7x |
 
 Federated search ranks results across all scopes with tier boosting. Legacy env vars (`GNOSYS_STORES`, `GNOSYS_PERSONAL`, `GNOSYS_GLOBAL`) are still supported as read-only fallback stores for backward compatibility.
+
+---
+
+## Reflection API
+
+Reflect on real-world outcomes to update memory confidence and build validation chains:
+
+```bash
+# Success — boosts confidence on related memories
+gnosys reflect "JWT auth worked perfectly in production" --memory-ids mem-001,mem-002
+
+# Failure — decreases confidence and marks contradictions
+gnosys reflect "bcrypt was too slow, switched to argon2" --memory-ids mem-003 --failure
+
+# Auto-discover — searches for related memories when no IDs given
+gnosys reflect "Our three-layer architecture handled 10k users"
+```
+
+In the helper library:
+
+```typescript
+import { gnosys } from "./gnosys-helper";
+
+const result = await gnosys.reflect("Deployment succeeded", {
+  memory_ids: ["mem-auth-001", "mem-arch-001"],
+  success: true,
+  notes: "Zero downtime deploy with 10k concurrent users",
+});
+// → { reflection_id, memories_updated, relationships_created, confidence_delta }
+```
+
+Each reflection creates a dedicated memory (category: `reflections`) and links it to related memories via `validates` or `contradicts` relationships. On success, related memories are also cross-linked with `corroborates`.
+
+---
+
+## Process Tracing
+
+Trace a codebase to build procedural "how" memories with call-chain relationships:
+
+```bash
+# Trace your project
+gnosys trace ./src
+
+# With project association
+gnosys trace ./src --project-id proj-abc123
+
+# JSON output
+gnosys trace ./src --json
+```
+
+This scans TypeScript/JavaScript files, extracts function declarations and call sites, then stores each as a procedural memory (category: `how`) with three relationship types:
+
+- **leads_to** — function A calls function B
+- **follows_from** — function B is called by function A
+- **requires** — function A imports from module B
+
+---
+
+## Relationship Traversal
+
+Walk relationship chains starting from any memory:
+
+```bash
+# Traverse from a memory (default depth: 3)
+gnosys traverse mem-001
+
+# Limit depth
+gnosys traverse mem-001 --depth 5
+
+# Filter by relationship type
+gnosys traverse mem-001 --rel-types leads_to,requires
+```
+
+In the helper library:
+
+```typescript
+const chain = await gnosys.traverse("mem-001", {
+  depth: 3,
+  rel_types: ["leads_to", "follows_from"],
+});
+// → { root, depth, nodes: [{ id, title, category, confidence, depth, via_rel, via_from }], total }
+```
+
+Traversal uses BFS and follows both outgoing and incoming edges. The depth is capped at 10 for safety.
 
 ---
 

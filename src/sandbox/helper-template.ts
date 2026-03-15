@@ -208,6 +208,59 @@ export const gnosys = {
     if (!res.ok) throw new Error(res.error || "stats failed");
     return res.result as any;
   },
+
+  /** Reflect on an outcome — updates confidence, adds relationships, creates a reflection memory */
+  async reflect(outcome: string, opts?: {
+    memory_ids?: string[];
+    success?: boolean;
+    notes?: string;
+    confidence_delta?: number;
+  }): Promise<{
+    reflection_id: string;
+    outcome: "success" | "failure";
+    memories_updated: Array<{ id: string; confidence: number; reinforcement_count: number }>;
+    relationships_created: number;
+    confidence_delta: number;
+  }> {
+    await ensureRunning();
+    const res = await send("reflect", {
+      outcome,
+      memory_ids: opts?.memory_ids ? JSON.stringify(opts.memory_ids) : undefined,
+      success: opts?.success,
+      notes: opts?.notes,
+      confidence_delta: opts?.confidence_delta,
+    });
+    if (!res.ok) throw new Error(res.error || "reflect failed");
+    return res.result as any;
+  },
+
+  /** Traverse relationship chains starting from a memory (BFS, depth-limited) */
+  async traverse(id: string, opts?: {
+    depth?: number;
+    rel_types?: string[];
+  }): Promise<{
+    root: string;
+    depth: number;
+    nodes: Array<{
+      id: string;
+      title: string;
+      category: string;
+      confidence: number;
+      depth: number;
+      via_rel: string | null;
+      via_from: string | null;
+    }>;
+    total: number;
+  }> {
+    await ensureRunning();
+    const res = await send("traverse", {
+      id,
+      depth: opts?.depth,
+      rel_types: opts?.rel_types ? JSON.stringify(opts.rel_types) : undefined,
+    });
+    if (!res.ok) throw new Error(res.error || "traverse failed");
+    return res.result as any;
+  },
 };
 
 export default gnosys;

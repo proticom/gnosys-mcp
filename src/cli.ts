@@ -93,7 +93,7 @@ function outputResult(json: boolean, data: unknown, humanFn: () => void): void {
 
 program
   .name("gnosys")
-  .description("Gnosys — Persistent memory for AI agents. Sandbox-first runtime, central SQLite brain, federated search, preferences, Dream Mode, Obsidian export. Also runs as a full MCP server.")
+  .description("Gnosys — Persistent memory for AI agents. Sandbox-first runtime, central SQLite brain, federated search, reflection API, process tracing, preferences, Dream Mode, Obsidian export. Also runs as a full MCP server.")
   .version(pkg.version);
 
 // ─── gnosys read <path> ──────────────────────────────────────────────────
@@ -3422,6 +3422,180 @@ helperCmd
         console.log(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
       } else {
         console.error(`Failed to generate helper: ${err instanceof Error ? err.message : err}`);
+      }
+      process.exit(1);
+    }
+  });
+
+// ─── Phase 10: gnosys trace ─────────────────────────────────────────────
+
+program
+  .command("trace <directory>")
+  .description("Trace a codebase and store procedural 'how' memories with call-chain relationships")
+  .option("--max-files <n>", "Maximum number of source files to scan", "500")
+  .option("--project-id <id>", "Project ID to associate memories with")
+  .option("--json", "Output as JSON")
+  .action(async (directory: string, opts: { maxFiles?: string; projectId?: string; json?: boolean }) => {
+    try {
+      const { traceCodebase } = await import("./lib/trace.js");
+      const { GnosysDB } = await import("./lib/db.js");
+
+      const dbDir = GnosysDB.getCentralDbDir();
+      const db = new GnosysDB(dbDir);
+
+      if (!db.isAvailable()) {
+        console.error("Error: GnosysDB not available. Is better-sqlite3 installed?");
+        process.exit(1);
+      }
+
+      const result = traceCodebase(db, directory, {
+        projectId: opts.projectId,
+        maxFiles: opts.maxFiles ? parseInt(opts.maxFiles, 10) : undefined,
+      });
+
+      db.close();
+
+      if (opts.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(`Trace complete:`);
+        console.log(`  Files scanned:        ${result.filesScanned}`);
+        console.log(`  Functions found:       ${result.functionsFound}`);
+        console.log(`  Memories created:      ${result.memoriesCreated}`);
+        console.log(`  Relationships created: ${result.relationshipsCreated}`);
+      }
+    } catch (err) {
+      if (opts.json) {
+        console.log(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
+      } else {
+        console.error(`Trace failed: ${err instanceof Error ? err.message : err}`);
+      }
+      process.exit(1);
+    }
+  });
+
+// ─── Phase 10: gnosys reflect ───────────────────────────────────────────
+
+program
+  .command("reflect <outcome>")
+  .description("Reflect on an outcome to update memory confidence and create relationships")
+  .option("--memory-ids <ids>", "Comma-separated list of memory IDs to relate to")
+  .option("--failure", "Mark this as a failure (default: success)")
+  .option("--notes <text>", "Additional notes about the outcome")
+  .option("--confidence-delta <n>", "Custom confidence delta (e.g. 0.1 or -0.2)")
+  .option("--json", "Output as JSON")
+  .action(async (outcome: string, opts: { memoryIds?: string; failure?: boolean; notes?: string; confidenceDelta?: string; json?: boolean }) => {
+    try {
+      const { GnosysDB } = await import("./lib/db.js");
+      const { handleRequest } = await import("./sandbox/server.js");
+
+      const dbDir = GnosysDB.getCentralDbDir();
+      const db = new GnosysDB(dbDir);
+
+      if (!db.isAvailable()) {
+        console.error("Error: GnosysDB not available. Is better-sqlite3 installed?");
+        process.exit(1);
+      }
+
+      const params: Record<string, any> = {
+        outcome,
+        success: !opts.failure,
+      };
+      if (opts.memoryIds) params.memory_ids = opts.memoryIds.split(",").map((s) => s.trim());
+      if (opts.notes) params.notes = opts.notes;
+      if (opts.confidenceDelta) params.confidence_delta = parseFloat(opts.confidenceDelta);
+
+      const res = handleRequest(db, {
+        id: "cli-reflect",
+        method: "reflect",
+        params,
+      });
+
+      db.close();
+
+      if (!res.ok) {
+        console.error(`Reflect failed: ${res.error}`);
+        process.exit(1);
+      }
+
+      const result = res.result as any;
+      if (opts.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(`Reflection recorded:`);
+        console.log(`  ID:                    ${result.reflection_id}`);
+        console.log(`  Outcome:               ${result.outcome}`);
+        console.log(`  Memories updated:      ${result.memories_updated.length}`);
+        console.log(`  Relationships created: ${result.relationships_created}`);
+        console.log(`  Confidence delta:      ${result.confidence_delta > 0 ? "+" : ""}${result.confidence_delta.toFixed(2)}`);
+      }
+    } catch (err) {
+      if (opts.json) {
+        console.log(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
+      } else {
+        console.error(`Reflect failed: ${err instanceof Error ? err.message : err}`);
+      }
+      process.exit(1);
+    }
+  });
+
+// ─── Phase 10: gnosys traverse ──────────────────────────────────────────
+
+program
+  .command("traverse <memoryId>")
+  .description("Traverse relationship chains starting from a memory (BFS, depth-limited)")
+  .option("-d, --depth <n>", "Maximum traversal depth (default: 3, max: 10)", "3")
+  .option("--rel-types <types>", "Comma-separated relationship types to follow (e.g. leads_to,requires)")
+  .option("--json", "Output as JSON")
+  .action(async (memoryId: string, opts: { depth?: string; relTypes?: string; json?: boolean }) => {
+    try {
+      const { GnosysDB } = await import("./lib/db.js");
+      const { handleRequest } = await import("./sandbox/server.js");
+
+      const dbDir = GnosysDB.getCentralDbDir();
+      const db = new GnosysDB(dbDir);
+
+      if (!db.isAvailable()) {
+        console.error("Error: GnosysDB not available. Is better-sqlite3 installed?");
+        process.exit(1);
+      }
+
+      const params: Record<string, any> = {
+        id: memoryId,
+        depth: opts.depth ? parseInt(opts.depth, 10) : 3,
+      };
+      if (opts.relTypes) params.rel_types = opts.relTypes.split(",").map((s) => s.trim());
+
+      const res = handleRequest(db, {
+        id: "cli-traverse",
+        method: "traverse",
+        params,
+      });
+
+      db.close();
+
+      if (!res.ok) {
+        console.error(`Traverse failed: ${res.error}`);
+        process.exit(1);
+      }
+
+      const result = res.result as any;
+      if (opts.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(`Traversal from ${memoryId} (depth: ${result.depth}):`);
+        console.log(`  Total nodes: ${result.total}\n`);
+        for (const node of result.nodes) {
+          const indent = "  ".repeat(node.depth + 1);
+          const via = node.via_rel ? ` ← [${node.via_rel}] from ${node.via_from}` : " (root)";
+          console.log(`${indent}${node.id}: ${node.title} (conf: ${node.confidence.toFixed(2)})${via}`);
+        }
+      }
+    } catch (err) {
+      if (opts.json) {
+        console.log(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
+      } else {
+        console.error(`Traverse failed: ${err instanceof Error ? err.message : err}`);
       }
       process.exit(1);
     }

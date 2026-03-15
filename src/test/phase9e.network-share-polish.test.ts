@@ -333,8 +333,8 @@ describe("TC-9e.10: Documentation files exist", () => {
     expect(guide).toContain("Migration");
   });
 
-  it("package.json version is 3.0.0", () => {
+  it("package.json version is 3.1.0", () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(projectRoot, "package.json"), "utf-8"));
-    expect(pkg.version).toBe("3.0.0");
+    expect(pkg.version).toBe("3.1.0");
   });
 });
