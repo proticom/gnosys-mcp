@@ -396,6 +396,245 @@ export function handleRequest(db: GnosysDB, req: SandboxRequest): SandboxRespons
         };
       }
 
+      // ─── Phase 10: Reflection API ─────────────────────────────────────
+
+      case "reflect": {
+        const {
+          outcome,
+          memory_ids,
+          success,
+          notes,
+          confidence_delta,
+        } = req.params as Record<string, any>;
+
+        if (!outcome) return { id: req.id, ok: false, error: "outcome is required" };
+
+        const now = new Date().toISOString();
+        const memoryIdList: string[] = memory_ids
+          ? (Array.isArray(memory_ids) ? memory_ids : JSON.parse(memory_ids as string))
+          : [];
+        const isSuccess = success !== false; // default true
+        const delta = confidence_delta != null
+          ? Number(confidence_delta)
+          : (isSuccess ? 0.05 : -0.1);
+
+        // Track which memories were updated
+        const updated: Array<{ id: string; confidence: number; reinforcement_count: number }> = [];
+        const relationships: Array<{ source_id: string; target_id: string; rel_type: string }> = [];
+
+        // If no explicit memory_ids, search for related memories
+        let targetIds = memoryIdList;
+        if (targetIds.length === 0) {
+          const results = db.searchFts(outcome, 5);
+          targetIds = results.map((r) => r.id);
+        }
+
+        // Update confidence on each related memory
+        for (const memId of targetIds) {
+          const mem = db.getMemory(memId);
+          if (!mem) continue;
+
+          const newConf = Math.max(0.05, Math.min(1.0, mem.confidence + delta));
+          const updates: Partial<DbMemory> = {
+            confidence: newConf,
+            modified: now,
+          };
+
+          if (isSuccess) {
+            updates.reinforcement_count = mem.reinforcement_count + 1;
+            updates.last_reinforced = now;
+          }
+
+          db.updateMemory(memId, updates);
+          updated.push({
+            id: memId,
+            confidence: newConf,
+            reinforcement_count: (updates.reinforcement_count ?? mem.reinforcement_count),
+          });
+        }
+
+        // Create a reflection memory that records the outcome
+        const reflectionId = `mem-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const reflectionContent = [
+          `## Reflection: ${isSuccess ? "Success" : "Failure"}`,
+          "",
+          `**Outcome:** ${outcome}`,
+          notes ? `\n**Notes:** ${notes}` : "",
+          "",
+          `**Related memories:** ${targetIds.join(", ")}`,
+          `**Confidence adjustment:** ${delta > 0 ? "+" : ""}${delta.toFixed(2)}`,
+        ].filter(Boolean).join("\n");
+
+        db.insertMemory({
+          id: reflectionId,
+          title: `Reflection: ${(outcome as string).slice(0, 60)}`,
+          category: "reflections",
+          content: reflectionContent,
+          summary: null,
+          tags: JSON.stringify(["reflection", isSuccess ? "success" : "failure"]),
+          relevance: `reflection outcome ${outcome}`,
+          author: "ai",
+          authority: "observed",
+          confidence: 0.8,
+          reinforcement_count: 0,
+          content_hash: "",
+          status: "active",
+          tier: "active",
+          supersedes: null,
+          superseded_by: null,
+          last_reinforced: null,
+          created: now,
+          modified: now,
+          embedding: null,
+          source_path: null,
+          project_id: null,
+          scope: "user",
+        });
+
+        // Add relationships: reflection → each related memory
+        for (const memId of targetIds) {
+          db.insertRelationship({
+            source_id: reflectionId,
+            target_id: memId,
+            rel_type: isSuccess ? "validates" : "contradicts",
+            label: `Reflection ${isSuccess ? "validated" : "contradicted"} this memory`,
+            confidence: 0.9,
+            created: now,
+          });
+          relationships.push({
+            source_id: reflectionId,
+            target_id: memId,
+            rel_type: isSuccess ? "validates" : "contradicts",
+          });
+        }
+
+        // Consolidation: if success, link related memories to each other
+        if (isSuccess && targetIds.length > 1) {
+          for (let i = 0; i < targetIds.length - 1; i++) {
+            db.insertRelationship({
+              source_id: targetIds[i],
+              target_id: targetIds[i + 1],
+              rel_type: "corroborates",
+              label: `Linked by successful reflection on: ${(outcome as string).slice(0, 60)}`,
+              confidence: 0.7,
+              created: now,
+            });
+          }
+        }
+
+        return {
+          id: req.id,
+          ok: true,
+          result: {
+            reflection_id: reflectionId,
+            outcome: isSuccess ? "success" : "failure",
+            memories_updated: updated,
+            relationships_created: relationships.length,
+            confidence_delta: delta,
+          },
+        };
+      }
+
+      // ─── Phase 10: Traverse relationship chains ────────────────────────
+
+      case "traverse": {
+        const {
+          id: startId,
+          depth = 3,
+          rel_types,
+        } = req.params as Record<string, any>;
+
+        if (!startId) return { id: req.id, ok: false, error: "id is required" };
+
+        const maxDepth = Math.min(Number(depth), 10); // safety cap
+        const allowedTypes: string[] | null = rel_types
+          ? (Array.isArray(rel_types) ? rel_types : JSON.parse(rel_types as string))
+          : null;
+
+        // BFS traversal through relationships
+        interface TraversalNode {
+          id: string;
+          title: string;
+          category: string;
+          confidence: number;
+          depth: number;
+          via_rel: string | null; // relationship type that led here
+          via_from: string | null; // which node we came from
+        }
+
+        const visited = new Set<string>();
+        const nodes: TraversalNode[] = [];
+        const queue: Array<{ id: string; depth: number; via_rel: string | null; via_from: string | null }> = [];
+
+        // Start node
+        const startMem = db.getMemory(startId as string);
+        if (!startMem) return { id: req.id, ok: false, error: `Memory not found: ${startId}` };
+
+        visited.add(startId as string);
+        nodes.push({
+          id: startMem.id,
+          title: startMem.title,
+          category: startMem.category,
+          confidence: startMem.confidence,
+          depth: 0,
+          via_rel: null,
+          via_from: null,
+        });
+
+        queue.push({ id: startId as string, depth: 0, via_rel: null, via_from: null });
+
+        while (queue.length > 0) {
+          const current = queue.shift()!;
+          if (current.depth >= maxDepth) continue;
+
+          // Get outgoing relationships
+          const outgoing = db.getRelationshipsFrom(current.id);
+          const incoming = db.getRelationshipsTo(current.id);
+          const allRels = [
+            ...outgoing.map((r) => ({ targetId: r.target_id, rel_type: r.rel_type })),
+            ...incoming.map((r) => ({ targetId: r.source_id, rel_type: r.rel_type })),
+          ];
+
+          for (const rel of allRels) {
+            if (visited.has(rel.targetId)) continue;
+            if (allowedTypes && !allowedTypes.includes(rel.rel_type)) continue;
+
+            visited.add(rel.targetId);
+            const mem = db.getMemory(rel.targetId);
+            if (!mem) continue;
+
+            const node: TraversalNode = {
+              id: mem.id,
+              title: mem.title,
+              category: mem.category,
+              confidence: mem.confidence,
+              depth: current.depth + 1,
+              via_rel: rel.rel_type,
+              via_from: current.id,
+            };
+
+            nodes.push(node);
+            queue.push({
+              id: mem.id,
+              depth: current.depth + 1,
+              via_rel: rel.rel_type,
+              via_from: current.id,
+            });
+          }
+        }
+
+        return {
+          id: req.id,
+          ok: true,
+          result: {
+            root: startId,
+            depth: maxDepth,
+            nodes,
+            total: nodes.length,
+          },
+        };
+      }
+
       case "shutdown":
         // Stop dream scheduler before shutting down
         if (dreamScheduler) {
