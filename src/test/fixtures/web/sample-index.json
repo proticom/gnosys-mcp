@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "generated": "2026-03-22T12:00:00.000Z",
+  "documentCount": 5,
+  "documents": [
+    {
+      "id": "web-001",
+      "path": "web-building-in-public.md",
+      "title": "Building in Public: Why Transparency Wins",
+      "category": "concepts",
+      "tags": ["domain:marketing", "domain:growth", "type:blog-post"],
+      "relevance": "building public transparency growth marketing",
+      "contentHash": "abc001",
+      "contentLength": 200,
+      "created": "2026-03-20",
+      "status": "active"
+    },
+    {
+      "id": "web-002",
+      "path": "web-ai-readiness.md",
+      "title": "AI Readiness Assessment",
+      "category": "concepts",
+      "tags": ["domain:ai", "domain:strategy", "type:blog-post"],
+      "relevance": "ai readiness assessment strategy automation",
+      "contentHash": "abc002",
+      "contentLength": 180,
+      "created": "2026-03-19",
+      "status": "active"
+    },
+    {
+      "id": "web-003",
+      "path": "web-agentic-automation.md",
+      "title": "Agentic Automation Services",
+      "category": "architecture",
+      "tags": ["domain:automation", "domain:ai-agents", "type:service-page"],
+      "relevance": "automation agentic workflow agents retrieval deployment",
+      "contentHash": "abc003",
+      "contentLength": 250,
+      "created": "2026-03-18",
+      "status": "active"
+    },
+    {
+      "id": "web-004",
+      "path": "web-mavenn-platform.md",
+      "title": "Mavenn Platform",
+      "category": "architecture",
+      "tags": ["domain:knowledge-management", "domain:product", "type:product-page"],
+      "relevance": "mavenn platform knowledge search graph team integrations retrieval",
+      "contentHash": "abc004",
+      "contentLength": 220,
+      "created": "2026-03-17",
+      "status": "active"
+    },
+    {
+      "id": "web-005",
+      "path": "web-about.md",
+      "title": "About Example Co",
+      "category": "landscape",
+      "tags": ["domain:company", "domain:team", "type:about-page"],
+      "relevance": "about company mission team knowledge",
+      "contentHash": "abc005",
+      "contentLength": 190,
+      "created": "2026-03-16",
+      "status": "active"
+    }
+  ],
+  "invertedIndex": {
+    "automation": [{"docIndex": 2, "score": 3.5}, {"docIndex": 1, "score": 1.2}],
+    "knowledge": [{"docIndex": 3, "score": 2.8}, {"docIndex": 4, "score": 2.1}],
+    "mavenn": [{"docIndex": 3, "score": 4.0}],
+    "agents": [{"docIndex": 2, "score": 3.2}],
+    "building": [{"docIndex": 0, "score": 3.0}],
+    "transparency": [{"docIndex": 0, "score": 2.5}],
+    "public": [{"docIndex": 0, "score": 2.0}],
+    "ai": [{"docIndex": 1, "score": 3.5}, {"docIndex": 2, "score": 1.5}],
+    "readiness": [{"docIndex": 1, "score": 3.8}],
+    "platform": [{"docIndex": 3, "score": 3.0}],
+    "search": [{"docIndex": 3, "score": 2.0}],
+    "graph": [{"docIndex": 3, "score": 1.8}],
+    "team": [{"docIndex": 4, "score": 2.5}, {"docIndex": 3, "score": 1.0}],
+    "mission": [{"docIndex": 4, "score": 2.8}],
+    "workflows": [{"docIndex": 2, "score": 2.2}],
+    "growth": [{"docIndex": 0, "score": 1.5}],
+    "integrations": [{"docIndex": 3, "score": 1.5}],
+    "company": [{"docIndex": 4, "score": 3.0}],
+    "retrieval": [{"docIndex": 2, "score": 1.8}, {"docIndex": 3, "score": 1.5}],
+    "deployment": [{"docIndex": 2, "score": 1.2}]
+  }
+}

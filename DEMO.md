@@ -1,0 +1,681 @@
+# Gnosys v3.0 — Real-World Demo
+
+This document shows Gnosys importing real data from two production APIs: **USDA FoodData Central** and **NVD (National Vulnerability Database)**, then demonstrates the v3.0 features: sandbox-first runtime, central SQLite brain, federated search, Dream Mode consolidation, and Obsidian export.
+
+## What This Proves
+
+- Gnosys handles messy real-world JSON from government APIs
+- Bulk import creates atomic memories in the central `~/.gnosys/gnosys.db` with rich YAML frontmatter
+- Wikilinks (`[[vendor/product]]`, `[[Food Category]]`) work out of the box
+- Dual-write keeps human-readable `.md` copies as a safety net and Obsidian export path
+- Federated search ranks results across project, user, and global scopes
+- Dream Mode discovers relationships and generates summaries across the knowledge base
+- `gnosys export` regenerates a full Obsidian vault from the central database
+
+---
+
+## 1. USDA FoodData Central Import
+
+**Source:** [FoodData Central API](https://fdc.nal.usda.gov/) — Foundation Foods dataset
+
+### Download the data
+
+```bash
+curl -sL "https://api.nal.usda.gov/fdc/v1/foods/list?api_key=DEMO_KEY&dataType=Foundation&pageSize=100&pageNumber=1" \
+  -o usda-foundation-100.json
+```
+
+### Pre-process into Gnosys-ready format
+
+The raw API returns nested JSON with `foodNutrients` arrays. A small Python script flattens this into records with `title`, `category`, `content` (with wikilinks), `tags`, and `relevance` fields. See `scripts/prep-usda.py`.
+
+### Import into Gnosys
+
+```bash
+gnosys import usda-import-ready.json \
+  --format json \
+  --mapping '{"title":"title","category":"category","content":"content","tags":"tags","relevance":"relevance"}' \
+  --mode structured \
+  --skip-existing \
+  --batch-commit
+```
+
+### Result
+
+```
+✓ Import complete in 0.6s
+  Imported: 100
+  Skipped:  0
+  Failed:   0
+  Total:    100
+```
+
+### Sample dual-write file: `.gnosys/usda-foods/almond-butter-creamy.md`
+
+> **Note:** The primary record lives in `~/.gnosys/gnosys.db`. This `.md` file is the dual-write copy kept for safety and Obsidian export.
+
+```yaml
+---
+id: usda-001
+title: "Almond butter, creamy"
+category: usda-foods
+tags:
+  domain: [food, nutrition, usda]
+relevance: "almond butter creamy food nutrition usda fdc nutrient diet dietary protein"
+author: ai
+authority: imported
+confidence: 0.8
+created: "2026-03-09"
+modified: "2026-03-09"
+status: active
+---
+# Almond butter, creamy
+
+**Food Category:** [[General]]
+**NDB Number:** 12195
+**Data Type:** Foundation
+**Published:** 2022-04-28
+
+## Key Nutrients (per 100g)
+- Calcium (mg): 264 MG
+- Carbohydrate (g): 21.2 G
+- Cholesterol (mg): 0 MG
+- Energy (kcal): 614 KCAL
+- Iron (mg): 3.34 MG
+- Magnesium (mg): 279 MG
+- Phosphorus (mg): 508 MG
+- Potassium (mg): 699 MG
+- Protein (g): 20.4 G
+- Saturated Fat (g): 5.24 G
+- Sodium (mg): 286 MG
+- Total Fat (g): 55.7 G
+- Vitamin C (mg): 0 MG
+- Zinc (mg): 3.29 MG
+```
+
+---
+
+## 2. NVD CVE Import
+
+**Source:** [NVD CVE API 2.0](https://services.nvd.nist.gov/rest/json/cves/2.0)
+
+### Download the data
+
+```bash
+curl -sL "https://services.nvd.nist.gov/rest/json/cves/2.0?resultsPerPage=20" \
+  -o nvd-cves-raw.json
+```
+
+### Pre-process
+
+A Python script extracts CVE ID, description, CVSS score/severity, affected products (as wikilinks), and references. See `scripts/prep-nvd.py`.
+
+### Import into Gnosys
+
+```bash
+gnosys import nvd-import-ready.json \
+  --format json \
+  --mapping '{"title":"title","category":"category","content":"content","tags":"tags","relevance":"relevance"}' \
+  --mode structured \
+  --skip-existing \
+  --batch-commit
+```
+
+### Result
+
+```
+✓ Import complete in 0.3s
+  Imported: 20
+  Skipped:  0
+  Failed:   0
+  Total:    20
+```
+
+### Sample dual-write file: `.gnosys/nvd-cves/cve-1999-0095.md`
+
+> **Note:** The primary record lives in `~/.gnosys/gnosys.db`. This `.md` file is the dual-write safety copy.
+
+```yaml
+---
+id: nvd--001
+title: CVE-1999-0095
+category: nvd-cves
+tags:
+  domain: [cve, vulnerability, security, high]
+relevance: "cve-1999-0095 cve vulnerability security nvd patch exploit high eric_allman sendmail"
+author: ai
+authority: imported
+confidence: 0.8
+---
+# CVE-1999-0095
+
+The debug command in Sendmail is enabled, allowing attackers to execute commands as root.
+
+**CVSS Score:** 10.0 (HIGH)
+
+**Affected:** [[eric_allman/sendmail]]
+```
+
+---
+
+## Storage Layout After Import
+
+### Central brain (primary store)
+
+```
+~/.gnosys/
+└── gnosys.db            # All 120 memories in SQLite (sub-10ms reads)
+```
+
+### Project dual-write copies (safety net + Obsidian export)
+
+```
+your-project/.gnosys/
+├── gnosys.json           # Project identity (projectId, name)
+├── usda-foods/           # 100 food memory .md copies
+│   ├── almond-butter-creamy.md
+│   ├── apples-fuji-with-skin-raw.md
+│   ├── beef-ground-80-lean-meat-20-fat-raw.md
+│   ├── broccoli-raw.md
+│   ├── cheese-cheddar.md
+│   └── ... (100 files)
+├── nvd-cves/             # 20 CVE memory .md copies
+│   ├── cve-1999-0095.md
+│   ├── cve-1999-0082.md
+│   └── ... (20 files)
+└── .config/
+    └── tags.yml
+```
+
+The `.md` files are human-readable and Obsidian-compatible. Run `gnosys export --to ~/vaults/demo` to generate a clean Obsidian vault from the central DB at any time.
+
+## LLM Provider Configuration
+
+Gnosys supports five LLM providers: Anthropic, Ollama, Groq, OpenAI, and LM Studio.
+
+```bash
+# Check current setup
+gnosys config show
+```
+
+```
+LLM Configuration:
+  Default provider: anthropic
+  Anthropic model:  claude-sonnet-4-20250514
+  Anthropic API key: set via env
+  Ollama model:     llama3.2
+  Ollama URL:       http://localhost:11434
+
+Task Models:
+  Structuring: anthropic/claude-sonnet-4-20250514 (default)
+  Synthesis:   anthropic/claude-sonnet-4-20250514 (default)
+```
+
+Switch to Ollama for fully offline operation:
+
+```bash
+gnosys config set provider ollama
+gnosys ask "What are the highest protein foods in this vault?"
+```
+
+Run `gnosys doctor` to verify connectivity:
+
+```bash
+gnosys doctor
+```
+
+```
+Gnosys Doctor
+=============
+
+Stores:
+  project: 120 memories
+
+LLM Configuration:
+  Default provider: ollama
+  Structuring: ollama/llama3.2
+  Synthesis:   ollama/llama3.2
+
+LLM Connectivity:
+  Anthropic: No ANTHROPIC_API_KEY set.
+  Ollama: connected (model llama3.2 available at http://localhost:11434)
+
+Embeddings:
+  Index: 120 embeddings (0.0 MB)
+```
+
+## Querying the Vault
+
+### Keyword Search (FTS5)
+
+```bash
+# Find high-protein foods
+gnosys search "protein"
+
+# Find security vulnerabilities affecting sendmail
+gnosys search "sendmail"
+
+# Discover nutrition-related memories
+gnosys discover "nutrition diet protein"
+```
+
+### Hybrid Search
+
+Hybrid search combines FTS5 keyword search with semantic embeddings via Reciprocal Rank Fusion (RRF). First, build the embedding index:
+
+```bash
+gnosys reindex
+```
+
+```
+✓ Reindex complete
+  Indexed: 120 memories in 12.3s
+```
+
+Then search across both keyword and semantic signals:
+
+```bash
+# Hybrid search (keyword + semantic, default)
+gnosys hybrid-search "high protein low sodium foods"
+
+# Semantic-only search (meaning-based)
+gnosys semantic-search "foods good for heart health"
+
+# Keyword-only mode
+gnosys hybrid-search "cheddar cheese protein" --mode keyword
+```
+
+### Freeform Ask
+
+Ask natural-language questions and get synthesized answers with citations:
+
+```bash
+# Ask about nutrition
+gnosys ask "Which foods in this vault have the most protein per 100g?"
+
+# Ask about security
+gnosys ask "What are the most critical vulnerabilities and what do they affect?"
+
+# Stream the answer in real-time (default)
+gnosys ask "Compare the calcium content of dairy vs non-dairy foods"
+
+# Disable streaming
+gnosys ask "What sendmail vulnerabilities exist?" --no-stream
+```
+
+Example output:
+
+```
+Based on the vault data, the highest-protein foods per 100g are:
+
+**Chicken breast** at 31.0g protein [[chicken-breast-without-skin-raw.md]]
+is the leader, followed by **beef ground 93% lean** at 26.1g
+[[beef-ground-93-lean-meat-7-fat-raw.md]] and **tuna, yellowfin** at
+24.4g [[tuna-yellowfin-fresh-raw.md]].
+
+Sources:
+  - chicken-breast-without-skin-raw.md
+  - beef-ground-93-lean-meat-7-fat-raw.md
+  - tuna-yellowfin-fresh-raw.md
+```
+
+---
+
+## Scaling Up
+
+The same pipeline works at scale. To import the full USDA Foundation Foods dataset (~8,000 foods):
+
+```bash
+# Paginate through the API
+for page in $(seq 1 80); do
+  curl -sL "https://api.nal.usda.gov/fdc/v1/foods/list?api_key=YOUR_KEY&dataType=Foundation&pageSize=100&pageNumber=$page" \
+    -o "usda-page-$page.json"
+done
+
+# Process and import each page
+python3 scripts/prep-usda.py usda-page-*.json > usda-all.json
+gnosys import usda-all.json --format json --mapping '...' --mode structured --skip-existing
+```
+
+For NVD, the full database has 200k+ CVEs. Use `--limit` and `--offset` for incremental imports:
+
+```bash
+gnosys import nvd-all.json --format json --mapping '...' --mode structured --skip-existing --limit 1000 --offset 0
+```
+
+---
+
+## Maintenance
+
+After importing data and using the vault over time, run maintenance to keep things clean:
+
+### Dry Run (preview changes)
+
+```bash
+gnosys maintain --dry-run
+```
+
+```
+Starting maintenance (dry run)...
+Found 120 active memories across 1 store(s)
+Step 1/3: Detecting duplicates...
+  Found 2 duplicate pair(s)
+Step 2/3: Calculating confidence decay...
+  3 stale memorie(s) (confidence < 0.3)
+  Average confidence: 0.800 → decayed: 0.721
+Step 3/3: Applying changes...
+→ [DRY RUN] Would consolidate: "Almond Butter, Creamy" + "Almond Butter" (similarity: 0.912)
+→ [DRY RUN] Would consolidate: "CVE-1999-0095" + "CVE-1999-0095 Sendmail" (similarity: 0.874)
+→ [DRY RUN] Would update decay: "Old unused memory" (0.80 → 0.24, 240 days since reinforced)
+
+Gnosys Maintenance Report
+========================================
+
+Total memories scanned: 120
+Average confidence: 0.800 (decayed: 0.721)
+
+Duplicates found: 2
+Stale memories: 3 (confidence < 0.3)
+
+Actions (5):
+  [DRY RUN] Would consolidate: ...
+  [DRY RUN] Would update decay: ...
+```
+
+### Auto-Apply (apply all changes)
+
+```bash
+gnosys maintain --auto-apply
+```
+
+All changes are written to the central DB with dual-write `.md` updates. Use `gnosys backup` before maintenance for point-in-time recovery.
+
+### Doctor with Maintenance Health
+
+```bash
+gnosys doctor
+```
+
+```
+...
+Maintenance Health:
+  Active memories: 120
+  Stale (confidence < 0.3): 3
+  Average confidence: 0.800 (decayed: 0.721)
+  Never reinforced: 15
+  Total reinforcements: 342
+```
+
+---
+
+## Wikilink Graph
+
+Build a persistent JSON graph from all `[[wikilinks]]` in your memories:
+
+```bash
+gnosys reindex-graph
+```
+
+```
+Scanning 120 memories for [[wikilinks]]...
+Found 45 edges across 120 nodes
+Graph written to .gnosys/graph.json
+
+Wikilink Graph:
+  Nodes: 120
+  Edges: 45
+  Orphan nodes (no links): 68
+  Orphan links (unresolved): 12
+  Avg edges/node: 0.75
+  Most connected: CVE-1999-0095 (8 edges)
+```
+
+The graph data is stored in the `relationships` table in `gnosys.db` and is fully regeneratable — re-run `gnosys reindex-graph` anytime.
+
+---
+
+## System Dashboard
+
+Get a complete view of your Gnosys installation:
+
+```bash
+gnosys dashboard
+```
+
+```
+╔══════════════════════════════════════════════════════╗
+║          GNOSYS DASHBOARD  v1.2.0                   ║
+╠══════════════════════════════════════════════════════╣
+║  MEMORY STORES                                      ║
+╟──────────────────────────────────────────────────────╢
+║  project: 120 active memories                       ║
+║  Total: 120 active memories                         ║
+╟──────────────────────────────────────────────────────╢
+║  ARCHIVE (TWO-TIER MEMORY)                          ║
+╟──────────────────────────────────────────────────────╢
+║  Archived: 0 memories (0.0 MB)                      ║
+║  Eligible for archiving: 0                          ║
+╟──────────────────────────────────────────────────────╢
+║  MAINTENANCE HEALTH                                 ║
+╟──────────────────────────────────────────────────────╢
+║  Confidence: 0.800 raw / 0.721 decayed              ║
+║  Stale: 3 | Never reinforced: 15                    ║
+║  Total reinforcements: 342                          ║
+╟──────────────────────────────────────────────────────╢
+║  EMBEDDINGS                                         ║
+╟──────────────────────────────────────────────────────╢
+║  120 vectors (0.3 MB)                               ║
+╟──────────────────────────────────────────────────────╢
+║  WIKILINK GRAPH                                     ║
+╟──────────────────────────────────────────────────────╢
+║  120 nodes, 45 edges, 68 orphans                    ║
+║  Most connected: CVE-1999-0095                      ║
+╟──────────────────────────────────────────────────────╢
+║  SYSTEM OF COGNITION (SOC)                          ║
+╟──────────────────────────────────────────────────────╢
+║  Default: anthropic                                 ║
+║  Structuring → anthropic/claude-sonnet-4-20250514   ║
+║  Synthesis   → anthropic/claude-sonnet-4-20250514   ║
+║                                                     ║
+║  ✓ anthropic: ready                                 ║
+║  ✓ ollama: ready                                    ║
+║  — groq: No GROQ_API_KEY set                        ║
+║  — openai: No OPENAI_API_KEY set                    ║
+║  ✓ lmstudio: ready                                  ║
+╚══════════════════════════════════════════════════════╝
+```
+
+For JSON output (useful for MCP tools and scripts): `gnosys dashboard --json`
+
+---
+
+## Two-Tier Memory
+
+As your vault grows, maintenance automatically archives old, low-confidence memories to SQLite:
+
+```bash
+# See what would be archived (dry run by default)
+gnosys maintain
+
+# Actually archive stale memories
+gnosys maintain --auto-apply
+
+# Force-dearchive specific knowledge back to active
+gnosys dearchive "almond butter nutrition"
+```
+
+When you `gnosys ask` a question, both active and archived memories are searched. If an archived memory gets cited in the answer, it's automatically restored to the active layer and reinforced — no manual intervention needed.
+
+## Enterprise Reliability
+
+For long-running agent orchestrators (OpenClaw, AutoGPT, CrewAI, etc.), Gnosys provides always-on recall that injects memory context before every agent turn:
+
+```bash
+# Aggressive mode (default) — always injects top 3 + rest above relevance floor
+gnosys recall "almond milk nutrition facts"
+
+# Filtered mode — hard cutoff at minRelevance
+gnosys recall "organic certification" --no-aggressive
+
+# Host-friendly format for MCP injection
+gnosys recall "almond milk" --host
+# Output:
+# <gnosys-recall>
+# [Memory 1] [[usda-almond-nutritional-profile.md]] (relevance: 0.92)
+# Almonds provide 579 kcal per 100g with 21.2g protein...
+# </gnosys-recall>
+
+# When nothing matches:
+# <gnosys: no-strong-recall-needed>
+
+# Configure recall from CLI
+gnosys config set recall aggressive true
+gnosys config set recall maxMemories 12
+```
+
+Configure recall in `gnosys.json`:
+```json
+{
+  "recall": {
+    "aggressive": true,
+    "maxMemories": 8,
+    "minRelevance": 0.4
+  }
+}
+```
+
+Every operation is logged to a structured audit trail:
+
+```bash
+# View recent operations
+gnosys audit --days 7
+
+# Filter to just recall operations
+gnosys audit --operation recall --json
+```
+
+The dashboard now includes performance benchmarks:
+
+```bash
+gnosys dashboard
+# ... includes PERFORMANCE (ENTERPRISE) section with:
+#   Recall: 3ms ✓
+#   Active search: 1ms
+#   Archive search: 2ms
+```
+
+Concurrent writes are safe — the locking system prevents corruption when multiple agents write simultaneously, and SQLite databases use WAL mode for concurrent read/write access.
+
+---
+
+## Central Brain (v3.0)
+
+In v3.0, all imports go directly to the central `~/.gnosys/gnosys.db`. There's no separate migration step needed for new imports. If you have existing v2.x data in per-project `.gnosys/gnosys.db` files, migrate with:
+
+```bash
+gnosys migrate --to-central
+```
+
+```
+Gnosys Migration Report
+========================
+Memories migrated: 120
+  From project DB: 120
+Relationships:       45
+Embeddings:          120
+Audit entries:       342
+
+Database: ~/.gnosys/gnosys.db (1.2 MB)
+FTS5 index: synced (120 documents)
+WAL mode: enabled
+```
+
+All reads and writes go through the central SQLite DB. Dual-write `.md` copies are maintained as a safety net and for Obsidian export.
+
+---
+
+## Dream Mode
+
+Run an idle-time consolidation cycle to organize and analyze the vault:
+
+```bash
+gnosys dream
+```
+
+```
+Dream Mode — Starting 4-phase consolidation
+============================================
+
+Phase 1: Confidence Decay
+  Scanned 120 memories
+  Decayed 15 memories (avg confidence drop: 0.12)
+
+Phase 2: Self-Critique
+  Reviewed 120 memories
+  Flagged 3 for review (low quality / stale)
+
+Phase 3: Summary Generation
+  Generated summaries for 2 categories
+  Stored in summaries table
+
+Phase 4: Relationship Discovery
+  Discovered 8 new relationships
+  Stored in relationships table
+
+Dream Report:
+  Duration: 45s
+  Decay updates: 15
+  Review suggestions: 3
+  Summaries generated: 2
+  Relationships discovered: 8
+```
+
+Dream Mode never deletes — it only suggests reviews and enriches the knowledge graph.
+
+---
+
+## Obsidian Export
+
+Export the entire `gnosys.db` to an Obsidian-compatible vault:
+
+```bash
+gnosys export --to ~/vaults/demo-export --all
+```
+
+```
+Export Report
+=============
+Exported 120 memories to /Users/you/vaults/demo-export
+  Categories: usda-foods (100), nvd-cves (20)
+  Summaries: 2 files in _summaries/
+  Reviews: 3 files in _review/
+  Graph: relationships.md in _graph/
+  Wikilinks embedded: 45
+```
+
+Open the exported folder in Obsidian to get graph view, wikilinks, backlinks, and tag search over the entire vault.
+
+---
+
+## Multi-Project Support (v3.0)
+
+In v3.0, the central `~/.gnosys/gnosys.db` holds all projects. Each project is identified by its `project_id` column, registered via `gnosys init`. The sandbox process holds the database connection and routes requests by project automatically.
+
+Debug with:
+
+```bash
+gnosys projects
+```
+
+```
+Registered Projects:
+  project-a (id: prj-a1b2c3) — /Users/you/project-a
+  project-b (id: prj-d4e5f6) — /Users/you/project-b
+
+Central DB: ~/.gnosys/gnosys.db (1.2 MB)
+  Total memories: 120
+  project-a: 80 memories
+  project-b: 40 memories
+```
+
+Federated search ranks results across all projects with tier boosting, and ambiguity detection warns when a query hits multiple projects.

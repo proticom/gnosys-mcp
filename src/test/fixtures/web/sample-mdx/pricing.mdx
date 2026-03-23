@@ -1,0 +1,38 @@
+---
+title: 'Pricing'
+description: 'Simple, transparent pricing for teams of all sizes.'
+layout: pricing
+---
+
+import { PricingTable } from '../components/PricingTable'
+
+# Pricing
+
+No surprises. Pick the plan that fits your team.
+
+<PricingTable
+  plans={[
+    {
+      name: 'Free',
+      price: '$0',
+      period: 'forever',
+      features: ['Up to 5 users', '1,000 knowledge entries', 'Community support'],
+      cta: 'Get Started'
+    },
+    {
+      name: 'Pro',
+      price: '$12',
+      period: 'per user/month',
+      features: ['Unlimited users', 'Unlimited entries', 'Priority support', 'SSO & RBAC'],
+      cta: 'Start Free Trial',
+      highlighted: true
+    },
+    {
+      name: 'Enterprise',
+      price: 'Custom',
+      period: 'contact us',
+      features: ['Self-hosted option', 'Dedicated CSM', 'SLA guarantee', 'Custom integrations'],
+      cta: 'Contact Sales'
+    }
+  ]}
+/>
