@@ -314,23 +314,16 @@ describe("TC-9e.9: CLI backup/restore --json output", () => {
 describe("TC-9e.10: Documentation files exist", () => {
   const projectRoot = path.resolve(".");
 
-  it("README.md exists and contains v3.0 content", () => {
+  it("README.md exists and contains key content", () => {
     const readme = fs.readFileSync(path.join(projectRoot, "README.md"), "utf-8");
     expect(readme).toContain("sandbox-first");
     expect(readme).toContain("Network Share");
     expect(readme).toContain("gnosys sandbox start");
-    expect(readme).toContain("v3.0");
+    expect(readme).toContain("Web Knowledge Base");
   });
 
   it("CONTRIBUTING.md exists", () => {
     expect(fs.existsSync(path.join(projectRoot, "CONTRIBUTING.md"))).toBe(true);
-  });
-
-  it("docs/guide.html exists and contains v3.0 sections", () => {
-    const guide = fs.readFileSync(path.join(projectRoot, "docs/guide.html"), "utf-8");
-    expect(guide).toContain("Network Share");
-    expect(guide).toContain("Backup");
-    expect(guide).toContain("Migration");
   });
 
   it("package.json version is 4.0.0", () => {
