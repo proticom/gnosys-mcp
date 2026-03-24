@@ -20,7 +20,7 @@
 
 **Gnosys** gives AI agents persistent memory that survives across sessions, projects, and machines.
 
-In v3.0, Gnosys is **sandbox-first**: a persistent background process holds the database connection while agents import a tiny helper library and call memory operations like normal code — no MCP schemas, no round-trips, near-zero context cost. The central brain at `~/.gnosys/gnosys.db` unifies all projects, user preferences, and global knowledge. Federated search ranks results across scopes with tier boosting and recency awareness. Preferences drive automatic agent rules generation. Dream Mode consolidates knowledge during idle time. One-command export regenerates a full Obsidian vault.
+Gnosys is **sandbox-first**: a persistent background process holds the database connection while agents import a tiny helper library and call memory operations like normal code — no MCP schemas, no round-trips, near-zero context cost. The central brain at `~/.gnosys/gnosys.db` unifies all projects, user preferences, and global knowledge. Federated search ranks results across scopes with tier boosting and recency awareness. In v4.0, the **Web Knowledge Base** turns any website into a searchable knowledge base for serverless chatbots — pre-computed JSON index, zero runtime dependencies. Process tracing builds call chains from source code. Dream Mode consolidates knowledge during idle time. One-command export regenerates a full Obsidian vault.
 
 It also runs as a CLI and a complete MCP server that drops straight into Cursor, Claude Desktop, Claude Code, Cowork, Codex, or any MCP client.
 
@@ -40,7 +40,7 @@ Gnosys takes a different approach: the central brain is a single SQLite database
 
 **What makes it different:**
 
-- **Sandbox-first (v3.0)** — persistent background process + helper library. Agents call `gnosys.add()` / `gnosys.recall()` like regular code. No MCP overhead, near-zero context cost.
+- **Sandbox-first** — persistent background process + helper library. Agents call `gnosys.add()` / `gnosys.recall()` like regular code. No MCP overhead, near-zero context cost.
 - **Centralized brain** — single `~/.gnosys/gnosys.db` unifies all projects with `project_id` + `scope` columns. No more per-project silos.
 - **Federated search** — tier-boosted search across project (1.5x) → user (1.0x) → global (0.7x) scopes with recency and reinforcement boosts.
 - **Preferences as memories** — user preferences stored as scoped memories, driving automatic agent rules generation via `gnosys sync`.
@@ -155,7 +155,7 @@ gnosys search "PostgreSQL"
 gnosys helper generate
 ```
 
-### Agent / Helper Library (v3.0)
+### Agent / Helper Library
 
 ```ts
 import { gnosys } from "./gnosys-helper";   // generated once, reused forever
@@ -421,7 +421,7 @@ ANTHROPIC_API_KEY = "your-key-here"
 | `gnosys_stores` | Show active stores, MCP roots, and detected project stores |
 | `gnosys_tags` | List tag registry |
 | `gnosys_tags_add` | Add a new tag to the registry |
-| **v3.0: Centralized Brain** | |
+| **Centralized Brain** | |
 | `gnosys_projects` | List all registered projects in the central DB |
 | `gnosys_backup` | Create a point-in-time backup of the central DB |
 | `gnosys_restore` | Restore the central DB from a backup |
@@ -439,17 +439,17 @@ ANTHROPIC_API_KEY = "your-key-here"
 
 ## How It Works
 
-### Central Brain (v3.0)
+### Central Brain
 
-In v3.0, Gnosys uses a **central database** at `~/.gnosys/gnosys.db` as the single source of truth across all projects. Each project also has a local `.gnosys/` directory with a `gnosys.json` identity file:
+Gnosys uses a **central database** at `~/.gnosys/gnosys.db` as the single source of truth across all projects. Each project also has a local `.gnosys/` directory with a `gnosys.json` identity file:
 
 ```
 ~/.gnosys/
-  gnosys.db              # ← v3.0 central brain (all projects, users, globals)
+  gnosys.db              # ← central brain (all projects, users, globals)
 
 your-project/
   .gnosys/
-    gnosys.json          # ← v3.0 project identity (projectId, name, settings)
+    gnosys.json          # ← project identity (projectId, name, settings)
     decisions/           # dual-write .md copies (safety net + Obsidian export)
       use-postgresql.md
     architecture/
@@ -649,7 +649,7 @@ The embedding model (`all-MiniLM-L6-v2`) is lazy-loaded — it's only downloaded
 
 ## Memory Scopes
 
-In v3.0, the central `~/.gnosys/gnosys.db` holds all memories with `project_id` and `scope` columns replacing the old layered-store model:
+The central `~/.gnosys/gnosys.db` holds all memories with `project_id` and `scope` columns:
 
 | Scope | Description | Boost |
 |-------|-------------|-------|
@@ -798,7 +798,7 @@ The `gnosys_maintain` MCP tool lets agents trigger maintenance programmatically 
 
 ## Agent-First SQLite Core
 
-Gnosys uses an **agent-first SQLite core**. In v3.0, the central `~/.gnosys/gnosys.db` holds all memories across all projects, with `project_id` and `scope` columns for multi-project isolation. The schema has six tables: `memories`, `memories_fts` (FTS5), `relationships`, `summaries`, `audit_log`, and `projects`.
+Gnosys uses an **agent-first SQLite core**. The central `~/.gnosys/gnosys.db` holds all memories across all projects, with `project_id` and `scope` columns for multi-project isolation. The schema has six tables: `memories`, `memories_fts` (FTS5), `relationships`, `summaries`, `audit_log`, and `projects`.
 
 ### Migration
 
@@ -823,7 +823,7 @@ Migration is one-shot and safe — your `.md` files remain untouched. After migr
 | `relationships` | Typed edges between memories (wikilinks, Dream Mode discoveries) |
 | `summaries` | Category-level summaries generated by Dream Mode |
 | `audit_log` | Every operation logged with timestamps and trace IDs |
-| `projects` | v3.0: Project identity registry (id, name, working_directory) |
+| `projects` | Project identity registry (id, name, working_directory) |
 
 The database uses WAL mode for concurrent access — multiple agents can read and write safely from parallel processes.
 
@@ -879,7 +879,7 @@ When enabled and the MCP server is running, Dream Mode automatically triggers af
 
 The `gnosys_dream` MCP tool lets agents trigger dream cycles programmatically.
 
-### Sandbox Protocol (v3.0)
+### Sandbox Protocol
 
 The sandbox daemon exposes Dream Mode, preferences, and sync through its IPC protocol. This enables helper libraries and agents to interact with these features without MCP:
 
@@ -930,11 +930,11 @@ Results always include `scope` and `boosts` fields so agents know where each mem
 
 ## Multi-Project Support
 
-Gnosys supports multiple projects in parallel — critical for developers using multiple Cursor windows or multi-root workspaces. In v3.0, the central DB's `projects` table acts as a registry, and federated search + ambiguity detection make cross-project workflows safe and predictable.
+Gnosys supports multiple projects in parallel — critical for developers using multiple Cursor windows or multi-root workspaces. The central DB's `projects` table acts as a registry, and federated search + ambiguity detection make cross-project workflows safe and predictable.
 
 ### How It Works
 
-In v3.0, the central `~/.gnosys/gnosys.db` holds all projects, each identified by `project_id`. The sandbox process holds the database connection and routes requests by project. MCP tools accept an optional `projectRoot` parameter for explicit routing, and the CLI auto-detects the current project from `gnosys.json` in the working directory.
+The central `~/.gnosys/gnosys.db` holds all projects, each identified by `project_id`. The sandbox process holds the database connection and routes requests by project. MCP tools accept an optional `projectRoot` parameter for explicit routing, and the CLI auto-detects the current project from `gnosys.json` in the working directory.
 
 ```
 # Agent in Window 1 (project-a):
@@ -956,7 +956,7 @@ Use `gnosys stores` (CLI) or the `gnosys_stores` MCP tool to see all detected st
 
 ## Network Share Support
 
-Gnosys v3.0 supports pointing the central database at a network share — Dropbox, iCloud Drive, NAS, or any mounted network path. This enables multi-machine access to the same knowledge base.
+Gnosys supports pointing the central database at a network share — Dropbox, iCloud Drive, NAS, or any mounted network path. This enables multi-machine access to the same knowledge base.
 
 ### Setup
 
@@ -1187,18 +1187,18 @@ gnosys export --to <dir> --overwrite  # Overwrite existing export
 gnosys serve                 # Start MCP server (stdio)
 gnosys serve --with-maintenance  # MCP server + maintenance every 6h
 
-# v3.0: Sandbox Runtime
+# Sandbox Runtime
 gnosys sandbox start         # Start the background sandbox daemon
 gnosys sandbox stop          # Stop the sandbox daemon
 gnosys sandbox status        # Show sandbox process status
 gnosys helper generate       # Generate agent helper library
 
-# v3.0: Network Share Support
+# Network Share Support
 gnosys sandbox start --db-path /path/to/network/share  # Use network DB
 gnosys backup --to /backups/gnosys-2026-03-12.db  # Backup to specific path
 gnosys restore --from /backups/gnosys-2026-03-12.db  # Restore from specific path
 
-# v3.0: Centralized Brain
+# Centralized Brain
 gnosys projects              # List all registered projects
 gnosys backup                # Backup the central DB
 gnosys restore <file>        # Restore central DB from backup
@@ -1230,7 +1230,7 @@ npm run dev          # Run MCP server in dev mode (tsx)
 
 ### Test Suite
 
-495 tests across 30 files covering the full v3.0 feature set:
+558 tests across 35 files covering the full feature set:
 
 | Phase | Tests | Coverage |
 |-------|-------|----------|
@@ -1246,19 +1246,19 @@ CI runs on Node 20 + 22 with multi-project scenario testing, network-share simul
 
 ```
 src/
-  index.ts            # MCP server — 47+ tools + gnosys://recall resource
+  index.ts            # MCP server — 50+ tools + gnosys://recall resource
   cli.ts              # CLI — full command suite with --json output
   lib/
     db.ts             # GnosysDB — central SQLite (6-table schema, project_id + scope)
     dbSearch.ts       # Adapter bridging GnosysDB to search interfaces
     dbWrite.ts        # Dual-write helpers (sync .md → gnosys.db)
-    migrate.ts        # Migration: v1.x → v2.0 → v3.0 central DB
+    migrate.ts        # Migration: v1.x → v2.0 → central DB
     dream.ts          # Dream Mode engine + idle scheduler
     export.ts         # Obsidian Export Bridge (gnosys.db → vault)
-    federated.ts      # v3.0: Federated search, ambiguity detection, briefings, working set
-    preferences.ts    # v3.0: User preferences as scoped memories
-    rulesGen.ts       # v3.0: Agent rules generation (GNOSYS:START/END blocks)
-    projectIdentity.ts # v3.0: Project identity (gnosys.json) + central registry
+    federated.ts      # Federated search, ambiguity detection, briefings, working set
+    preferences.ts    # User preferences as scoped memories
+    rulesGen.ts       # Agent rules generation (GNOSYS:START/END blocks)
+    projectIdentity.ts # Project identity (gnosys.json) + central registry
     store.ts          # Core: read/write/update memory files (.md)
     search.ts         # FTS5 search and discovery
     embeddings.ts     # Lazy semantic embeddings (all-MiniLM-L6-v2)
