@@ -519,6 +519,10 @@ program
       centralDb: centralDb || undefined,
     });
 
+    // Register in file-based project registry so resolver can find it
+    const tempResolver = new GnosysResolver();
+    await tempResolver.registerProject(targetDir);
+
     if (centralDb) centralDb.close();
 
     const action = isResync ? "re-synced" : "initialized";
