@@ -310,19 +310,23 @@ export class GnosysResolver {
 
   /**
    * Find a project store. Priority order:
-   *   1. Registered projects (~/.config/gnosys/projects.json)
+   *   1. Walk up from cwd (most specific — matches the directory the user is in)
    *   2. MCP workspace roots (from roots/list)
-   *   3. Walk up from cwd (legacy fallback)
+   *   3. Registered project matching cwd (from ~/.config/gnosys/projects.json)
+   *   4. First registered project (fallback when cwd has no store)
    */
   private async findProjectStore(): Promise<string | null> {
-    // 1. Check registered projects first — most reliable when MCP server
-    //    cwd doesn't match the editor's open project.
-    const registered = await this.getRegisteredProjects();
-    for (const projectDir of registered) {
-      const candidate = path.join(projectDir, ".gnosys");
+    // 1. Walk up from cwd — most reliable for CLI usage.
+    //    If the user is inside a project with .gnosys/, use that.
+    let dir = path.resolve(process.cwd());
+    const root = path.parse(dir).root;
+
+    while (dir !== root) {
+      const candidate = path.join(dir, ".gnosys");
       if (await this.isValidStore(candidate)) {
         return candidate;
       }
+      dir = path.dirname(dir);
     }
 
     // 2. Check MCP roots — workspace folders the host tells us about.
@@ -333,16 +337,14 @@ export class GnosysResolver {
       }
     }
 
-    // 3. Fallback: walk up from cwd (works when cwd matches the project)
-    let dir = path.resolve(process.cwd());
-    const root = path.parse(dir).root;
-
-    while (dir !== root) {
-      const candidate = path.join(dir, ".gnosys");
+    // 3. Check registered projects — fallback when cwd has no store
+    //    (e.g., MCP server started from a different directory).
+    const registered = await this.getRegisteredProjects();
+    for (const projectDir of registered) {
+      const candidate = path.join(projectDir, ".gnosys");
       if (await this.isValidStore(candidate)) {
         return candidate;
       }
-      dir = path.dirname(dir);
     }
 
     return null;
