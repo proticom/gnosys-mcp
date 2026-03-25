@@ -397,7 +397,7 @@ program
 
       if (!ingestion.isLLMAvailable) {
         console.error(
-          "Error: No LLM provider available. Set ANTHROPIC_API_KEY or switch to Ollama: gnosys config set provider ollama"
+          "Error: No LLM provider available. Add an API key to ~/.config/gnosys/.env or use a local model: gnosys config set provider ollama"
         );
         process.exit(1);
       }
@@ -975,7 +975,7 @@ program
     const ingestion = new GnosysIngestion(writeTarget.store, tagRegistry);
 
     if (!ingestion.isLLMAvailable) {
-      console.error("Error: No LLM provider available. Set ANTHROPIC_API_KEY or switch to Ollama: gnosys config set provider ollama");
+      console.error("Error: No LLM provider available. Add an API key to ~/.config/gnosys/.env or use a local model: gnosys config set provider ollama");
       process.exit(1);
     }
 
@@ -1932,6 +1932,11 @@ configCmd
     console.log(`    Groq:       model=${cfg.llm.groq.model}, apiKey=${cfg.llm.groq.apiKey ? "config" : (process.env.GROQ_API_KEY ? "env" : "—")}`);
     console.log(`    OpenAI:     model=${cfg.llm.openai.model}, apiKey=${cfg.llm.openai.apiKey ? "config" : (process.env.OPENAI_API_KEY ? "env" : "—")}, url=${cfg.llm.openai.baseUrl}`);
     console.log(`    LM Studio:  model=${cfg.llm.lmstudio.model}, url=${cfg.llm.lmstudio.baseUrl}`);
+    console.log(`    xAI:        model=${cfg.llm.xai.model}, apiKey=${cfg.llm.xai.apiKey ? "config" : (process.env.XAI_API_KEY ? "env" : "—")}`);
+    console.log(`    Mistral:    model=${cfg.llm.mistral.model}, apiKey=${cfg.llm.mistral.apiKey ? "config" : (process.env.MISTRAL_API_KEY ? "env" : "—")}`);
+    if (cfg.llm.custom) {
+      console.log(`    Custom:     model=${cfg.llm.custom.model}, url=${cfg.llm.custom.baseUrl}, apiKey=${cfg.llm.custom.apiKey ? "config" : (process.env.GNOSYS_LLM_API_KEY ? "env" : "—")}`);
+    }
     console.log("");
 
     const structuring = resolveTaskModel(cfg, "structuring");

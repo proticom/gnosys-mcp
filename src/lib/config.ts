@@ -265,7 +265,13 @@ export function resolveTaskModel(
   // 2. Default provider from llm config
   const provider = config.llm.defaultProvider;
 
-  // 3. Model from provider-specific config
+  // 3. For structuring tasks, prefer a cheaper model when using Anthropic
+  //    (Sonnet is expensive for bulk structuring — Haiku is 10x cheaper)
+  if (task === "structuring" && provider === "anthropic") {
+    return { provider, model: "claude-haiku-3.5" };
+  }
+
+  // 4. Model from provider-specific config
   const model = getProviderModel(config, provider);
 
   return { provider, model };
