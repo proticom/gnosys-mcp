@@ -7,6 +7,7 @@
 import { Command } from "commander";
 import path from "path";
 import fs from "fs/promises";
+import os from "os";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import { readFileSync, existsSync, copyFileSync } from "fs";
@@ -94,7 +95,26 @@ function outputResult(json: boolean, data: unknown, humanFn: () => void): void {
 program
   .name("gnosys")
   .description("Gnosys — Persistent memory for AI agents. Sandbox-first runtime, central SQLite brain, federated search, reflection API, process tracing, preferences, Dream Mode, Obsidian export. Also runs as a full MCP server.")
-  .version(pkg.version);
+  .version(pkg.version)
+  .hook("preAction", async () => {
+    // Check if central DB was upgraded to a newer version on another machine
+    try {
+      const centralDb = GnosysDB.openCentral();
+      if (centralDb.isAvailable()) {
+        const dbVersion = centralDb.getMeta("app_version");
+        if (dbVersion && dbVersion !== pkg.version) {
+          const upgradedBy = centralDb.getMeta("upgraded_by") || "another machine";
+          console.error(
+            `\n⚠ Gnosys DB was upgraded to v${dbVersion} by ${upgradedBy}.` +
+            `\n  You are running v${pkg.version}. Run: npm install -g gnosys && gnosys upgrade\n`
+          );
+        }
+        centralDb.close();
+      }
+    } catch {
+      // non-critical — don't block the command
+    }
+  });
 
 // ─── gnosys read <path> ──────────────────────────────────────────────────
 program
@@ -2239,6 +2259,169 @@ program
   });
 
 // NOTE: gnosys migrate is defined below (near the end) with --to-central support
+
+// ─── gnosys upgrade ─────────────────────────────────────────────────────
+program
+  .command("upgrade")
+  .description("Re-initialize all registered projects after a Gnosys version upgrade. Updates agent rules, project registry, and stamps the central DB with the current version.")
+  .action(async () => {
+    const currentVersion = pkg.version;
+    console.log(`Gnosys v${currentVersion} — upgrading registered projects...\n`);
+
+    // 1. Read registered projects
+    const home = process.env.HOME || process.env.USERPROFILE || "/tmp";
+    const registryPath = path.join(home, ".config", "gnosys", "projects.json");
+    let projects: string[] = [];
+    try {
+      projects = JSON.parse(await fs.readFile(registryPath, "utf-8"));
+    } catch {
+      console.log("No registered projects found. Run 'gnosys init' in each project first.");
+      return;
+    }
+
+    // 2. Iterate and upgrade each project that exists on this machine
+    const upgraded: string[] = [];
+    const skipped: string[] = [];
+    const failed: string[] = [];
+
+    for (const projectDir of projects) {
+      const storePath = path.join(projectDir, ".gnosys");
+      try {
+        await fs.stat(storePath);
+      } catch {
+        skipped.push(projectDir);
+        continue;
+      }
+
+      try {
+        // Re-create project identity (re-syncs with central DB)
+        let centralDb: GnosysDB | null = null;
+        try {
+          centralDb = GnosysDB.openCentral();
+          if (!centralDb.isAvailable()) centralDb = null;
+        } catch {
+          centralDb = null;
+        }
+
+        await createProjectIdentity(projectDir, { centralDb: centralDb || undefined });
+
+        // Re-register in file-based registry (idempotent)
+        const tempResolver = new GnosysResolver();
+        await tempResolver.registerProject(projectDir);
+
+        // Re-generate agent rules for all detected IDEs
+        if (centralDb) {
+          const { syncToTarget } = await import("./lib/rulesGen.js");
+          const { readProjectIdentity } = await import("./lib/projectIdentity.js");
+          const identity = await readProjectIdentity(projectDir);
+          const projectId = identity?.projectId || null;
+
+          try {
+            await syncToTarget(centralDb, projectDir, "all", projectId);
+          } catch {
+            // Some projects may not have IDE configs — that's ok
+          }
+
+          centralDb.close();
+        }
+
+        upgraded.push(projectDir);
+      } catch (err) {
+        failed.push(`${projectDir} (${(err as Error).message})`);
+      }
+    }
+
+    // 3. Update global agent rules
+    try {
+      let centralDb: GnosysDB | null = null;
+      try {
+        centralDb = GnosysDB.openCentral();
+        if (!centralDb.isAvailable()) centralDb = null;
+      } catch {
+        centralDb = null;
+      }
+      if (centralDb) {
+        const { syncToTarget } = await import("./lib/rulesGen.js");
+        await syncToTarget(centralDb, process.cwd(), "global", null);
+        centralDb.close();
+        console.log(`  ✓ Global agent rules updated (~/.claude/CLAUDE.md)`);
+      }
+    } catch {
+      console.log(`  ⚠ Could not update global agent rules`);
+    }
+
+    // 4. Stamp the central DB with current version and machine info
+    try {
+      const centralDb = GnosysDB.openCentral();
+      if (centralDb.isAvailable()) {
+        const hostname = os.hostname();
+        centralDb.setMeta("app_version", currentVersion);
+        centralDb.setMeta("last_upgrade", new Date().toISOString());
+        centralDb.setMeta("upgraded_by", hostname);
+
+        // Track all machines that have accessed this DB
+        let machines: Record<string, { version: string; lastSeen: string }> = {};
+        try {
+          const raw = centralDb.getMeta("machines");
+          if (raw) machines = JSON.parse(raw);
+        } catch { /* fresh start */ }
+        machines[hostname] = { version: currentVersion, lastSeen: new Date().toISOString() };
+        centralDb.setMeta("machines", JSON.stringify(machines));
+
+        centralDb.close();
+      }
+    } catch {
+      // non-critical
+    }
+
+    // 5. Report
+    console.log("");
+    if (upgraded.length > 0) {
+      console.log(`Upgraded (${upgraded.length}):`);
+      for (const p of upgraded) console.log(`  ✓ ${path.basename(p)} — ${p}`);
+    }
+    if (skipped.length > 0) {
+      console.log(`\nSkipped — not on this machine (${skipped.length}):`);
+      for (const p of skipped) console.log(`  ○ ${path.basename(p)} — ${p}`);
+    }
+    if (failed.length > 0) {
+      console.log(`\nFailed (${failed.length}):`);
+      for (const f of failed) console.log(`  ✗ ${f}`);
+    }
+    console.log(`\nDone. Central DB stamped with v${currentVersion}.`);
+
+    // Show machine status from shared DB
+    try {
+      const centralDb = GnosysDB.openCentral();
+      if (centralDb.isAvailable()) {
+        const raw = centralDb.getMeta("machines");
+        if (raw) {
+          const machines = JSON.parse(raw) as Record<string, { version: string; lastSeen: string }>;
+          const entries = Object.entries(machines);
+          if (entries.length > 1) {
+            console.log(`\nConnected machines:`);
+            for (const [host, info] of entries) {
+              const isCurrent = host === os.hostname();
+              const status = info.version === currentVersion ? "✓" : `⚠ v${info.version}`;
+              console.log(`  ${status} ${host}${isCurrent ? " (this machine)" : ""} — last seen ${info.lastSeen.split("T")[0]}`);
+            }
+            const behind = entries.filter(([, info]) => info.version !== currentVersion);
+            if (behind.length > 0) {
+              console.log(`\n  ${behind.length} machine(s) need upgrading. Run 'npm install -g gnosys && gnosys upgrade' on each.`);
+            }
+          }
+        }
+        centralDb.close();
+      }
+    } catch {
+      // non-critical
+    }
+
+    if (skipped.length > 0) {
+      console.log(`\nNote: ${skipped.length} project(s) not found on this machine.`);
+      console.log(`If they exist on another machine, run 'gnosys upgrade' there too.`);
+    }
+  });
 
 // ─── gnosys doctor ──────────────────────────────────────────────────────
 program

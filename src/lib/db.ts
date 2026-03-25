@@ -200,6 +200,12 @@ CREATE TABLE IF NOT EXISTS projects (
   created             TEXT NOT NULL,
   modified            TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS gnosys_meta (
+  key                 TEXT PRIMARY KEY,
+  value               TEXT NOT NULL,
+  updated             TEXT NOT NULL
+);
 `;
 
 // FTS5 sync triggers — created separately (can't use IF NOT EXISTS on triggers)
@@ -753,6 +759,37 @@ export class GnosysDB {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   transaction<T>(fn: () => T): T {
     return this.db.transaction(fn)();
+  }
+
+  // ─── Metadata ──────────────────────────────────────────────────────
+
+  getMeta(key: string): string | null {
+    if (!this.available) return null;
+    try {
+      const row = this.db.prepare("SELECT value FROM gnosys_meta WHERE key = ?").get(key) as { value: string } | undefined;
+      return row?.value ?? null;
+    } catch {
+      return null; // table may not exist in older DBs
+    }
+  }
+
+  setMeta(key: string, value: string): void {
+    if (!this.available) return;
+    try {
+      this.db.prepare(
+        "INSERT INTO gnosys_meta (key, value, updated) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated = excluded.updated"
+      ).run(key, value, new Date().toISOString());
+    } catch {
+      // table may not exist — create it and retry
+      try {
+        this.db.exec("CREATE TABLE IF NOT EXISTS gnosys_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated TEXT NOT NULL)");
+        this.db.prepare(
+          "INSERT INTO gnosys_meta (key, value, updated) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated = excluded.updated"
+        ).run(key, value, new Date().toISOString());
+      } catch {
+        // give up silently
+      }
+    }
   }
 
   // ─── Lifecycle ──────────────────────────────────────────────────────
