@@ -81,7 +81,7 @@ gnosys add "We chose PostgreSQL over MySQL for its JSON support and mature ecosy
 gnosys recall "database selection"
 ```
 
-> **Multi-machine?** Set `GNOSYS_GLOBAL` to a cloud-synced folder (iCloud Drive, Dropbox, OneDrive) and both machines share the same brain. See the [User Guide — Installation & Setup](https://gnosys.ai/guide.html#guide-installation) for the full walkthrough, memory scopes, and multi-machine setup.
+> **Multi-machine?** Set `GNOSYS_GLOBAL` to a cloud-synced folder (iCloud Drive, Dropbox, OneDrive) and both machines share the same brain. After updating, run `gnosys upgrade` — it re-syncs all projects, regenerates agent rules, and warns other machines to upgrade too. See the [User Guide — Installation & Setup](https://gnosys.ai/guide.html#guide-installation) for the full walkthrough, memory scopes, and multi-machine setup.
 
 ### Agent / Helper Library
 
@@ -455,7 +455,7 @@ All commands support `--json` for programmatic output. See the [User Guide](http
 
 **History:** `history`, `rollback`
 
-**Maintenance:** `maintain`, `dearchive`, `dream`, `reindex`, `reindex-graph`
+**Maintenance:** `maintain`, `dearchive`, `dream`, `reindex`, `reindex-graph`, `upgrade`
 
 **Export & config:** `export`, `config show`, `config set`, `dashboard`, `doctor`, `stores`
 
