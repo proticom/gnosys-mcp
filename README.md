@@ -245,8 +245,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
   "mcpServers": {
     "gnosys": {
       "command": "gnosys",
-      "args": ["serve"],
-      "env": { "ANTHROPIC_API_KEY": "your-key-here" }
+      "args": ["serve"]
     }
   }
 }
@@ -261,8 +260,7 @@ Add to `.cursor/mcp.json`:
   "mcpServers": {
     "gnosys": {
       "command": "gnosys",
-      "args": ["serve"],
-      "env": { "ANTHROPIC_API_KEY": "your-key-here" }
+      "args": ["serve"]
     }
   }
 }
@@ -282,10 +280,9 @@ Add to `.codex/config.toml`:
 [mcp.gnosys]
 type = "local"
 command = ["gnosys", "serve"]
-
-[mcp.gnosys.env]
-ANTHROPIC_API_KEY = "your-key-here"
 ```
+
+> **Note:** API keys are configured globally in `~/.config/gnosys/.env`, not per-IDE. See [LLM Provider Setup](https://gnosys.ai/guide.html#guide-installation) in the User Guide.
 
 ---
 
@@ -352,7 +349,7 @@ All memories live in a single `~/.gnosys/gnosys.db` with `project_id` and `scope
 
 ### LLM Providers
 
-Five providers behind a single interface — switch between cloud and local with one command:
+Eight providers behind a single interface — switch between cloud and local with one command:
 
 | Provider | Type | Default Model | API Key Env Var |
 |----------|------|---------------|-----------------|
@@ -361,6 +358,9 @@ Five providers behind a single interface — switch between cloud and local with
 | **Groq** | Cloud | llama-3.3-70b-versatile | `GROQ_API_KEY` |
 | **OpenAI** | Cloud | gpt-4o-mini | `OPENAI_API_KEY` |
 | **LM Studio** | Local | default | — (runs locally) |
+| **xAI** | Cloud | grok-2 | `XAI_API_KEY` |
+| **Mistral** | Cloud | mistral-large-latest | `MISTRAL_API_KEY` |
+| **Custom** | Any | (user-defined) | `GNOSYS_LLM_API_KEY` |
 
 Route tasks to different providers — a cheap model for structuring, a powerful model for synthesis:
 
@@ -505,7 +505,7 @@ src/
     embeddings.ts     # Lazy semantic embeddings (all-MiniLM-L6-v2)
     hybridSearch.ts   # Hybrid search with RRF fusion
     ask.ts            # Freeform Q&A with LLM synthesis + citations
-    llm.ts            # LLM abstraction (5 providers)
+    llm.ts            # LLM abstraction (8 providers)
     maintenance.ts    # Auto-maintenance: decay, dedup, archiving
     archive.ts        # Two-tier memory: active <-> archive
     recall.ts         # Ultra-fast recall for agent orchestrators

@@ -9,7 +9,7 @@ import path from "path";
 
 // ─── LLM Provider Schemas ───────────────────────────────────────────────
 
-const LLMProviderEnum = z.enum(["anthropic", "ollama", "groq", "openai", "lmstudio"]);
+const LLMProviderEnum = z.enum(["anthropic", "ollama", "groq", "openai", "lmstudio", "xai", "mistral", "custom"]);
 export type LLMProviderName = z.infer<typeof LLMProviderEnum>;
 
 const AnthropicConfigSchema = z.object({
@@ -38,6 +38,22 @@ const LMStudioConfigSchema = z.object({
   baseUrl: z.string().default("http://localhost:1234/v1"),
 });
 
+const XAIConfigSchema = z.object({
+  model: z.string().default("grok-2"),
+  apiKey: z.string().optional(),
+});
+
+const MistralConfigSchema = z.object({
+  model: z.string().default("mistral-large-latest"),
+  apiKey: z.string().optional(),
+});
+
+const CustomConfigSchema = z.object({
+  model: z.string(),
+  baseUrl: z.string(),
+  apiKey: z.string().optional(),
+});
+
 const TaskModelSchema = z.object({
   provider: LLMProviderEnum,
   model: z.string(),
@@ -50,6 +66,9 @@ const LLMConfigSchema = z.object({
   groq: GroqConfigSchema.default({ model: "llama-3.3-70b-versatile" }),
   openai: OpenAIConfigSchema.default({ model: "gpt-4o-mini", baseUrl: "https://api.openai.com/v1" }),
   lmstudio: LMStudioConfigSchema.default({ model: "default", baseUrl: "http://localhost:1234/v1" }),
+  xai: XAIConfigSchema.default({ model: "grok-2" }),
+  mistral: MistralConfigSchema.default({ model: "mistral-large-latest" }),
+  custom: CustomConfigSchema.optional(),
 });
 
 const TaskModelsSchema = z.object({
@@ -148,6 +167,8 @@ export const GnosysConfigSchema = z.object({
     groq: { model: "llama-3.3-70b-versatile" },
     openai: { model: "gpt-4o-mini", baseUrl: "https://api.openai.com/v1" },
     lmstudio: { model: "default", baseUrl: "http://localhost:1234/v1" },
+    xai: { model: "grok-2" },
+    mistral: { model: "mistral-large-latest" },
   }),
 
   /** Task-specific model overrides */
@@ -260,6 +281,9 @@ export function getProviderModel(config: GnosysConfig, provider: LLMProviderName
     case "groq": return config.llm.groq.model;
     case "openai": return config.llm.openai.model;
     case "lmstudio": return config.llm.lmstudio.model;
+    case "xai": return config.llm.xai.model;
+    case "mistral": return config.llm.mistral.model;
+    case "custom": return config.llm.custom?.model || "";
     default: return config.llm.anthropic.model;
   }
 }
@@ -304,6 +328,27 @@ export function getAnthropicApiKey(config: GnosysConfig): string | undefined {
  */
 export function getOllamaBaseUrl(config: GnosysConfig): string {
   return config.llm.ollama.baseUrl;
+}
+
+/**
+ * Get the xAI API key, checking config first then env var.
+ */
+export function getXAIApiKey(config: GnosysConfig): string | undefined {
+  return config.llm.xai.apiKey || process.env.XAI_API_KEY;
+}
+
+/**
+ * Get the Mistral API key, checking config first then env var.
+ */
+export function getMistralApiKey(config: GnosysConfig): string | undefined {
+  return config.llm.mistral.apiKey || process.env.MISTRAL_API_KEY;
+}
+
+/**
+ * Get the Custom provider API key, checking config first then env var.
+ */
+export function getCustomApiKey(config: GnosysConfig): string | undefined {
+  return config.llm.custom?.apiKey || process.env.GNOSYS_LLM_API_KEY;
 }
 
 // ─── Migration ───────────────────────────────────────────────────────────
@@ -419,6 +464,8 @@ export function generateConfigTemplate(): string {
         groq: { model: "llama-3.3-70b-versatile" },
         openai: { model: "gpt-4o-mini", baseUrl: "https://api.openai.com/v1" },
         lmstudio: { model: "default", baseUrl: "http://localhost:1234/v1" },
+        xai: { model: "grok-2" },
+        mistral: { model: "mistral-large-latest" },
       },
       taskModels: {},
       bulkIngestionBatchSize: 500,
@@ -457,4 +504,4 @@ export function generateConfigTemplate(): string {
 /**
  * All supported provider names.
  */
-export const ALL_PROVIDERS: LLMProviderName[] = ["anthropic", "ollama", "groq", "openai", "lmstudio"];
+export const ALL_PROVIDERS: LLMProviderName[] = ["anthropic", "ollama", "groq", "openai", "lmstudio", "xai", "mistral", "custom"];

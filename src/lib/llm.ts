@@ -15,7 +15,11 @@ import {
   getOpenAIApiKey,
   getOpenAIBaseUrl,
   getLMStudioBaseUrl,
+  getXAIApiKey,
+  getMistralApiKey,
+  getCustomApiKey,
   getProviderModel,
+  ALL_PROVIDERS,
 } from "./config.js";
 import { withRetry, isTransientError } from "./retry.js";
 
@@ -506,9 +510,40 @@ export function createProvider(
       return new OpenAICompatibleProvider("lmstudio", model, baseUrl, "", config);
     }
 
+    case "xai": {
+      const apiKey = getXAIApiKey(config);
+      if (!apiKey) {
+        throw new Error(
+          "No xAI API key found. Set XAI_API_KEY environment variable or add llm.xai.apiKey to gnosys.json."
+        );
+      }
+      return new OpenAICompatibleProvider("xai", model, "https://api.x.ai/v1", apiKey, config);
+    }
+
+    case "mistral": {
+      const apiKey = getMistralApiKey(config);
+      if (!apiKey) {
+        throw new Error(
+          "No Mistral API key found. Set MISTRAL_API_KEY environment variable or add llm.mistral.apiKey to gnosys.json."
+        );
+      }
+      return new OpenAICompatibleProvider("mistral", model, "https://api.mistral.ai/v1", apiKey, config);
+    }
+
+    case "custom": {
+      const customConfig = config.llm.custom;
+      if (!customConfig || !customConfig.baseUrl || !customConfig.model) {
+        throw new Error(
+          "Custom provider not configured. Set llm.custom.baseUrl and llm.custom.model in gnosys.json, or use: gnosys config set provider custom"
+        );
+      }
+      const apiKey = getCustomApiKey(config);
+      return new OpenAICompatibleProvider("custom", model, customConfig.baseUrl, apiKey || "", config);
+    }
+
     default:
       throw new Error(
-        `Unsupported LLM provider: "${provider}". Supported: anthropic, ollama, groq, openai, lmstudio.`
+        `Unsupported LLM provider: "${provider}". Supported: ${ALL_PROVIDERS.join(", ")}.`
       );
   }
 }
@@ -559,6 +594,38 @@ export function isProviderAvailable(
         return {
           available: false,
           error: "No OPENAI_API_KEY set. Add to environment or gnosys.json.",
+        };
+      }
+      return { available: true };
+    }
+
+    case "xai": {
+      const apiKey = getXAIApiKey(config);
+      if (!apiKey) {
+        return {
+          available: false,
+          error: "No XAI_API_KEY set. Add to environment or gnosys.json.",
+        };
+      }
+      return { available: true };
+    }
+
+    case "mistral": {
+      const apiKey = getMistralApiKey(config);
+      if (!apiKey) {
+        return {
+          available: false,
+          error: "No MISTRAL_API_KEY set. Add to environment or gnosys.json.",
+        };
+      }
+      return { available: true };
+    }
+
+    case "custom": {
+      if (!config.llm.custom?.baseUrl || !config.llm.custom?.model) {
+        return {
+          available: false,
+          error: "Custom provider not configured. Set llm.custom.baseUrl and llm.custom.model in gnosys.json.",
         };
       }
       return { available: true };
