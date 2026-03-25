@@ -56,12 +56,21 @@ Gnosys takes a different approach: the central brain is a single SQLite database
 ## Quick Start
 
 ```bash
-# Install
+# Install globally
 npm install -g gnosys
+
+# Set up global agent rules (all Claude Code projects get Gnosys instructions)
+gnosys sync --global
 
 # Initialize a project
 cd your-project
 gnosys init
+
+# Generate agent rules for your IDE
+gnosys sync --target claude    # → writes CLAUDE.md
+gnosys sync --target cursor    # → writes .cursor/rules/gnosys.mdc
+gnosys sync --target codex     # → writes .codex/gnosys.md
+gnosys sync --target all       # → writes all detected IDEs
 
 # Start the sandbox (background process — runs once, stays alive)
 gnosys sandbox start
@@ -72,15 +81,12 @@ gnosys add "We chose PostgreSQL over MySQL for its JSON support and mature ecosy
 # Search memories
 gnosys recall "database selection"
 gnosys search "PostgreSQL"
-
-# Generate a helper library for agent integration
-gnosys helper generate
 ```
 
 ### Agent / Helper Library
 
 ```ts
-import { gnosys } from "./gnosys-helper";   // generated once, reused forever
+import { gnosys } from "./gnosys-helper";   // generated once via: gnosys helper generate
 
 await gnosys.add("We use conventional commits");
 const ctx = await gnosys.recall("auth decisions");
