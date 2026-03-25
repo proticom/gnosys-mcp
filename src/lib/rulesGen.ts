@@ -82,6 +82,10 @@ This project uses **Gnosys** for persistent memory via MCP. Gnosys uses a centra
 | Recall | \`gnosys_recall\` (fast context injection, sub-50ms) |
 | Export | \`gnosys_export\` (Obsidian vault), \`gnosys_audit\` (operation trail) |
 
+### Project routing
+
+**IMPORTANT:** Always pass the \`projectRoot\` parameter with every Gnosys tool call, set to the workspace root directory. This ensures memories are stored and retrieved for the correct project. Without it, Gnosys may route to the wrong project in multi-project setups.
+
 ### Categories
 
 \`architecture\` · \`decisions\` · \`requirements\` · \`concepts\` · \`roadmap\` · \`landscape\` · \`open-questions\``;
