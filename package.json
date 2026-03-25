@@ -1,6 +1,6 @@
 {
   "name": "gnosys",
-  "version": "4.2.0",
+  "version": "4.2.1",
   "description": "Gnosys — Persistent Memory for AI Agents. Sandbox-first runtime, central SQLite brain, federated search, Dream Mode, Web Knowledge Base, Obsidian export.",
   "type": "module",
   "main": "dist/index.js",
