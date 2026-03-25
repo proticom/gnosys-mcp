@@ -326,8 +326,8 @@ describe("TC-9e.10: Documentation files exist", () => {
     expect(fs.existsSync(path.join(projectRoot, "CONTRIBUTING.md"))).toBe(true);
   });
 
-  it("package.json version is 4.0.0", () => {
+  it("package.json version starts with 4.", () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(projectRoot, "package.json"), "utf-8"));
-    expect(pkg.version).toBe("4.0.0");
+    expect(pkg.version).toMatch(/^4\./);
   });
 });

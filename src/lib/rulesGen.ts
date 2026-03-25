@@ -15,6 +15,7 @@
 import fs from "fs/promises";
 import fsSync from "fs";
 import path from "path";
+import os from "os";
 import { GnosysDB, DbMemory } from "./db.js";
 import { Preference, getAllPreferences } from "./preferences.js";
 
@@ -47,19 +48,43 @@ export type RulesFileFormat = "claude" | "cursor" | "generic";
 function getBaseInstructions(): string {
   return `## Gnosys Memory System
 
-This project uses **Gnosys** for persistent memory. Run \`gnosys init\` before any other Gnosys command.
+This project uses **Gnosys** for persistent memory via MCP. Gnosys uses a centralized brain (\`~/.gnosys/gnosys.db\`) shared across all projects with project, user, and global scopes.
 
-### Core workflow
-1. **Start of task**: Run \`gnosys_discover\` with keywords to find relevant memories
-2. **Read**: Use \`gnosys_read\` to load specific memories
-3. **Write**: Use \`gnosys_add\` for new knowledge, \`gnosys_update\` to modify existing
-4. **Reinforce**: Use \`gnosys_reinforce\` when a memory proves useful
+### Read first
 
-### Memory triggers — write automatically when:
-- A decision is made (library choice, architecture pattern, workflow convention)
-- A spec or requirement is provided
-- Significant findings emerge from implementation
-- Something works differently than expected`;
+- At task start, call \`gnosys_discover\` with relevant keywords
+- Load results with \`gnosys_read\`
+- When the user references past decisions, says "recall", "remember when", "what did we decide" — search memory first
+- Use \`gnosys_federated_search\` for cross-project search with scope boosting
+- Use \`gnosys_working_set\` to see recently modified memories for context
+
+### Write automatically
+
+- When user says "remember", "memorize", "save this", "note this down", "don't forget" — call \`gnosys_add\`
+- When user states a decision or preference (even casually) — commit to \`decisions/\`
+- When user provides a spec or plan — commit BEFORE starting work
+- After significant implementation — commit findings and gotchas
+- User preferences (coding style, conventions) — use \`gnosys_preference_set\`
+
+### Key tools
+
+| Action | Tool |
+|--------|------|
+| Find memories | \`gnosys_discover\` (metadata) → \`gnosys_read\` (content) |
+| Search | \`gnosys_hybrid_search\` (best), \`gnosys_federated_search\` (cross-project), \`gnosys_search\` (keyword), \`gnosys_ask\` (Q&A) |
+| Write | \`gnosys_add\` (freeform), \`gnosys_add_structured\` (explicit fields) |
+| Update | \`gnosys_update\`, \`gnosys_reinforce\` (useful/not_relevant/outdated) |
+| Browse | \`gnosys_list\`, \`gnosys_lens\` (filtered), \`gnosys_tags\`, \`gnosys_graph\` |
+| Maintain | \`gnosys_maintain\`, \`gnosys_stale\`, \`gnosys_history\`, \`gnosys_dashboard\` |
+| Preferences | \`gnosys_preference_set\`, \`gnosys_preference_get\`, \`gnosys_preference_delete\` |
+| Projects | \`gnosys_init\` (register), \`gnosys_briefing\` (status), \`gnosys_stores\` (debug) |
+| Context | \`gnosys_federated_search\`, \`gnosys_working_set\`, \`gnosys_detect_ambiguity\` |
+| Recall | \`gnosys_recall\` (fast context injection, sub-50ms) |
+| Export | \`gnosys_export\` (Obsidian vault), \`gnosys_audit\` (operation trail) |
+
+### Categories
+
+\`architecture\` · \`decisions\` · \`requirements\` · \`concepts\` · \`roadmap\` · \`landscape\` · \`open-questions\``;
 }
 
 // ─── Content generation ─────────────────────────────────────────────────
@@ -201,6 +226,119 @@ export async function syncRules(
     prefCount: preferences.length,
     conventionCount: projectConventions.length,
   };
+}
+
+// ─── Multi-target sync ───────────────────────────────────────────────
+
+/** Known agent rules file targets */
+const TARGET_PATHS: Record<string, string> = {
+  claude: "CLAUDE.md",
+  cursor: ".cursor/rules/gnosys.mdc",
+  codex: ".codex/gnosys.md",
+};
+
+/**
+ * Resolve the global CLAUDE.md path (~/.claude/CLAUDE.md).
+ */
+function getGlobalClaudeMdPath(): string {
+  return path.join(os.homedir(), ".claude", "CLAUDE.md");
+}
+
+/**
+ * Determine which targets to sync based on what exists in the project directory.
+ * Returns an array of relative file paths.
+ */
+export function detectAllTargets(projectDir: string): string[] {
+  const targets: string[] = [];
+
+  // Check for Cursor
+  if (fsSync.existsSync(path.join(projectDir, ".cursor"))) {
+    targets.push(TARGET_PATHS.cursor);
+  }
+
+  // Check for Claude Code (CLAUDE.md or .claude/ directory)
+  if (
+    fsSync.existsSync(path.join(projectDir, "CLAUDE.md")) ||
+    fsSync.existsSync(path.join(projectDir, ".claude"))
+  ) {
+    targets.push(TARGET_PATHS.claude);
+  }
+
+  // Check for Codex
+  if (fsSync.existsSync(path.join(projectDir, ".codex"))) {
+    targets.push(TARGET_PATHS.codex);
+  }
+
+  return targets;
+}
+
+/**
+ * Sync rules to a specific target (or all detected targets).
+ * If target is "all", syncs to every detected agent config in the project.
+ * If target is "global", syncs to ~/.claude/CLAUDE.md.
+ */
+export async function syncToTarget(
+  centralDb: GnosysDB,
+  projectDir: string,
+  target: string,
+  projectId: string | null
+): Promise<RulesGenResult[]> {
+  const preferences = getAllPreferences(centralDb);
+
+  let projectConventions: DbMemory[] = [];
+  if (projectId) {
+    const projectMems = centralDb.getMemoriesByProject(projectId);
+    projectConventions = projectMems.filter(
+      (m) =>
+        (m.category === "decisions" || m.category === "conventions") &&
+        m.status === "active"
+    );
+  }
+
+  const block = generateRulesBlock(preferences, projectConventions);
+  const results: RulesGenResult[] = [];
+
+  if (target === "global") {
+    const globalPath = getGlobalClaudeMdPath();
+    const { created } = await injectRules(globalPath, block);
+    results.push({
+      content: block,
+      created,
+      filePath: globalPath,
+      prefCount: preferences.length,
+      conventionCount: projectConventions.length,
+    });
+    return results;
+  }
+
+  // Resolve targets
+  let targetPaths: string[];
+  if (target === "all") {
+    targetPaths = detectAllTargets(projectDir);
+    if (targetPaths.length === 0) {
+      // Default to CLAUDE.md if nothing detected
+      targetPaths = [TARGET_PATHS.claude];
+    }
+  } else if (TARGET_PATHS[target]) {
+    targetPaths = [TARGET_PATHS[target]];
+  } else {
+    // Treat as a literal file path
+    targetPaths = [target];
+  }
+
+  for (const relPath of targetPaths) {
+    const absPath = path.resolve(projectDir, relPath);
+    const { created } = await injectRules(absPath, block);
+    results.push({
+      content: block,
+      created,
+      filePath: absPath,
+      prefCount: preferences.length,
+      conventionCount: projectConventions.length,
+    });
+  }
+
+  return results;
 }
 
 /**
