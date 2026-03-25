@@ -506,23 +506,6 @@ program
         "utf-8"
       );
 
-      // Add .gnosys/ to project's .gitignore if in a git repo
-      try {
-        const projectGitignore = path.join(targetDir, ".gitignore");
-        let gitignoreContent = "";
-        try {
-          gitignoreContent = await fs.readFile(projectGitignore, "utf-8");
-        } catch {
-          // No .gitignore yet
-        }
-        if (!gitignoreContent.includes(".gnosys")) {
-          const entry = "\n# Gnosys memory store\n.gnosys/\n";
-          await fs.writeFile(projectGitignore, gitignoreContent + entry, "utf-8");
-        }
-      } catch {
-        // Non-critical
-      }
-
       try {
         const { execSync } = await import("child_process");
         execSync("git init", { cwd: storePath, stdio: "pipe" });
@@ -559,6 +542,23 @@ program
     // Register in file-based project registry so resolver can find it
     const tempResolver = new GnosysResolver();
     await tempResolver.registerProject(targetDir);
+
+    // Add .gnosys/ to project's .gitignore (runs on both init and re-sync)
+    try {
+      const projectGitignore = path.join(targetDir, ".gitignore");
+      let gitignoreContent = "";
+      try {
+        gitignoreContent = await fs.readFile(projectGitignore, "utf-8");
+      } catch {
+        // No .gitignore yet
+      }
+      if (!gitignoreContent.includes(".gnosys")) {
+        const entry = "\n# Gnosys memory store\n.gnosys/\n";
+        await fs.writeFile(projectGitignore, gitignoreContent + entry, "utf-8");
+      }
+    } catch {
+      // Non-critical
+    }
 
     if (centralDb) centralDb.close();
 
