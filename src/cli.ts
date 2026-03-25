@@ -2268,15 +2268,51 @@ program
     const currentVersion = pkg.version;
     console.log(`Gnosys v${currentVersion} — upgrading registered projects...\n`);
 
-    // 1. Read registered projects
+    // 1. Read registered projects from file registry AND central DB
     const home = process.env.HOME || process.env.USERPROFILE || "/tmp";
     const registryPath = path.join(home, ".config", "gnosys", "projects.json");
-    let projects: string[] = [];
+    let fileProjects: string[] = [];
     try {
-      projects = JSON.parse(await fs.readFile(registryPath, "utf-8"));
+      fileProjects = JSON.parse(await fs.readFile(registryPath, "utf-8"));
     } catch {
+      // No file registry yet
+    }
+
+    // Also check central DB for projects not in the file registry
+    let dbProjects: string[] = [];
+    try {
+      const centralDb = GnosysDB.openCentral();
+      if (centralDb.isAvailable()) {
+        const allProjects = centralDb.getAllProjects();
+        dbProjects = allProjects.map((p) => p.working_directory);
+        centralDb.close();
+      }
+    } catch {
+      // non-critical
+    }
+
+    // Merge: deduplicate by resolved path
+    const seen = new Set<string>();
+    const projects: string[] = [];
+    for (const p of [...fileProjects, ...dbProjects]) {
+      const resolved = path.resolve(p);
+      if (!seen.has(resolved)) {
+        seen.add(resolved);
+        projects.push(resolved);
+      }
+    }
+
+    if (projects.length === 0) {
       console.log("No registered projects found. Run 'gnosys init' in each project first.");
       return;
+    }
+
+    // Sync the merged list back to file registry
+    try {
+      await fs.mkdir(path.dirname(registryPath), { recursive: true });
+      await fs.writeFile(registryPath, JSON.stringify(projects, null, 2), "utf-8");
+    } catch {
+      // non-critical
     }
 
     // 2. Iterate and upgrade each project that exists on this machine
