@@ -1957,6 +1957,12 @@ configCmd
         else if (p === "groq") cfg.llm.groq.model = value;
         else if (p === "openai") cfg.llm.openai.model = value;
         else if (p === "lmstudio") cfg.llm.lmstudio.model = value;
+        else if (p === "xai") cfg.llm.xai.model = value;
+        else if (p === "mistral") cfg.llm.mistral.model = value;
+        else if (p === "custom") {
+          if (!cfg.llm.custom) cfg.llm.custom = { model: value, baseUrl: "" };
+          else cfg.llm.custom.model = value;
+        }
         console.log(`Model set to: ${value} (for ${p})`);
         break;
       }
@@ -2022,6 +2028,34 @@ configCmd
       case "lmstudio-model":
         cfg.llm.lmstudio.model = value;
         console.log(`LM Studio model set to: ${value}`);
+        break;
+
+      case "xai-model":
+        cfg.llm.xai.model = value;
+        console.log(`xAI model set to: ${value}`);
+        break;
+
+      case "mistral-model":
+        cfg.llm.mistral.model = value;
+        console.log(`Mistral model set to: ${value}`);
+        break;
+
+      case "custom-url":
+        if (!cfg.llm.custom) cfg.llm.custom = { model: "", baseUrl: value };
+        else cfg.llm.custom.baseUrl = value;
+        console.log(`Custom provider base URL set to: ${value}`);
+        break;
+
+      case "custom-model":
+        if (!cfg.llm.custom) cfg.llm.custom = { model: value, baseUrl: "" };
+        else cfg.llm.custom.model = value;
+        console.log(`Custom provider model set to: ${value}`);
+        break;
+
+      case "custom-key":
+        if (!cfg.llm.custom) cfg.llm.custom = { model: "", baseUrl: "", apiKey: value };
+        else cfg.llm.custom.apiKey = value;
+        console.log(`Custom provider API key set.`);
         break;
 
       case "recall": {
@@ -2549,64 +2583,20 @@ program
     // Check all LLM providers
     console.log("LLM Connectivity:");
 
-    // Check Anthropic
-    const anthropicStatus = isProviderAvailable(cfg, "anthropic");
-    if (anthropicStatus.available) {
-      try {
-        const provider = getLLMProvider({ ...cfg, llm: { ...cfg.llm, defaultProvider: "anthropic" } });
-        await provider.testConnection();
-        console.log(`  Anthropic: ✓ connected (${cfg.llm.anthropic.model})`);
-      } catch (err) {
-        console.log(`  Anthropic: ✗ ${err instanceof Error ? err.message : String(err)}`);
+    for (const providerName of ALL_PROVIDERS) {
+      const status = isProviderAvailable(cfg, providerName);
+      if (!status.available) {
+        console.log(`  ${providerName}: — ${status.error}`);
+        continue;
       }
-    } else {
-      console.log(`  Anthropic: — ${anthropicStatus.error}`);
-    }
-
-    // Check Ollama
-    try {
-      const ollamaProvider = getLLMProvider({ ...cfg, llm: { ...cfg.llm, defaultProvider: "ollama" } });
-      await ollamaProvider.testConnection();
-      console.log(`  Ollama: ✓ connected (${cfg.llm.ollama.model} at ${cfg.llm.ollama.baseUrl})`);
-    } catch (err) {
-      console.log(`  Ollama: ✗ ${err instanceof Error ? err.message : String(err)}`);
-    }
-
-    // Check Groq
-    const groqStatus = isProviderAvailable(cfg, "groq");
-    if (groqStatus.available) {
       try {
-        const provider = getLLMProvider({ ...cfg, llm: { ...cfg.llm, defaultProvider: "groq" } });
+        const provider = getLLMProvider({ ...cfg, llm: { ...cfg.llm, defaultProvider: providerName } });
         await provider.testConnection();
-        console.log(`  Groq: ✓ connected (${cfg.llm.groq.model})`);
+        const model = getProviderModel(cfg, providerName);
+        console.log(`  ${providerName}: ✓ connected (${model})`);
       } catch (err) {
-        console.log(`  Groq: ✗ ${err instanceof Error ? err.message : String(err)}`);
+        console.log(`  ${providerName}: ✗ ${err instanceof Error ? err.message : String(err)}`);
       }
-    } else {
-      console.log(`  Groq: — ${groqStatus.error}`);
-    }
-
-    // Check OpenAI
-    const openaiStatus = isProviderAvailable(cfg, "openai");
-    if (openaiStatus.available) {
-      try {
-        const provider = getLLMProvider({ ...cfg, llm: { ...cfg.llm, defaultProvider: "openai" } });
-        await provider.testConnection();
-        console.log(`  OpenAI: ✓ connected (${cfg.llm.openai.model})`);
-      } catch (err) {
-        console.log(`  OpenAI: ✗ ${err instanceof Error ? err.message : String(err)}`);
-      }
-    } else {
-      console.log(`  OpenAI: — ${openaiStatus.error}`);
-    }
-
-    // Check LM Studio
-    try {
-      const lmsProvider = getLLMProvider({ ...cfg, llm: { ...cfg.llm, defaultProvider: "lmstudio" } });
-      await lmsProvider.testConnection();
-      console.log(`  LM Studio: ✓ connected (${cfg.llm.lmstudio.model} at ${cfg.llm.lmstudio.baseUrl})`);
-    } catch (err) {
-      console.log(`  LM Studio: ✗ ${err instanceof Error ? err.message : String(err)}`);
     }
 
     console.log("");
