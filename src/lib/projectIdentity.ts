@@ -38,9 +38,16 @@ export function detectAgentRulesTarget(projectDir: string): string | null {
   if (fsSync.existsSync(path.join(projectDir, ".cursor"))) {
     return ".cursor/rules/gnosys.mdc";
   }
-  // Check for Claude Code
+  // Check for Claude Code (CLAUDE.md or .claude/ directory)
   if (fsSync.existsSync(path.join(projectDir, "CLAUDE.md"))) {
     return "CLAUDE.md";
+  }
+  if (fsSync.existsSync(path.join(projectDir, ".claude"))) {
+    return "CLAUDE.md";
+  }
+  // Check for Codex
+  if (fsSync.existsSync(path.join(projectDir, ".codex"))) {
+    return ".codex/gnosys.md";
   }
   return null;
 }

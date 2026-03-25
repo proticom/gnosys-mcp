@@ -29,7 +29,7 @@ import { GnosysDB } from "./lib/db.js";
 import { migrate, formatMigrationReport } from "./lib/migrate.js";
 import { createProjectIdentity, readProjectIdentity, findProjectIdentity } from "./lib/projectIdentity.js";
 import { setPreference, getPreference, getAllPreferences, deletePreference } from "./lib/preferences.js";
-import { syncRules } from "./lib/rulesGen.js";
+import { syncRules, syncToTarget } from "./lib/rulesGen.js";
 
 // Load API keys from ~/.config/gnosys/.env (same as MCP server)
 // IMPORTANT: We use dotenv.parse() instead of dotenv.config() because
@@ -3079,10 +3079,13 @@ prefCmd
 // ─── gnosys sync ─────────────────────────────────────────────────────────
 program
   .command("sync")
-  .description("Regenerate agent rules file from user preferences and project conventions. Injects GNOSYS:START/GNOSYS:END block.")
+  .description("Regenerate agent rules files from user preferences and project conventions. Injects GNOSYS:START/GNOSYS:END block.")
   .option("-d, --directory <dir>", "Project directory (default: cwd)")
-  .action(async (opts: { directory?: string }) => {
+  .option("-t, --target <target>", "Target: claude, cursor, codex, all, or global (default: auto-detect)")
+  .option("--global", "Sync to global ~/.claude/CLAUDE.md")
+  .action(async (opts: { directory?: string; target?: string; global?: boolean }) => {
     const projectDir = opts.directory ? path.resolve(opts.directory) : process.cwd();
+    const target = opts.global ? "global" : (opts.target || null);
 
     let centralDb: GnosysDB | null = null;
     try {
@@ -3092,6 +3095,19 @@ program
         process.exit(1);
       }
 
+      // For --global, we don't need project identity
+      if (target === "global") {
+        const results = await syncToTarget(centralDb, projectDir, "global", null);
+        for (const result of results) {
+          const action = result.created ? "Created" : "Updated";
+          console.log(`${action} global rules: ${result.filePath}`);
+          console.log(`  Preferences injected: ${result.prefCount}`);
+        }
+        console.log(`\nContent is inside <!-- GNOSYS:START --> / <!-- GNOSYS:END --> markers.`);
+        console.log(`User content outside these markers is preserved.`);
+        return;
+      }
+
       // Read project identity
       const identity = await readProjectIdentity(projectDir);
       if (!identity) {
@@ -3099,28 +3115,27 @@ program
         process.exit(1);
       }
 
-      if (!identity.agentRulesTarget) {
-        console.error("No agent rules target detected (no .cursor/ or CLAUDE.md found).");
-        console.error("Create one of these, then run 'gnosys init' to detect it.");
-        process.exit(1);
-      }
+      // Use explicit target, or fall back to auto-detected, or "all"
+      const resolvedTarget = target || identity.agentRulesTarget || "all";
 
-      const result = await syncRules(
+      const results = await syncToTarget(
         centralDb,
         projectDir,
-        identity.agentRulesTarget,
+        resolvedTarget,
         identity.projectId
       );
 
-      if (!result) {
-        console.error("Sync failed.");
+      if (results.length === 0) {
+        console.error("No targets found. Create a CLAUDE.md, .cursor/, or .codex/ directory first.");
         process.exit(1);
       }
 
-      const action = result.created ? "Created" : "Updated";
-      console.log(`${action} rules file: ${result.filePath}`);
-      console.log(`  Preferences injected: ${result.prefCount}`);
-      console.log(`  Project conventions:  ${result.conventionCount}`);
+      for (const result of results) {
+        const action = result.created ? "Created" : "Updated";
+        console.log(`${action} rules file: ${result.filePath}`);
+        console.log(`  Preferences injected: ${result.prefCount}`);
+        console.log(`  Project conventions:  ${result.conventionCount}`);
+      }
       console.log(`\nContent is inside <!-- GNOSYS:START --> / <!-- GNOSYS:END --> markers.`);
       console.log(`User content outside these markers is preserved.`);
     } catch (err) {
