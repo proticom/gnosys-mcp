@@ -449,6 +449,19 @@ program
     }
   );
 
+// ─── gnosys setup ───────────────────────────────────────────────────────
+program
+  .command("setup")
+  .description("Interactive setup wizard — configure LLM provider, API key, model, and IDE integration in one step")
+  .option("--non-interactive", "Skip prompts, use defaults (for CI/scripting)")
+  .action(async (opts: { nonInteractive?: boolean }) => {
+    const { runSetup } = await import("./lib/setup.js");
+    await runSetup({
+      directory: process.cwd(),
+      nonInteractive: opts.nonInteractive,
+    });
+  });
+
 // ─── gnosys init ─────────────────────────────────────────────────────────
 program
   .command("init")

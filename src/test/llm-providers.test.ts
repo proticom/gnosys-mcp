@@ -46,8 +46,8 @@ describe("LLM Provider System", () => {
       const parsed = GnosysConfigSchema.parse(oldConfig);
       expect(parsed.llm.defaultProvider).toBe("anthropic");
       // xai and mistral should get defaults
-      expect(parsed.llm.xai.model).toBe("grok-2");
-      expect(parsed.llm.mistral.model).toBe("mistral-large-latest");
+      expect(parsed.llm.xai.model).toBe("grok-4.20");
+      expect(parsed.llm.mistral.model).toBe("mistral-small-4");
       // custom should be undefined
       expect(parsed.llm.custom).toBeUndefined();
     });
