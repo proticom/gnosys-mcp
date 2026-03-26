@@ -240,9 +240,17 @@ export async function setupIDE(
   try {
     switch (ide) {
       case "claude": {
-        execSync("claude mcp add -s user gnosys -- gnosys serve", {
-          stdio: "pipe",
-        });
+        try {
+          execSync("claude mcp add -s user gnosys -- gnosys serve", {
+            stdio: "pipe",
+          });
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          if (msg.includes("already exists")) {
+            return { success: true, message: "Claude Code MCP server already configured" };
+          }
+          throw e;
+        }
         return { success: true, message: "Claude Code MCP server registered" };
       }
 
@@ -499,6 +507,11 @@ export async function runSetup(opts: {
           `Found ${projects.length} project${projects.length === 1 ? "" : "s"}. Upgrade to v${version}?`,
           true
         );
+
+        if (!shouldUpgrade) {
+          console.log(`${DIM}  Skipped upgrade.${RESET}`);
+          console.log();
+        }
 
         if (shouldUpgrade) {
           const { createProjectIdentity } = await import("./projectIdentity.js");
