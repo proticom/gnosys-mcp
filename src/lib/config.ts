@@ -13,7 +13,7 @@ const LLMProviderEnum = z.enum(["anthropic", "ollama", "groq", "openai", "lmstud
 export type LLMProviderName = z.infer<typeof LLMProviderEnum>;
 
 const AnthropicConfigSchema = z.object({
-  model: z.string().default("claude-sonnet-4-20250514"),
+  model: z.string().default("claude-sonnet-4-6"),
   apiKey: z.string().optional(), // Falls back to ANTHROPIC_API_KEY env var
 });
 
@@ -28,7 +28,7 @@ const GroqConfigSchema = z.object({
 });
 
 const OpenAIConfigSchema = z.object({
-  model: z.string().default("gpt-4o-mini"),
+  model: z.string().default("gpt-5.4-mini"),
   apiKey: z.string().optional(), // Falls back to OPENAI_API_KEY env var
   baseUrl: z.string().default("https://api.openai.com/v1"),
 });
@@ -39,12 +39,12 @@ const LMStudioConfigSchema = z.object({
 });
 
 const XAIConfigSchema = z.object({
-  model: z.string().default("grok-2"),
+  model: z.string().default("grok-4.20"),
   apiKey: z.string().optional(),
 });
 
 const MistralConfigSchema = z.object({
-  model: z.string().default("mistral-large-latest"),
+  model: z.string().default("mistral-small-4"),
   apiKey: z.string().optional(),
 });
 
@@ -61,13 +61,13 @@ const TaskModelSchema = z.object({
 
 const LLMConfigSchema = z.object({
   defaultProvider: LLMProviderEnum.default("anthropic"),
-  anthropic: AnthropicConfigSchema.default({ model: "claude-sonnet-4-20250514" }),
+  anthropic: AnthropicConfigSchema.default({ model: "claude-sonnet-4-6" }),
   ollama: OllamaConfigSchema.default({ model: "llama3.2", baseUrl: "http://localhost:11434" }),
   groq: GroqConfigSchema.default({ model: "llama-3.3-70b-versatile" }),
-  openai: OpenAIConfigSchema.default({ model: "gpt-4o-mini", baseUrl: "https://api.openai.com/v1" }),
+  openai: OpenAIConfigSchema.default({ model: "gpt-5.4-mini", baseUrl: "https://api.openai.com/v1" }),
   lmstudio: LMStudioConfigSchema.default({ model: "default", baseUrl: "http://localhost:1234/v1" }),
-  xai: XAIConfigSchema.default({ model: "grok-2" }),
-  mistral: MistralConfigSchema.default({ model: "mistral-large-latest" }),
+  xai: XAIConfigSchema.default({ model: "grok-4.20" }),
+  mistral: MistralConfigSchema.default({ model: "mistral-small-4" }),
   custom: CustomConfigSchema.optional(),
 });
 
@@ -162,13 +162,13 @@ export const GnosysConfigSchema = z.object({
   /** LLM configuration */
   llm: LLMConfigSchema.default({
     defaultProvider: "anthropic",
-    anthropic: { model: "claude-sonnet-4-20250514" },
+    anthropic: { model: "claude-sonnet-4-6" },
     ollama: { model: "llama3.2", baseUrl: "http://localhost:11434" },
     groq: { model: "llama-3.3-70b-versatile" },
-    openai: { model: "gpt-4o-mini", baseUrl: "https://api.openai.com/v1" },
+    openai: { model: "gpt-5.4-mini", baseUrl: "https://api.openai.com/v1" },
     lmstudio: { model: "default", baseUrl: "http://localhost:1234/v1" },
-    xai: { model: "grok-2" },
-    mistral: { model: "mistral-large-latest" },
+    xai: { model: "grok-4.20" },
+    mistral: { model: "mistral-small-4" },
   }),
 
   /** Task-specific model overrides */
@@ -265,10 +265,10 @@ export function resolveTaskModel(
   // 2. Default provider from llm config
   const provider = config.llm.defaultProvider;
 
-  // 3. For structuring tasks, prefer a cheaper model when using Anthropic
-  //    (Sonnet is expensive for bulk structuring — Haiku is 10x cheaper)
-  if (task === "structuring" && provider === "anthropic") {
-    return { provider, model: "claude-haiku-3.5" };
+  // 3. For structuring tasks, prefer a cheaper model (bulk imports don't need flagship)
+  if (task === "structuring") {
+    if (provider === "anthropic") return { provider, model: "claude-haiku-4-5" };
+    if (provider === "openai") return { provider, model: "gpt-5.4-nano" };
   }
 
   // 4. Model from provider-specific config
@@ -465,13 +465,13 @@ export function generateConfigTemplate(): string {
     {
       llm: {
         defaultProvider: "anthropic",
-        anthropic: { model: "claude-sonnet-4-20250514" },
+        anthropic: { model: "claude-sonnet-4-6" },
         ollama: { model: "llama3.2", baseUrl: "http://localhost:11434" },
         groq: { model: "llama-3.3-70b-versatile" },
-        openai: { model: "gpt-4o-mini", baseUrl: "https://api.openai.com/v1" },
+        openai: { model: "gpt-5.4-mini", baseUrl: "https://api.openai.com/v1" },
         lmstudio: { model: "default", baseUrl: "http://localhost:1234/v1" },
-        xai: { model: "grok-2" },
-        mistral: { model: "mistral-large-latest" },
+        xai: { model: "grok-4.20" },
+        mistral: { model: "mistral-small-4" },
       },
       taskModels: {},
       bulkIngestionBatchSize: 500,
