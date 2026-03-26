@@ -554,7 +554,7 @@ export async function runSetup(opts: {
     // ─── Step 1/5 — Usage mode ────────────────────────────────────────
     const modeIndex = await askChoice(
       rl,
-      `${BOLD}Step 1/5${RESET} ${DIM}\u2014${RESET} How will you use Gnosys?`,
+      `${BOLD}Step 1/5${RESET} ${DIM}\u2014${RESET} How will you use Gnosys?\n\n${DIM}  Agent memory sets up persistent memory for your IDE and CLI.\n  Web knowledge base is configured separately from your web project\n  and uses its own API key. You can always add it later with: gnosys web init${RESET}`,
       [
         "Agent memory (IDE + CLI)",
         "Web knowledge base (serverless chatbots)",
@@ -755,13 +755,19 @@ export async function runSetup(opts: {
       console.log();
       console.log(`${BOLD}Web Knowledge Base Configuration${RESET}`);
       console.log();
-      console.log(`${DIM}Gnosys crawls your site, converts pages to markdown, and builds`);
-      console.log(`a search index. The /knowledge/ folder deploys with your app.`);
+      console.log(`${DIM}The web knowledge base is independent from agent memory.`);
+      console.log(`It doesn't use your central gnosys.db or the API key you just set.`);
+      console.log(`It runs from your web project repo and uses its own LLM key (set`);
+      console.log(`in CI/CD secrets or the web project's gnosys.json).`);
       console.log();
-      console.log(`Sitemap options:`);
-      console.log(`  \u2022 Deployed site:  https://yoursite.com/sitemap.xml`);
-      console.log(`  \u2022 Local dev:      http://localhost:3000/sitemap.xml`);
-      console.log(`  \u2022 Skip for now:   press Enter (configure later in gnosys.json)${RESET}`);
+      console.log(`You can skip this now and set it up later from your web project:`);
+      console.log(`  cd your-web-project && gnosys init && gnosys web init`);
+      console.log();
+      console.log(`If your site is already deployed, enter the sitemap URL.`);
+      console.log(`For local dev, use your local server URL.`);
+      console.log(`  \u2022 Deployed:   https://yoursite.com/sitemap.xml`);
+      console.log(`  \u2022 Local dev:  http://localhost:3000/sitemap.xml`);
+      console.log(`  \u2022 Skip:       press Enter${RESET}`);
       console.log();
 
       sitemapUrl = await askInput(rl, "Sitemap URL");
