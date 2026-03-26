@@ -240,8 +240,8 @@ export async function setupIDE(
   try {
     switch (ide) {
       case "claude": {
-        execSync("claude mcp add --scope user gnosys -- gnosys serve", {
-          stdio: "ignore",
+        execSync("claude mcp add -s user gnosys -- gnosys serve", {
+          stdio: "pipe",
         });
         return { success: true, message: "Claude Code MCP server registered" };
       }
@@ -372,18 +372,19 @@ function formatPrice(input: number, output: number): string {
 function printBox(title: string, rows: [string, string][]): void {
   const maxKeyLen = Math.max(...rows.map(([k]) => k.length));
   const maxValLen = Math.max(...rows.map(([, v]) => v.length));
-  const innerWidth = Math.max(title.length + 2, maxKeyLen + maxValLen + 5);
+  const contentWidth = Math.max(title.length, maxKeyLen + maxValLen + 2);
+  const innerWidth = contentWidth + 4; // 2 padding each side
   const border = "\u2500".repeat(innerWidth);
 
   console.log();
-  console.log(`\u250C\u2500${border}\u2500\u2510`);
-  console.log(`\u2502  ${BOLD}${title.padEnd(innerWidth - 1)}${RESET}\u2502`);
-  console.log(`\u251C\u2500${border}\u2500\u2524`);
+  console.log(`\u250C${border}\u2510`);
+  console.log(`\u2502  ${BOLD}${title}${RESET}${" ".repeat(innerWidth - title.length - 2)}\u2502`);
+  console.log(`\u251C${border}\u2524`);
   for (const [key, val] of rows) {
     const line = `${key.padEnd(maxKeyLen)}  ${val}`;
-    console.log(`\u2502  ${line.padEnd(innerWidth - 1)}\u2502`);
+    console.log(`\u2502  ${line}${" ".repeat(innerWidth - line.length - 2)}\u2502`);
   }
-  console.log(`\u2514\u2500${border}\u2500\u2518`);
+  console.log(`\u2514${border}\u2518`);
   console.log();
 }
 
@@ -459,23 +460,30 @@ export async function runSetup(opts: {
 
   const rl = createInterface({ input: stdin, output: stdout });
 
-  // Handle Ctrl+C gracefully
+  let setupCompleted = false;
+
+  // Handle Ctrl+C gracefully — only show "cancelled" if setup didn't finish
   rl.on("close", () => {
-    console.log("\n\nSetup cancelled.");
-    process.exit(0);
+    if (!setupCompleted) {
+      console.log("\n\nSetup cancelled.");
+      process.exit(0);
+    }
   });
 
   let upgraded = false;
 
   try {
     // ─── Banner ───────────────────────────────────────────────────────
-    const bannerWidth = 40;
-    const bannerBorder = "\u2500".repeat(bannerWidth);
+    const tagline = "Persistent Memory for AI Agents";
+    const versionStr = `Gnosys v${version}`;
+    const bannerContentWidth = Math.max(versionStr.length, tagline.length);
+    const bannerInner = bannerContentWidth + 4;
+    const bannerBorder = "\u2500".repeat(bannerInner);
     console.log();
-    console.log(`\u250C\u2500${bannerBorder}\u2500\u2510`);
-    console.log(`\u2502  ${BOLD}${CYAN}Gnosys${RESET} v${version}${"".padEnd(bannerWidth - 10 - version.length)}\u2502`);
-    console.log(`\u2502  ${DIM}Persistent Memory for AI Agents${RESET}${"".padEnd(bannerWidth - 32)}\u2502`);
-    console.log(`\u2514\u2500${bannerBorder}\u2500\u2518`);
+    console.log(`\u250C${bannerBorder}\u2510`);
+    console.log(`\u2502  ${BOLD}${CYAN}Gnosys${RESET} v${version}${" ".repeat(bannerInner - versionStr.length - 2)}\u2502`);
+    console.log(`\u2502  ${DIM}${tagline}${RESET}${" ".repeat(bannerInner - tagline.length - 2)}\u2502`);
+    console.log(`\u2514${bannerBorder}\u2518`);
     console.log();
 
     // ─── Pre-check: Upgrade detection ─────────────────────────────────
@@ -779,6 +787,7 @@ export async function runSetup(opts: {
     console.log(`Next: Run ${CYAN}gnosys init${RESET} in any project to start using memory.`);
     console.log();
 
+    setupCompleted = true;
     rl.close();
 
     return {
