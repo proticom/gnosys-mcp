@@ -59,27 +59,19 @@ Gnosys takes a different approach: the central brain is a single SQLite database
 # 1. Install globally
 npm install -g gnosys
 
-# 2. Connect the MCP server to your IDE (one-time)
-claude mcp add --scope user gnosys gnosys serve   # Claude Code
-# For Cursor, Codex, Claude Desktop — see MCP Server Setup below
+# 2. Run the setup wizard (configures provider, API key, and IDE)
+gnosys setup
 
-# 3. Generate global agent rules (teaches your agent when to use Gnosys tools)
-gnosys sync --global
-
-# 4. Initialize a project
+# 3. Initialize a project
 cd your-project
 gnosys init
 
-# 5. Generate project-specific agent rules for your IDE
-gnosys sync --target claude    # → writes CLAUDE.md
-gnosys sync --target cursor    # → writes .cursor/rules/gnosys.mdc
-gnosys sync --target codex     # → writes .codex/gnosys.md
-gnosys sync --target all       # → writes all detected IDEs
-
-# 6. Start adding memories
-gnosys add "We chose PostgreSQL over MySQL for its JSON support and mature ecosystem"
+# 4. Start adding memories
+gnosys add "We chose PostgreSQL over MySQL for its JSON support"
 gnosys recall "database selection"
 ```
+
+> **Postinstall hook:** After `npm install -g gnosys`, a postinstall script automatically runs `gnosys setup` if no configuration is detected, so first-time users are guided through provider and IDE setup immediately.
 
 > **Multi-machine?** Set `GNOSYS_GLOBAL` to a cloud-synced folder (iCloud Drive, Dropbox, OneDrive) and both machines share the same brain. After updating, run `gnosys upgrade` — it re-syncs all projects, regenerates agent rules, and warns other machines to upgrade too. See the [User Guide — Installation & Setup](https://gnosys.ai/guide.html#guide-installation) for the full walkthrough, memory scopes, and multi-machine setup.
 
@@ -353,13 +345,13 @@ Eight providers behind a single interface — switch between cloud and local wit
 
 | Provider | Type | Default Model | API Key Env Var |
 |----------|------|---------------|-----------------|
-| **Anthropic** | Cloud | claude-sonnet-4-20250514 | `ANTHROPIC_API_KEY` |
+| **Anthropic** | Cloud | claude-sonnet-4-6 | `ANTHROPIC_API_KEY` |
 | **Ollama** | Local | llama3.2 | — (runs locally) |
 | **Groq** | Cloud | llama-3.3-70b-versatile | `GROQ_API_KEY` |
-| **OpenAI** | Cloud | gpt-4o-mini | `OPENAI_API_KEY` |
+| **OpenAI** | Cloud | gpt-5.4-mini | `OPENAI_API_KEY` |
 | **LM Studio** | Local | default | — (runs locally) |
-| **xAI** | Cloud | grok-2 | `XAI_API_KEY` |
-| **Mistral** | Cloud | mistral-large-latest | `MISTRAL_API_KEY` |
+| **xAI** | Cloud | grok-4.20 | `XAI_API_KEY` |
+| **Mistral** | Cloud | mistral-small-4 | `MISTRAL_API_KEY` |
 | **Custom** | Any | (user-defined) | `GNOSYS_LLM_API_KEY` |
 
 Route tasks to different providers — a cheap model for structuring, a powerful model for synthesis:
@@ -368,12 +360,12 @@ Route tasks to different providers — a cheap model for structuring, a powerful
 {
   "llm": {
     "defaultProvider": "anthropic",
-    "anthropic": { "model": "claude-sonnet-4-20250514" },
+    "anthropic": { "model": "claude-sonnet-4-6" },
     "ollama": { "model": "llama3.2", "baseUrl": "http://localhost:11434" }
   },
   "taskModels": {
     "structuring": { "provider": "ollama", "model": "llama3.2" },
-    "synthesis": { "provider": "anthropic", "model": "claude-sonnet-4-20250514" }
+    "synthesis": { "provider": "anthropic", "model": "claude-sonnet-4-6" }
   }
 }
 ```
@@ -447,6 +439,8 @@ gnosys import events.jsonl --format jsonl \
 
 All commands support `--json` for programmatic output. See the [User Guide](https://gnosys.ai/guide.html) for full details.
 
+**Getting started:** `setup`, `init`, `upgrade`
+
 **Memory operations:** `add`, `add-structured`, `commit-context`, `read`, `update`, `reinforce`, `bootstrap`, `import`
 
 **Search:** `discover`, `search`, `hybrid-search`, `semantic-search`, `ask`, `recall`, `fsearch`
@@ -455,9 +449,9 @@ All commands support `--json` for programmatic output. See the [User Guide](http
 
 **History:** `history`, `rollback`
 
-**Maintenance:** `maintain`, `dearchive`, `dream`, `reindex`, `reindex-graph`, `upgrade`
+**Maintenance:** `maintain`, `dearchive`, `dream`, `reindex`, `reindex-graph`
 
-**Export & config:** `export`, `config show`, `config set`, `dashboard`, `doctor`, `stores`
+**Export & config:** `export`, `setup`, `config show`, `config set`, `dashboard`, `doctor`, `stores`
 
 **Centralized brain:** `projects`, `backup`, `restore`, `migrate`, `pref set/get/delete`, `sync`, `ambiguity`, `briefing`, `working-set`
 
@@ -505,7 +499,7 @@ src/
     embeddings.ts     # Lazy semantic embeddings (all-MiniLM-L6-v2)
     hybridSearch.ts   # Hybrid search with RRF fusion
     ask.ts            # Freeform Q&A with LLM synthesis + citations
-    llm.ts            # LLM abstraction (8 providers)
+    llm.ts            # LLM abstraction (8 providers + setup wizard)
     maintenance.ts    # Auto-maintenance: decay, dedup, archiving
     archive.ts        # Two-tier memory: active <-> archive
     recall.ts         # Ultra-fast recall for agent orchestrators
