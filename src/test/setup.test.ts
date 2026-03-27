@@ -122,14 +122,14 @@ describe("Setup Wizard", () => {
       await writeApiKey("anthropic", "sk-ant-test-key");
       const envPath = path.join(tmpDir, ".config", "gnosys", ".env");
       const content = await fs.readFile(envPath, "utf-8");
-      expect(content).toContain("ANTHROPIC_API_KEY=sk-ant-test-key");
+      expect(content).toContain("GNOSYS_ANTHROPIC_KEY=sk-ant-test-key");
     });
 
     it("maps providers to correct env var names", async () => {
       await writeApiKey("openai", "sk-test");
       const envPath = path.join(tmpDir, ".config", "gnosys", ".env");
       const content = await fs.readFile(envPath, "utf-8");
-      expect(content).toContain("OPENAI_API_KEY=sk-test");
+      expect(content).toContain("GNOSYS_OPENAI_KEY=sk-test");
     });
 
     it("does not duplicate keys on second write", async () => {
@@ -137,9 +137,9 @@ describe("Setup Wizard", () => {
       await writeApiKey("anthropic", "key2");
       const envPath = path.join(tmpDir, ".config", "gnosys", ".env");
       const content = await fs.readFile(envPath, "utf-8");
-      const matches = content.match(/ANTHROPIC_API_KEY/g);
+      const matches = content.match(/GNOSYS_ANTHROPIC_KEY/g);
       expect(matches).toHaveLength(1);
-      expect(content).toContain("ANTHROPIC_API_KEY=key2");
+      expect(content).toContain("GNOSYS_ANTHROPIC_KEY=key2");
     });
 
     it("preserves existing keys for other providers", async () => {
@@ -147,15 +147,15 @@ describe("Setup Wizard", () => {
       await writeApiKey("openai", "oai-key");
       const envPath = path.join(tmpDir, ".config", "gnosys", ".env");
       const content = await fs.readFile(envPath, "utf-8");
-      expect(content).toContain("ANTHROPIC_API_KEY=ant-key");
-      expect(content).toContain("OPENAI_API_KEY=oai-key");
+      expect(content).toContain("GNOSYS_ANTHROPIC_KEY=ant-key");
+      expect(content).toContain("GNOSYS_OPENAI_KEY=oai-key");
     });
 
-    it("uses GNOSYS_LLM_API_KEY for custom provider", async () => {
+    it("uses GNOSYS_CUSTOM_KEY for custom provider", async () => {
       await writeApiKey("custom", "custom-key");
       const envPath = path.join(tmpDir, ".config", "gnosys", ".env");
       const content = await fs.readFile(envPath, "utf-8");
-      expect(content).toContain("GNOSYS_LLM_API_KEY=custom-key");
+      expect(content).toContain("GNOSYS_CUSTOM_KEY=custom-key");
     });
   });
 

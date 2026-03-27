@@ -27,6 +27,10 @@ export interface MemoryFrontmatter {
   superseded_by?: string | null;
   reinforcement_count?: number;
   last_reinforced?: string | null;
+  // v5.0: Multimodal source tracking
+  source_file?: string | null;
+  source_page?: string | null;
+  source_timerange?: string | null;
   [key: string]: unknown;
 }
 

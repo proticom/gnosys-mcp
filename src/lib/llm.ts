@@ -53,6 +53,18 @@ export interface LLMProvider {
   ): Promise<string>;
 
   /**
+   * Generate a response from a prompt that includes an image.
+   * Optional — providers that don't support vision can omit this.
+   * Returns the full response text.
+   */
+  generateWithImage?(
+    prompt: string,
+    imageBase64: string,
+    mimeType: string,
+    options?: LLMGenerateOptions
+  ): Promise<string>;
+
+  /**
    * Test connectivity to the provider.
    * Returns true if reachable, throws with descriptive error if not.
    */
@@ -136,6 +148,47 @@ export class AnthropicProvider implements LLMProvider {
     }
 
     return fullText;
+  }
+
+  async generateWithImage(
+    prompt: string,
+    imageBase64: string,
+    mimeType: string,
+    options?: LLMGenerateOptions
+  ): Promise<string> {
+    const maxTokens = options?.maxTokens || 4096;
+
+    const response = await withRetry(
+      () =>
+        this.client.messages.create({
+          model: this.model,
+          max_tokens: maxTokens,
+          ...(options?.system ? { system: options.system } : {}),
+          messages: [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "image",
+                  source: {
+                    type: "base64",
+                    media_type: mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
+                    data: imageBase64,
+                  },
+                },
+                { type: "text", text: prompt },
+              ],
+            },
+          ],
+        }),
+      {
+        maxAttempts: this.config.llmRetryAttempts,
+        baseDelayMs: this.config.llmRetryBaseDelayMs,
+        isRetryable: isTransientError,
+      }
+    ) as { content: Array<{ type: string; text?: string }> };
+
+    return response.content[0].type === "text" ? response.content[0].text || "" : "";
   }
 
   async testConnection(): Promise<boolean> {
@@ -259,6 +312,55 @@ export class OllamaProvider implements LLMProvider {
     }
 
     return fullText;
+  }
+
+  async generateWithImage(
+    prompt: string,
+    imageBase64: string,
+    _mimeType: string,
+    options?: LLMGenerateOptions
+  ): Promise<string> {
+    const body: Record<string, unknown> = {
+      model: this.model,
+      messages: [
+        ...(options?.system
+          ? [{ role: "system", content: options.system }]
+          : []),
+        {
+          role: "user",
+          content: prompt,
+          images: [imageBase64],
+        },
+      ],
+      stream: false,
+    };
+
+    const response = await withRetry(
+      () =>
+        fetch(`${this.baseUrl}/api/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      {
+        maxAttempts: this.config.llmRetryAttempts,
+        baseDelayMs: this.config.llmRetryBaseDelayMs,
+        isRetryable: isTransientError,
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `Ollama vision request failed (${response.status}): ${errorText}`
+      );
+    }
+
+    const data = (await response.json()) as {
+      message?: { content?: string };
+      response?: string;
+    };
+    return data.message?.content || data.response || "";
   }
 
   async testConnection(): Promise<boolean> {
@@ -420,6 +522,69 @@ export class OpenAICompatibleProvider implements LLMProvider {
     }
 
     return fullText;
+  }
+
+  async generateWithImage(
+    prompt: string,
+    imageBase64: string,
+    mimeType: string,
+    options?: LLMGenerateOptions
+  ): Promise<string> {
+    const maxTokens = options?.maxTokens || 4096;
+
+    const messages: Array<Record<string, unknown>> = [];
+    if (options?.system) {
+      messages.push({ role: "system", content: options.system });
+    }
+    messages.push({
+      role: "user",
+      content: [
+        {
+          type: "image_url",
+          image_url: { url: `data:${mimeType};base64,${imageBase64}` },
+        },
+        { type: "text", text: prompt },
+      ],
+    });
+
+    const response = await withRetry(
+      () =>
+        fetch(`${this.baseUrl}/chat/completions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(this.apiKey
+              ? { Authorization: `Bearer ${this.apiKey}` }
+              : {}),
+          },
+          body: JSON.stringify({
+            model: this.model,
+            messages,
+            max_tokens: maxTokens,
+          }),
+        }),
+      {
+        maxAttempts: this.config.llmRetryAttempts,
+        baseDelayMs: this.config.llmRetryBaseDelayMs,
+        isRetryable: isTransientError,
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      const safeText = errorText.replace(
+        /(?:sk-|gsk_|Bearer\s+)[^\s"']+/g,
+        "***"
+      );
+      throw new Error(
+        `${this.name} vision request failed (${response.status}): ${safeText}`
+      );
+    }
+
+    const data = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    return data.choices?.[0]?.message?.content || "";
   }
 
   async testConnection(): Promise<boolean> {

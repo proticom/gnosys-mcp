@@ -1,0 +1,17 @@
+Understanding Neural Networks
+
+Neural networks are computing systems inspired by biological neural networks in animal brains. They consist of connected nodes called artificial neurons, which loosely model the neurons in a biological brain. Each connection can transmit a signal from one neuron to another.
+
+A neural network learns by processing examples, each of which contains a known input and result. This forms probability-weighted associations between the two, which are stored within the data structure of the net itself.
+
+The training of a neural network involves adjusting the weights of connections to minimize the difference between the actual output and the desired output. This process is called backpropagation.
+
+Types of Neural Networks
+
+There are several types of neural networks commonly used today. Feedforward networks are the simplest type, where information flows in one direction from input to output. Convolutional neural networks (CNNs) are specialized for processing grid-like data such as images. Recurrent neural networks (RNNs) have connections that form cycles, allowing them to maintain a state or memory.
+
+Transformers are a more recent architecture that has revolutionized natural language processing. Unlike RNNs, transformers process all positions simultaneously using self-attention mechanisms. This allows them to capture long-range dependencies more effectively.
+
+Applications
+
+Neural networks have found applications in many areas including image recognition, natural language processing, speech recognition, game playing, and autonomous vehicles. They continue to push the boundaries of what machines can accomplish.

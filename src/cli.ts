@@ -389,6 +389,42 @@ program
         process.exit(1);
       }
 
+      // Check if input is a file path — if so, route through multimodal ingestion
+      if (existsSync(input)) {
+        const { ingestFile } = await import("./lib/multimodalIngest.js");
+        const storePath = writeTarget.store.getStorePath();
+        console.log(`Detected file: ${input}`);
+        console.log("Ingesting via multimodal pipeline...");
+
+        const result = await ingestFile({
+          filePath: path.resolve(input),
+          storePath,
+          mode: "llm",
+          author: opts.author as "human" | "ai" | "human+ai",
+          authority: opts.authority as "declared" | "observed" | "imported" | "inferred",
+          onProgress: (p) => {
+            console.log(`  [${p.current}/${p.total}] ${p.title || "Processing..."}`);
+          },
+        });
+
+        console.log(`\nFile type: ${result.fileType}`);
+        console.log(`Memories created: ${result.memories.length}`);
+        console.log(`Duration: ${(result.duration / 1000).toFixed(1)}s`);
+
+        for (const mem of result.memories) {
+          console.log(`  ${mem.id}: ${mem.title}`);
+        }
+
+        if (result.errors.length > 0) {
+          console.error(`\nErrors (${result.errors.length}):`);
+          for (const err of result.errors) {
+            console.error(`  Chunk ${err.chunk}: ${err.error}`);
+          }
+        }
+
+        return;
+      }
+
       const tagRegistry = new GnosysTagRegistry(
         writeTarget.store.getStorePath()
       );
@@ -509,6 +545,22 @@ program
       await fs.writeFile(
         path.join(storePath, ".config", "gnosys-config.json"),
         generateConfigTemplate() + "\n",
+        "utf-8"
+      );
+
+      // v5.0: Create attachments directory and empty manifest
+      await fs.mkdir(path.join(storePath, "attachments"), { recursive: true });
+      await fs.writeFile(
+        path.join(storePath, "attachments", "attachments.json"),
+        JSON.stringify({ attachments: [] }, null, 2) + "\n",
+        "utf-8"
+      );
+
+      // Create .gitignore inside .gnosys to exclude large binary attachments
+      const storeGitignore = "# Large binary attachments (tracked via manifest, not git)\nattachments/\n";
+      await fs.writeFile(
+        path.join(storePath, ".gitignore"),
+        storeGitignore,
         "utf-8"
       );
 
@@ -943,6 +995,127 @@ program
       console.log(`Path: ${writeTarget.label}:${relPath}`);
     }
   );
+
+// ─── gnosys ingest <file> ─────────────────────────────────────────────────
+program
+  .command("ingest <fileOrGlob>")
+  .description("Ingest a file (PDF, DOCX, TXT, MD) into Gnosys memory. Extracts text, splits into chunks, and creates atomic memories.")
+  .option("--mode <mode>", "Ingestion mode: llm or structured", "llm")
+  .option("-s, --store <store>", "Target store: project, personal, global")
+  .option("-a, --author <author>", "Author", "human")
+  .option("--authority <authority>", "Authority level", "imported")
+  .option("--dry-run", "Preview what would be created without writing")
+  .option("--list-attachments", "List all stored attachments")
+  .option("-d, --directory <dir>", "Project directory")
+  .action(async (fileOrGlob: string, opts: {
+    mode: string;
+    store?: string;
+    author: string;
+    authority: string;
+    dryRun?: boolean;
+    listAttachments?: boolean;
+    directory?: string;
+  }) => {
+    // List attachments mode
+    if (opts.listAttachments) {
+      const { listAttachments } = await import("./lib/attachments.js");
+      const resolver = await getResolver();
+      const writeTarget = resolver.getWriteTarget((opts.store as any) || undefined);
+      if (!writeTarget) {
+        console.error("No writable store found.");
+        process.exit(1);
+      }
+      const attachments = await listAttachments(writeTarget.store.getStorePath());
+      if (attachments.length === 0) {
+        console.log("No attachments found.");
+        return;
+      }
+      console.log(`Found ${attachments.length} attachment(s):\n`);
+      for (const a of attachments) {
+        const sizeMb = (a.sizeBytes / (1024 * 1024)).toFixed(2);
+        console.log(`  ${a.originalName} (${sizeMb}MB, ${a.extension})`);
+        console.log(`    UUID: ${a.uuid}`);
+        console.log(`    Hash: ${a.contentHash.slice(0, 16)}...`);
+        console.log(`    Memories: ${a.memoryIds.length > 0 ? a.memoryIds.join(", ") : "none"}`);
+        console.log(`    Created: ${a.createdAt}\n`);
+      }
+      return;
+    }
+
+    // Resolve the file path
+    const resolvedPath = path.resolve(opts.directory || process.cwd(), fileOrGlob);
+
+    // Check the file exists
+    try {
+      await fs.access(resolvedPath);
+    } catch {
+      console.error(`File not found: ${resolvedPath}`);
+      process.exit(1);
+    }
+
+    // Resolve the store
+    const resolver = await getResolver();
+    const writeTarget = resolver.getWriteTarget((opts.store as any) || undefined);
+    if (!writeTarget) {
+      console.error("No writable store found. Create a .gnosys/ directory or set GNOSYS_PERSONAL.");
+      process.exit(1);
+    }
+
+    const storePath = writeTarget.store.getStorePath();
+
+    // Run ingestion
+    const { ingestFile } = await import("./lib/multimodalIngest.js");
+    console.log(`Ingesting: ${path.basename(resolvedPath)}`);
+    if (opts.dryRun) {
+      console.log("(dry run — no files will be written)\n");
+    }
+
+    try {
+      const result = await ingestFile({
+        filePath: resolvedPath,
+        storePath,
+        mode: opts.mode as "llm" | "structured",
+        store: (opts.store as any) || undefined,
+        author: opts.author as "human" | "ai" | "human+ai",
+        authority: opts.authority as "declared" | "observed" | "imported" | "inferred",
+        dryRun: opts.dryRun,
+        projectRoot: opts.directory,
+        onProgress: (p) => {
+          process.stdout.write(`\r  Processing chunk ${p.current}/${p.total}...`);
+        },
+      });
+
+      // Clear the progress line
+      if (result.memories.length > 0) {
+        process.stdout.write("\r" + " ".repeat(60) + "\r");
+      }
+
+      // Print results
+      console.log(`\nFile type: ${result.fileType}`);
+      console.log(`Attachment: ${result.attachment.originalName} (${result.attachment.uuid.slice(0, 8)}...)`);
+      console.log(`Duration: ${(result.duration / 1000).toFixed(1)}s`);
+      console.log(`Memories created: ${result.memories.length}`);
+
+      if (result.memories.length > 0) {
+        console.log("\nMemories:");
+        for (const m of result.memories) {
+          const extra = m.page ? ` [page ${m.page}]` : "";
+          console.log(`  ${m.id}: ${m.title}${extra}`);
+          console.log(`    Path: ${m.path}`);
+        }
+      }
+
+      if (result.errors.length > 0) {
+        console.log(`\nErrors (${result.errors.length}):`);
+        for (const e of result.errors) {
+          console.log(`  Chunk ${e.chunk}: ${e.error}`);
+        }
+      }
+    } catch (err) {
+      console.error(`\nIngestion failed: ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    }
+  });
 
 // ─── gnosys tags-add ────────────────────────────────────────────────────
 program
