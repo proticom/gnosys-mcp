@@ -295,17 +295,56 @@ export function getProviderModel(config: GnosysConfig, provider: LLMProviderName
 }
 
 /**
+ * Resolve an API key from multiple sources in priority order:
+ * 1. Config (gnosys.json)
+ * 2. GNOSYS_<PROVIDER>_KEY env var (new convention)
+ * 3. macOS Keychain (if on macOS)
+ * 4. Legacy env var (ANTHROPIC_API_KEY, etc.)
+ * 5. ~/.config/gnosys/.env (read at startup)
+ */
+function resolveApiKey(
+  configKey: string | undefined,
+  gnosysEnvVar: string,
+  legacyEnvVar?: string,
+): string | undefined {
+  // 1. Config value
+  if (configKey) return configKey;
+
+  // 2. New GNOSYS_*_KEY env var
+  if (process.env[gnosysEnvVar]) return process.env[gnosysEnvVar];
+
+  // 3. macOS Keychain
+  if (process.platform === "darwin") {
+    try {
+      const { execSync } = require("child_process");
+      const result = execSync(
+        `security find-generic-password -a "$USER" -s "${gnosysEnvVar}" -w 2>/dev/null`,
+        { stdio: "pipe", encoding: "utf-8", timeout: 2000 }
+      ).trim();
+      if (result) return result;
+    } catch {
+      // Not in keychain — fall through
+    }
+  }
+
+  // 4. Legacy env var
+  if (legacyEnvVar && process.env[legacyEnvVar]) return process.env[legacyEnvVar];
+
+  return undefined;
+}
+
+/**
  * Get the Groq API key, checking config first then env var.
  */
 export function getGroqApiKey(config: GnosysConfig): string | undefined {
-  return config.llm.groq.apiKey || process.env.GROQ_API_KEY;
+  return resolveApiKey(config.llm.groq.apiKey, "GNOSYS_GROQ_KEY", "GROQ_API_KEY");
 }
 
 /**
  * Get the OpenAI API key, checking config first then env var.
  */
 export function getOpenAIApiKey(config: GnosysConfig): string | undefined {
-  return config.llm.openai.apiKey || process.env.OPENAI_API_KEY;
+  return resolveApiKey(config.llm.openai.apiKey, "GNOSYS_OPENAI_KEY", "OPENAI_API_KEY");
 }
 
 /**
@@ -326,7 +365,7 @@ export function getLMStudioBaseUrl(config: GnosysConfig): string {
  * Get the Anthropic API key, checking config first then env var.
  */
 export function getAnthropicApiKey(config: GnosysConfig): string | undefined {
-  return config.llm.anthropic.apiKey || process.env.ANTHROPIC_API_KEY;
+  return resolveApiKey(config.llm.anthropic.apiKey, "GNOSYS_ANTHROPIC_KEY", "ANTHROPIC_API_KEY");
 }
 
 /**
@@ -340,21 +379,21 @@ export function getOllamaBaseUrl(config: GnosysConfig): string {
  * Get the xAI API key, checking config first then env var.
  */
 export function getXAIApiKey(config: GnosysConfig): string | undefined {
-  return config.llm.xai.apiKey || process.env.XAI_API_KEY;
+  return resolveApiKey(config.llm.xai.apiKey, "GNOSYS_XAI_KEY", "XAI_API_KEY");
 }
 
 /**
  * Get the Mistral API key, checking config first then env var.
  */
 export function getMistralApiKey(config: GnosysConfig): string | undefined {
-  return config.llm.mistral.apiKey || process.env.MISTRAL_API_KEY;
+  return resolveApiKey(config.llm.mistral.apiKey, "GNOSYS_MISTRAL_KEY", "MISTRAL_API_KEY");
 }
 
 /**
  * Get the Custom provider API key, checking config first then env var.
  */
 export function getCustomApiKey(config: GnosysConfig): string | undefined {
-  return config.llm.custom?.apiKey || process.env.GNOSYS_LLM_API_KEY;
+  return resolveApiKey(config.llm.custom?.apiKey, "GNOSYS_CUSTOM_KEY", "GNOSYS_LLM_API_KEY");
 }
 
 // ─── Migration ───────────────────────────────────────────────────────────
