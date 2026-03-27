@@ -2,7 +2,7 @@
  * Gnosys Interactive Setup Wizard.
  *
  * Guides users through provider selection, model tier, API key storage,
- * IDE integration, and optional web knowledge base configuration.
+ * IDE integration. Web knowledge base is set up separately via: gnosys web init
  *
  * Uses Node.js built-in readline/promises — no external dependencies.
  */
@@ -59,7 +59,7 @@ export interface SetupResult {
   structuringModel: string;
   apiKeyWritten: boolean;
   ides: string[];
-  mode: "agent" | "web" | "both";
+  mode: "agent";
   upgraded: boolean;
 }
 
@@ -551,20 +551,7 @@ export async function runSetup(opts: {
       }
     }
 
-    // ─── Step 1/5 — Usage mode ────────────────────────────────────────
-    const modeIndex = await askChoice(
-      rl,
-      `${BOLD}Step 1/5${RESET} ${DIM}\u2014${RESET} How will you use Gnosys?\n\n${DIM}  Agent memory sets up persistent memory for your IDE and CLI.\n  Web knowledge base is configured separately from your web project\n  and uses its own API key. You can always add it later with: gnosys web init${RESET}`,
-      [
-        "Agent memory (IDE + CLI)",
-        "Web knowledge base (serverless chatbots)",
-        "Both",
-      ]
-    );
-    const mode: "agent" | "web" | "both" =
-      modeIndex === 0 ? "agent" : modeIndex === 1 ? "web" : "both";
-
-    // ─── Step 2/5 — Provider ──────────────────────────────────────────
+    // ─── Step 1/4 — Provider ──────────────────────────────────────────
     const providerOptions = PROVIDER_ORDER.map((key) => {
       const tiers = PROVIDER_TIERS[key];
       const display = PROVIDER_DISPLAY[key];
@@ -579,14 +566,14 @@ export async function runSetup(opts: {
 
     const providerIndex = await askChoice(
       rl,
-      `${BOLD}Step 2/5${RESET} ${DIM}\u2014${RESET} Choose your LLM provider`,
+      `${BOLD}Step 1/4${RESET} ${DIM}\u2014${RESET} Choose your LLM provider`,
       providerOptions
     );
 
     const isSkip = providerIndex === PROVIDER_ORDER.length; // last option
     const provider = isSkip ? "skip" : PROVIDER_ORDER[providerIndex];
 
-    // ─── Step 3/5 — Model tier ────────────────────────────────────────
+    // ─── Step 2/4 — Model tier ────────────────────────────────────────
     let model = "";
 
     if (!isSkip && provider !== "custom") {
@@ -604,7 +591,7 @@ export async function runSetup(opts: {
 
         const tierIndex = await askChoice(
           rl,
-          `${BOLD}Step 3/5${RESET} ${DIM}\u2014${RESET} Choose model tier`,
+          `${BOLD}Step 2/4${RESET} ${DIM}\u2014${RESET} Choose model tier`,
           tierOptions
         );
         model = tiers[tierIndex].model;
@@ -612,7 +599,7 @@ export async function runSetup(opts: {
     } else if (provider === "custom") {
       // Custom: ask for base URL and model name
       console.log();
-      console.log(`${BOLD}Step 3/5${RESET} ${DIM}\u2014${RESET} Custom provider details`);
+      console.log(`${BOLD}Step 2/4${RESET} ${DIM}\u2014${RESET} Custom provider details`);
       console.log();
       const baseUrl = await askInput(rl, "Base URL (OpenAI-compatible)");
       model = await askInput(rl, "Model name");
@@ -650,10 +637,10 @@ export async function runSetup(opts: {
     } else if (isSkip) {
       // Skip step 3 entirely
       console.log();
-      console.log(`${DIM}Step 3/5 \u2014 Model tier: skipped${RESET}`);
+      console.log(`${DIM}Step 2/4 \u2014 Model tier: skipped${RESET}`);
     }
 
-    // ─── Step 4/5 — API key ───────────────────────────────────────────
+    // ─── Step 3/4 — API key ───────────────────────────────────────────
     let apiKeyWritten = false;
     const needsKey =
       !isSkip &&
@@ -662,7 +649,7 @@ export async function runSetup(opts: {
 
     if (needsKey) {
       console.log();
-      console.log(`${BOLD}Step 4/5${RESET} ${DIM}\u2014${RESET} API Key`);
+      console.log(`${BOLD}Step 3/4${RESET} ${DIM}\u2014${RESET} API Key`);
       console.log();
 
       const providerLabel =
@@ -678,10 +665,10 @@ export async function runSetup(opts: {
       }
     } else {
       console.log();
-      console.log(`${DIM}Step 4/5 \u2014 API key: not needed${RESET}`);
+      console.log(`${DIM}Step 3/4 \u2014 API key: not needed${RESET}`);
     }
 
-    // ─── Step 5/5 — IDE integration ───────────────────────────────────
+    // ─── Step 4/4 — IDE integration ───────────────────────────────────
     const detectedIdes = await detectIDEs(projectDir);
     const configuredIdes: string[] = [];
 
@@ -694,7 +681,7 @@ export async function runSetup(opts: {
 
       const detectedNames = detectedIdes.map((id) => ideLabels[id] ?? id).join(", ");
       console.log();
-      console.log(`${BOLD}Step 5/5${RESET} ${DIM}\u2014${RESET} IDE Integration`);
+      console.log(`${BOLD}Step 4/4${RESET} ${DIM}\u2014${RESET} IDE Integration`);
       console.log();
       console.log(`Detected: ${GREEN}${detectedNames}${RESET}`);
 
@@ -743,53 +730,7 @@ export async function runSetup(opts: {
       }
     } else {
       console.log();
-      console.log(`${DIM}Step 5/5 \u2014 IDE integration: no IDEs detected${RESET}`);
-    }
-
-    // ─── Web extra steps (only if mode is web or both) ────────────────
-    let sitemapUrl = "";
-    let outputDir = "";
-    let llmEnrich = true;
-
-    if (mode === "web" || mode === "both") {
-      console.log();
-      console.log(`${BOLD}Web Knowledge Base Configuration${RESET}`);
-      console.log();
-      console.log(`${DIM}The web knowledge base is independent from agent memory.`);
-      console.log(`It doesn't use your central gnosys.db or the API key you just set.`);
-      console.log(`It runs from your web project repo and uses its own LLM key (set`);
-      console.log(`in CI/CD secrets or the web project's gnosys.json).`);
-      console.log();
-      console.log(`You can skip this now and set it up later from your web project:`);
-      console.log(`  cd your-web-project && gnosys init && gnosys web init`);
-      console.log();
-      console.log(`If your site is already deployed, enter the sitemap URL.`);
-      console.log(`For local dev, use your local server URL.`);
-      console.log(`  \u2022 Deployed:   https://yoursite.com/sitemap.xml`);
-      console.log(`  \u2022 Local dev:  http://localhost:3000/sitemap.xml`);
-      console.log(`  \u2022 Skip:       press Enter${RESET}`);
-      console.log();
-
-      sitemapUrl = await askInput(rl, "Sitemap URL");
-
-      console.log();
-      console.log(`${DIM}The knowledge folder is created inside your project and should`);
-      console.log(`be committed to git. It deploys with your app \u2014 no database needed.${RESET}`);
-      console.log();
-
-      outputDir = await askInput(rl, "Output directory", { default: "./knowledge" });
-      llmEnrich = await askYesNo(rl, "Enable LLM enrichment for ingested pages?", true);
-
-      console.log();
-      console.log(`${DIM}Tip: Add "postbuild": "gnosys web build" to package.json`);
-      console.log(`so every deploy automatically re-crawls and rebuilds the index.${RESET}`);
-
-      console.log();
-      if (sitemapUrl) {
-        console.log(`  ${CHECK} Sitemap: ${sitemapUrl}`);
-      }
-      console.log(`  ${CHECK} Output: ${outputDir}`);
-      console.log(`  ${CHECK} LLM enrichment: ${llmEnrich ? "enabled" : "disabled"}`);
+      console.log(`${DIM}Step 4/4 \u2014 IDE integration: no IDEs detected${RESET}`);
     }
 
     // ─── Compute structuring model ────────────────────────────────────
@@ -813,12 +754,6 @@ export async function runSetup(opts: {
       summaryRows.push(["IDEs:", ideNames]);
     }
 
-    if (mode === "web" || mode === "both") {
-      summaryRows.push(["Mode:", mode]);
-      if (sitemapUrl) summaryRows.push(["Sitemap:", sitemapUrl]);
-      summaryRows.push(["Output:", outputDir || "./knowledge"]);
-    }
-
     printBox("Setup Complete", summaryRows);
 
     console.log(`Next: Run ${CYAN}gnosys init${RESET} in any project to start using memory.`);
@@ -833,7 +768,7 @@ export async function runSetup(opts: {
       structuringModel,
       apiKeyWritten,
       ides: configuredIdes,
-      mode,
+      mode: "agent",
       upgraded,
     };
   } catch (err) {
