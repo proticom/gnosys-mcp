@@ -113,8 +113,8 @@ const OPENROUTER_PREFIX_MAP: Record<string, string> = {
   openai: "openai",
   "x-ai": "xai",
   mistralai: "mistral",
-  // groq models are on OpenRouter under meta-llama but groq-hosted
-  // We skip dynamic for groq/ollama/lmstudio since they're local or have specific APIs
+  google: "google",
+  // groq/ollama/lmstudio skipped — local or have their own APIs
 };
 
 interface OpenRouterModel {
@@ -122,6 +122,7 @@ interface OpenRouterModel {
   name?: string;
   pricing?: { prompt?: string; completion?: string };
   context_length?: number;
+  created?: number;
 }
 
 /**
@@ -159,48 +160,111 @@ export async function fetchDynamicModels(): Promise<Record<string, ModelTier[]>>
           const modelId = m.id.slice(prefix.length + 1);
           const input = parseFloat(m.pricing?.prompt ?? "0") * 1e6;
           const output = parseFloat(m.pricing?.completion ?? "0") * 1e6;
-          return { modelId, name: m.name ?? modelId, input, output, ctx: m.context_length ?? 0 };
+          const isPreview = /preview|beta/i.test(modelId);
+          const isVariant = modelId.includes(":") && !modelId.includes(":thinking");
+          const isFree = modelId.includes(":free");
+          const isGuard = /guard|embed/i.test(modelId);
+          return {
+            modelId, name: m.name ?? modelId, input, output,
+            ctx: m.context_length ?? 0, created: m.created ?? 0,
+            isPreview, isVariant, isFree, isGuard,
+          };
         })
-        .filter((m) => m.input > 0 || m.output > 0) // skip free/broken entries
-        .filter((m) => !m.modelId.includes("preview") || m.modelId.includes("flash")) // skip most previews
-        .filter((m) => !m.modelId.includes(":") || m.modelId.includes(":thinking")) // skip variants except thinking
-        .sort((a, b) => a.input - b.input);
+        .filter((m) => m.input > 0 && !m.isFree && !m.isVariant && !m.isGuard)
+        .filter((m) => !/audio|search|embed|tts|vision|image|code-/i.test(m.modelId)) // skip specialized models
+        .sort((a, b) => b.created - a.created); // newest first
 
       if (models.length === 0) continue;
 
-      // Auto-categorize into tiers by price quartiles
-      const tiers: ModelTier[] = [];
-      const cheapest = models[0];
-      const midIdx = Math.floor(models.length / 2);
-      const mid = models[midIdx] ?? cheapest;
-      const expensive = models[models.length - 1];
+      // Group into 3 price tiers by input cost
+      const BUDGET_MAX = 1.5;    // <= $1.50/M input
+      const BALANCED_MAX = 6.0;  // $1.50-$6/M input
+      // > $6 = premium
 
-      // Pick up to 5 distinct price points: cheapest, 25th, median, 75th, most expensive
-      const seen = new Set<string>();
-      const picks = [
-        { m: cheapest, label: "Budget" },
-        { m: models[Math.floor(models.length * 0.25)] ?? cheapest, label: "Economy" },
-        { m: mid, label: "Balanced" },
-        { m: models[Math.floor(models.length * 0.75)] ?? expensive, label: "Advanced" },
-        { m: expensive, label: "Premium" },
-      ];
+      // Only consider models from the last 18 months to avoid ancient models
+      const cutoff = Date.now() / 1000 - 18 * 30 * 24 * 60 * 60;
+      const recent = models.filter((m) => m.created > cutoff);
+      const pool = recent.length >= 3 ? recent : models; // fallback if too few recent
 
-      for (const pick of picks) {
-        if (seen.has(pick.m.modelId)) continue;
-        seen.add(pick.m.modelId);
-        const isRecommended = pick.m.modelId === mid.modelId;
-        tiers.push({
-          name: pick.label,
-          model: pick.m.modelId,
-          input: Math.round(pick.m.input * 100) / 100,
-          output: Math.round(pick.m.output * 100) / 100,
-          recommended: isRecommended,
-        });
+      // Known model family overrides — some providers have model families
+      // where the "premium" model isn't the most expensive (e.g. opus-4.6 is $5
+      // while opus-4.1 is $15, but 4.6 is the better model)
+      const FAMILY_TIER: Record<string, Record<string, "budget" | "balanced" | "premium">> = {
+        anthropic: { haiku: "budget", sonnet: "balanced", opus: "premium" },
+      };
+      const familyMap = FAMILY_TIER[ourProvider];
+
+      let budget: typeof pool;
+      let balanced: typeof pool;
+      let premium: typeof pool;
+
+      if (familyMap) {
+        // Use family-based tiering: pick newest from each family
+        budget = []; balanced = []; premium = [];
+        const seen = new Set<string>();
+        for (const m of pool) {
+          for (const [family, tier] of Object.entries(familyMap)) {
+            if (m.modelId.includes(family) && !seen.has(family)) {
+              seen.add(family);
+              if (tier === "budget") budget.push(m);
+              else if (tier === "balanced") balanced.push(m);
+              else premium.push(m);
+              break;
+            }
+          }
+        }
+      } else {
+        // Price-based tiering for other providers
+        budget = pool.filter((m) => m.input <= BUDGET_MAX);
+        balanced = pool.filter((m) => m.input > BUDGET_MAX && m.input <= BALANCED_MAX);
+        premium = pool.filter((m) => m.input > BALANCED_MAX);
       }
 
-      // Ensure at least one is recommended
+      // For each tier: pick newest stable + newest preview (if different)
+      function pickFromTier(
+        tierModels: typeof models,
+        label: string,
+        isRec: boolean,
+      ): ModelTier[] {
+        if (tierModels.length === 0) return [];
+        const stable = tierModels.find((m) => !m.isPreview);
+        const preview = tierModels.find((m) => m.isPreview);
+        const picks: ModelTier[] = [];
+
+        if (stable) {
+          picks.push({
+            name: label,
+            model: stable.modelId,
+            input: Math.round(stable.input * 100) / 100,
+            output: Math.round(stable.output * 100) / 100,
+            recommended: isRec && !preview, // recommend stable if no preview
+          });
+        }
+        if (preview && (!stable || preview.modelId !== stable.modelId)) {
+          picks.push({
+            name: `${label} (preview)`,
+            model: preview.modelId,
+            input: Math.round(preview.input * 100) / 100,
+            output: Math.round(preview.output * 100) / 100,
+            recommended: isRec && !!stable, // recommend preview when both exist
+          });
+        }
+        // If only preview exists in tier, mark it recommended if this is the rec tier
+        if (!stable && preview && isRec) {
+          picks[0].recommended = true;
+        }
+        return picks;
+      }
+
+      const tiers: ModelTier[] = [
+        ...pickFromTier(budget, "Budget", false),
+        ...pickFromTier(balanced, "Balanced", true),
+        ...pickFromTier(premium, "Premium", false),
+      ];
+
+      // If no balanced tier, recommend the cheapest available
       if (!tiers.some((t) => t.recommended) && tiers.length > 0) {
-        tiers[Math.floor(tiers.length / 2)].recommended = true;
+        tiers[0].recommended = true;
       }
 
       result[ourProvider] = tiers;
