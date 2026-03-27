@@ -123,7 +123,8 @@ describe("rules generation", () => {
         content_hash: "abc", status: "active", tier: "active",
         supersedes: null, superseded_by: null, last_reinforced: null,
         created: "2026-01-01", modified: "2026-01-01", embedding: null,
-        source_path: null, project_id: "proj-1", scope: "project",
+        source_path: null, source_file: null, source_page: null,
+        source_timerange: null, project_id: "proj-1", scope: "project",
       },
     ];
 

@@ -59,6 +59,9 @@ export function syncMemoryToDb(
     created: frontmatter.created || new Date().toISOString().split("T")[0],
     modified: frontmatter.modified || new Date().toISOString().split("T")[0],
     source_path: sourcePath || null,
+    source_file: (frontmatter as Record<string, unknown>).source_file as string || null,
+    source_page: (frontmatter as Record<string, unknown>).source_page as string || null,
+    source_timerange: (frontmatter as Record<string, unknown>).source_timerange as string || null,
     project_id: projectId || null,
     scope: scope || "project",
   });
@@ -96,6 +99,12 @@ export function syncUpdateToDb(
   }
   if (updates.author !== undefined) dbUpdates.author = updates.author;
   if (updates.authority !== undefined) dbUpdates.authority = updates.authority;
+
+  // v5.0: Multimodal source fields
+  const raw = updates as Record<string, unknown>;
+  if (raw.source_file !== undefined) dbUpdates.source_file = (raw.source_file as string) || null;
+  if (raw.source_page !== undefined) dbUpdates.source_page = (raw.source_page as string) || null;
+  if (raw.source_timerange !== undefined) dbUpdates.source_timerange = (raw.source_timerange as string) || null;
 
   if (newContent !== undefined) {
     dbUpdates.content = newContent;

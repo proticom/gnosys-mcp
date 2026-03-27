@@ -74,6 +74,8 @@ const LLMConfigSchema = z.object({
 const TaskModelsSchema = z.object({
   structuring: TaskModelSchema.optional(),
   synthesis: TaskModelSchema.optional(),
+  vision: TaskModelSchema.optional(),
+  transcription: TaskModelSchema.optional(),
 });
 
 // ─── Archive Schema ─────────────────────────────────────────────────────
@@ -122,6 +124,25 @@ const RecallConfigSchema = z.object({
 });
 
 export type RecallConfig = z.infer<typeof RecallConfigSchema>;
+
+// ─── Multimodal Ingestion Schema ────────────────────────────────────────
+
+const MultimodalConfigSchema = z.object({
+  /** Audio transcription provider */
+  transcriptionProvider: z.enum(["groq", "openai", "local"]).default("groq"),
+  /** Whisper model for local transcription */
+  whisperModel: z.string().default("Xenova/whisper-small"),
+  /** Vision LLM provider for image/PDF analysis */
+  visionProvider: LLMProviderEnum.optional(),
+  /** Vision model override */
+  visionModel: z.string().optional(),
+  /** Target chunk size in characters for splitting multi-page content */
+  chunkSize: z.number().min(500).max(8000).default(1500),
+  /** Maximum file size in MB for ingestion */
+  maxFileSizeMb: z.number().min(1).max(500).default(100),
+});
+
+export type MultimodalConfig = z.infer<typeof MultimodalConfigSchema>;
 
 // ─── Web Knowledge Base Schema ──────────────────────────────────────────
 
@@ -236,6 +257,14 @@ export const GnosysConfigSchema = z.object({
     minMemories: 10,
   }),
 
+  /** Multimodal ingestion — PDF, audio, image, video processing */
+  multimodal: MultimodalConfigSchema.default({
+    transcriptionProvider: "groq",
+    whisperModel: "Xenova/whisper-small",
+    chunkSize: 1500,
+    maxFileSizeMb: 100,
+  }),
+
   /** Web Knowledge Base — read-only, file-based mode for serverless chatbots */
   web: WebConfigSchema.optional(),
 });
@@ -254,7 +283,7 @@ export const DEFAULT_CONFIG: GnosysConfig = GnosysConfigSchema.parse({});
  */
 export function resolveTaskModel(
   config: GnosysConfig,
-  task: "structuring" | "synthesis"
+  task: "structuring" | "synthesis" | "vision" | "transcription"
 ): { provider: LLMProviderName; model: string } {
   // 1. Task-specific override
   const taskOverride = config.taskModels?.[task];

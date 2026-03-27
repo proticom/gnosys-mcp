@@ -2748,6 +2748,82 @@ server.tool(
   }
 );
 
+// ─── Tool: gnosys_ingest_file ────────────────────────────────────────────
+server.tool(
+  "gnosys_ingest_file",
+  "Ingest a file (PDF, DOCX, TXT, MD) into Gnosys memory. Extracts text, splits into chunks, and creates atomic memories. Supports LLM-powered structuring or fast structured mode.",
+  {
+    filePath: z.string().describe("Absolute path to the file to ingest"),
+    mode: z.enum(["llm", "structured"]).default("llm").optional()
+      .describe("Ingestion mode: 'llm' uses AI to structure each chunk, 'structured' uses keyword extraction (faster, no LLM needed)"),
+    store: z.enum(["project", "personal", "global"]).optional()
+      .describe("Target store layer"),
+    author: z.enum(["human", "ai", "human+ai"]).default("human").optional(),
+    authority: z.enum(["declared", "observed", "imported", "inferred"]).default("imported").optional(),
+    dryRun: z.boolean().default(false).optional()
+      .describe("Preview what would be created without writing"),
+    projectRoot: projectRootParam,
+  },
+  async ({ filePath: inputPath, mode, store, author, authority, dryRun, projectRoot }) => {
+    try {
+      const ctx = await resolveToolContext(projectRoot);
+      if (!ctx.store) {
+        return {
+          content: [{ type: "text" as const, text: "No writable store found. Initialize a project with gnosys_init first." }],
+          isError: true,
+        };
+      }
+
+      const { ingestFile } = await import("./lib/multimodalIngest.js");
+      const result = await ingestFile({
+        filePath: inputPath,
+        storePath: ctx.storePath,
+        mode: mode || "llm",
+        store: store || undefined,
+        author: author || "human",
+        authority: authority || "imported",
+        dryRun: dryRun || false,
+        projectRoot: projectRoot || undefined,
+      });
+
+      // Format the result for the agent
+      const lines: string[] = [];
+      lines.push(`File ingested: ${result.attachment.originalName} (${result.fileType})`);
+      lines.push(`Duration: ${(result.duration / 1000).toFixed(1)}s`);
+      lines.push(`Memories created: ${result.memories.length}`);
+
+      if (result.memories.length > 0) {
+        lines.push("");
+        for (const m of result.memories) {
+          const extra = m.page ? ` [page ${m.page}]` : "";
+          lines.push(`- **${m.title}**${extra} (${m.id})`);
+        }
+      }
+
+      if (result.errors.length > 0) {
+        lines.push("");
+        lines.push(`Errors (${result.errors.length}):`);
+        for (const e of result.errors) {
+          lines.push(`- Chunk ${e.chunk}: ${e.error}`);
+        }
+      }
+
+      if (dryRun) {
+        lines.unshift("(dry run — no files were written)\n");
+      }
+
+      return {
+        content: [{ type: "text" as const, text: lines.join("\n") }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text" as const, text: `Ingestion failed: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
 // ─── Start the server ────────────────────────────────────────────────────
 async function main() {
   // v3.0: Initialize central DB at ~/.gnosys/gnosys.db

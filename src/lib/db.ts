@@ -45,6 +45,10 @@ export interface DbMemory {
   modified: string;
   embedding: Buffer | null;
   source_path: string | null;
+  // v5.0: Multimodal source tracking
+  source_file: string | null;       // Original file name (e.g., "report.pdf")
+  source_page: string | null;       // Page/slide number within source
+  source_timerange: string | null;  // Timestamp range for audio/video (e.g., "00:01:30-00:02:45")
   // v3.0: Centralized Brain
   project_id: string | null;  // UUID from gnosys.json — NULL for user/global
   scope: string;              // "project" | "user" | "global"
@@ -102,7 +106,7 @@ export interface MigrationStats {
 
 // ─── Schema ─────────────────────────────────────────────────────────────
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS memories (
@@ -127,6 +131,9 @@ CREATE TABLE IF NOT EXISTS memories (
   modified            TEXT NOT NULL,
   embedding           BLOB,
   source_path         TEXT,
+  source_file         TEXT,
+  source_page         TEXT,
+  source_timerange    TEXT,
   project_id          TEXT,
   scope               TEXT DEFAULT 'project' CHECK(scope IN ('project','user','global'))
 );
@@ -234,7 +241,9 @@ const MEMORY_COLUMNS = new Set([
   "title", "category", "content", "summary", "tags", "relevance",
   "author", "authority", "confidence", "reinforcement_count", "content_hash",
   "status", "tier", "supersedes", "superseded_by", "last_reinforced",
-  "created", "modified", "embedding", "source_path", "project_id", "scope",
+  "created", "modified", "embedding", "source_path",
+  "source_file", "source_page", "source_timerange",
+  "project_id", "scope",
 ]);
 
 const PROJECT_COLUMNS = new Set([
@@ -416,6 +425,25 @@ export class GnosysDB {
       }
     }
 
+    if (fromVersion < 3) {
+      // v2 → v3: Add multimodal source columns to memories
+      try {
+        this.db.exec("ALTER TABLE memories ADD COLUMN source_file TEXT");
+      } catch {
+        // Column already exists — fine
+      }
+      try {
+        this.db.exec("ALTER TABLE memories ADD COLUMN source_page TEXT");
+      } catch {
+        // Column already exists — fine
+      }
+      try {
+        this.db.exec("ALTER TABLE memories ADD COLUMN source_timerange TEXT");
+      } catch {
+        // Column already exists — fine
+      }
+    }
+
     this.db.pragma(`user_version = ${SCHEMA_VERSION}`);
   }
 
@@ -433,14 +461,15 @@ export class GnosysDB {
 
   // ─── Memory CRUD ────────────────────────────────────────────────────
 
-  insertMemory(mem: Omit<DbMemory, "embedding"> & { embedding?: Buffer | null }): void {
+  insertMemory(mem: Omit<DbMemory, "embedding" | "source_file" | "source_page" | "source_timerange"> & { embedding?: Buffer | null; source_file?: string | null; source_page?: string | null; source_timerange?: string | null }): void {
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO memories
         (id, title, category, content, summary, tags, relevance, author, authority,
          confidence, reinforcement_count, content_hash, status, tier, supersedes,
          superseded_by, last_reinforced, created, modified, embedding, source_path,
+         source_file, source_page, source_timerange,
          project_id, scope)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -450,6 +479,7 @@ export class GnosysDB {
       mem.status, mem.tier, mem.supersedes || null,
       mem.superseded_by || null, mem.last_reinforced || null,
       mem.created, mem.modified, mem.embedding || null, mem.source_path || null,
+      mem.source_file || null, mem.source_page || null, mem.source_timerange || null,
       mem.project_id || null, mem.scope || "project"
     );
   }
