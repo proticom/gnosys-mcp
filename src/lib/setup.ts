@@ -642,30 +642,143 @@ export async function runSetup(opts: {
 
     // ─── Step 3/4 — API key ───────────────────────────────────────────
     let apiKeyWritten = false;
+    let apiKeySource = "";
     const needsKey =
       !isSkip &&
       provider !== "ollama" &&
       provider !== "lmstudio";
+
+    // Determine the env var name for this provider
+    const envVarName = provider === "custom" ? "GNOSYS_CUSTOM_KEY" :
+      `GNOSYS_${provider.toUpperCase()}_KEY`;
+
+    // Also check legacy env var names
+    const legacyEnvVars: Record<string, string> = {
+      anthropic: "ANTHROPIC_API_KEY",
+      openai: "OPENAI_API_KEY",
+      groq: "GROQ_API_KEY",
+      xai: "XAI_API_KEY",
+      mistral: "MISTRAL_API_KEY",
+    };
+    const legacyEnvVar = legacyEnvVars[provider] ?? "";
 
     if (needsKey) {
       console.log();
       console.log(`${BOLD}Step 3/4${RESET} ${DIM}\u2014${RESET} API Key`);
       console.log();
 
-      const providerLabel =
-        provider === "custom" ? "API" : PROVIDER_DISPLAY[provider]?.split(" ")[0] ?? provider;
-      const key = await askInput(rl, `Enter your ${providerLabel} API key (press Enter to skip)`);
-
-      if (key) {
-        await writeApiKey(provider, key);
-        console.log(`${CHECK} Key saved to ~/.config/gnosys/.env (${maskKey(key)})`);
+      // Check if key already exists in environment
+      const existingKey = process.env[envVarName] || (legacyEnvVar ? process.env[legacyEnvVar] : "");
+      if (existingKey) {
+        const source = process.env[envVarName] ? envVarName : legacyEnvVar;
+        console.log(`  ${CHECK} Found existing key in $${source} (${maskKey(existingKey)})`);
         apiKeyWritten = true;
+        apiKeySource = "env";
       } else {
-        console.log(`${DIM}Skipped. You can set it later in ~/.config/gnosys/.env${RESET}`);
+        console.log(`  Provider: ${GREEN}${provider}${RESET}`);
+        console.log(`  Env var:  ${GREEN}${envVarName}${RESET}`);
+        console.log();
+
+        const isMac = process.platform === "darwin";
+        const shell = path.basename(process.env.SHELL ?? "zsh");
+        const profileFile = shell === "bash" ? "~/.bash_profile" : "~/.zshrc";
+
+        const options: string[] = [];
+        if (isMac) {
+          options.push(
+            `Store in macOS Keychain (recommended \u2014 most secure, no plaintext on disk)`,
+          );
+        }
+        options.push(
+          `Set via environment variable (${profileFile})`,
+          `Save to ~/.config/gnosys/.env (\u26a0 plaintext on disk \u2014 least secure)`,
+          `Skip (configure later)`,
+        );
+
+        const keyChoice = await askChoice(rl, "", options);
+
+        // Adjust index based on whether macOS Keychain option was shown
+        const keychainIdx = isMac ? 0 : -1;
+        const envIdx = isMac ? 1 : 0;
+        const dotenvIdx = isMac ? 2 : 1;
+        const skipIdx = isMac ? 3 : 2;
+
+        if (keyChoice === keychainIdx) {
+          // macOS Keychain
+          console.log();
+          console.log(`  Run this in a ${BOLD}separate terminal${RESET}:`);
+          console.log();
+          console.log(`  ${GREEN}security add-generic-password -a "$USER" -s "${envVarName}" -w "your-key-here"${RESET}`);
+          console.log();
+          console.log(`  ${DIM}Replace "your-key-here" with your actual API key.${RESET}`);
+          console.log(`  ${DIM}Gnosys will read it automatically at runtime.${RESET}`);
+          console.log();
+          await askInput(rl, "Press Enter after setting the key...", { default: "" });
+
+          // Verify the key was set
+          try {
+            const { execSync } = await import("child_process");
+            const result = execSync(
+              `security find-generic-password -a "$USER" -s "${envVarName}" -w`,
+              { stdio: "pipe", encoding: "utf-8" }
+            ).trim();
+            if (result) {
+              console.log(`  ${CHECK} Key verified in macOS Keychain (${maskKey(result)})`);
+              apiKeyWritten = true;
+              apiKeySource = "keychain";
+            }
+          } catch {
+            console.log(`  ${WARN} Could not verify key in Keychain. You can set it later.`);
+          }
+        } else if (keyChoice === envIdx) {
+          // Environment variable
+          console.log();
+          console.log(`  Run this in a ${BOLD}separate terminal${RESET}:`);
+          console.log();
+          console.log(`  ${GREEN}echo 'export ${envVarName}=your-key-here' >> ${profileFile} && source ${profileFile}${RESET}`);
+          console.log();
+          console.log(`  ${DIM}Replace "your-key-here" with your actual API key.${RESET}`);
+          console.log(`  ${DIM}The key is stored in your shell profile (${profileFile}).${RESET}`);
+          console.log();
+          await askInput(rl, "Press Enter after setting the key...", { default: "" });
+
+          // Verify
+          // Note: we can't detect it in this process since env was set in another terminal
+          console.log(`  ${DIM}Key will be available in new terminal sessions.${RESET}`);
+          apiKeyWritten = true;
+          apiKeySource = "env";
+        } else if (keyChoice === dotenvIdx) {
+          // .env file (least secure)
+          console.log();
+          console.log(`  ${WARN} ${BOLD}Security warning:${RESET} This stores your key as plaintext in`);
+          console.log(`  ~/.config/gnosys/.env. Anyone with access to your user account`);
+          console.log(`  can read it. If this directory syncs to a cloud service (iCloud,`);
+          console.log(`  Dropbox), the key will be uploaded in plaintext.`);
+          console.log();
+
+          const confirm = await askYesNo(rl, "Continue with plaintext storage?", false);
+          if (confirm) {
+            const key = await askInput(rl, `Enter your API key`);
+            if (key) {
+              await writeApiKey(provider, key);
+              console.log(`  ${CHECK} Key saved to ~/.config/gnosys/.env (${maskKey(key)})`);
+              apiKeyWritten = true;
+              apiKeySource = "dotenv";
+            }
+          } else {
+            console.log(`  ${DIM}Skipped. Choose a different method next time.${RESET}`);
+          }
+        } else {
+          // Skip
+          console.log(`  ${DIM}Skipped. Set your key later using one of these methods:`);
+          console.log(`  \u2022 macOS Keychain: security add-generic-password -a "$USER" -s "${envVarName}" -w "key"${isMac ? "" : " (macOS only)"}`);
+          console.log(`  \u2022 Shell profile:  echo 'export ${envVarName}=key' >> ${profileFile}`);
+          console.log(`  \u2022 Dotenv file:    echo '${envVarName}=key' >> ~/.config/gnosys/.env${RESET}`);
+        }
       }
     } else {
       console.log();
-      console.log(`${DIM}Step 3/4 \u2014 API key: not needed${RESET}`);
+      console.log(`${DIM}Step 3/4 \u2014 API key: not needed (local provider)${RESET}`);
     }
 
     // ─── Step 4/4 — IDE integration ───────────────────────────────────
