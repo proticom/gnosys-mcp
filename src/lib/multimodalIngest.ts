@@ -276,10 +276,10 @@ export async function ingestFile(options: MultimodalIngestOptions): Promise<Mult
   switch (fileInfo.type) {
     case "pdf": {
       const pdfChunks = await extractPdfText(filePath);
-      // Convert PDF pages into segments for the chunk splitter
+      // Convert PDF sections into segments — pages tracked as metadata
       const segments = pdfChunks.map((pc) => ({
         text: pc.text,
-        page: String(pc.pageNumber),
+        page: pc.pages,
       }));
       chunks = splitSegments(segments, { targetSize: chunkSize });
       break;
