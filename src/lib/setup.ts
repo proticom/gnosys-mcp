@@ -101,6 +101,137 @@ export const PROVIDER_TIERS: Record<string, ModelTier[]> = {
   custom: [],
 };
 
+// ─── Dynamic Model Fetching (OpenRouter) ─────────────────────────────────────
+
+const OPENROUTER_API = "https://openrouter.ai/api/v1/models";
+const CACHE_FILE = path.join(os.homedir(), ".config", "gnosys", "models-cache.json");
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+// Map OpenRouter provider prefixes to our provider names
+const OPENROUTER_PREFIX_MAP: Record<string, string> = {
+  anthropic: "anthropic",
+  openai: "openai",
+  "x-ai": "xai",
+  mistralai: "mistral",
+  // groq models are on OpenRouter under meta-llama but groq-hosted
+  // We skip dynamic for groq/ollama/lmstudio since they're local or have specific APIs
+};
+
+interface OpenRouterModel {
+  id: string;
+  name?: string;
+  pricing?: { prompt?: string; completion?: string };
+  context_length?: number;
+}
+
+/**
+ * Fetch models from OpenRouter, cache for 24 hours, fall back to hardcoded.
+ * Returns updated PROVIDER_TIERS for cloud providers only.
+ */
+export async function fetchDynamicModels(): Promise<Record<string, ModelTier[]>> {
+  // Check cache first
+  try {
+    const stat = await fs.stat(CACHE_FILE);
+    if (Date.now() - stat.mtimeMs < CACHE_TTL_MS) {
+      const cached = JSON.parse(await fs.readFile(CACHE_FILE, "utf-8"));
+      if (cached && typeof cached === "object") return cached;
+    }
+  } catch {
+    // No cache or expired
+  }
+
+  // Fetch from OpenRouter
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const resp = await fetch(OPENROUTER_API, { signal: controller.signal });
+    clearTimeout(timeout);
+
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = (await resp.json()) as { data: OpenRouterModel[] };
+
+    const result: Record<string, ModelTier[]> = {};
+
+    for (const [prefix, ourProvider] of Object.entries(OPENROUTER_PREFIX_MAP)) {
+      const models = data.data
+        .filter((m) => m.id.startsWith(prefix + "/"))
+        .map((m) => {
+          const modelId = m.id.slice(prefix.length + 1);
+          const input = parseFloat(m.pricing?.prompt ?? "0") * 1e6;
+          const output = parseFloat(m.pricing?.completion ?? "0") * 1e6;
+          return { modelId, name: m.name ?? modelId, input, output, ctx: m.context_length ?? 0 };
+        })
+        .filter((m) => m.input > 0 || m.output > 0) // skip free/broken entries
+        .filter((m) => !m.modelId.includes("preview") || m.modelId.includes("flash")) // skip most previews
+        .filter((m) => !m.modelId.includes(":") || m.modelId.includes(":thinking")) // skip variants except thinking
+        .sort((a, b) => a.input - b.input);
+
+      if (models.length === 0) continue;
+
+      // Auto-categorize into tiers by price quartiles
+      const tiers: ModelTier[] = [];
+      const cheapest = models[0];
+      const midIdx = Math.floor(models.length / 2);
+      const mid = models[midIdx] ?? cheapest;
+      const expensive = models[models.length - 1];
+
+      // Pick up to 5 distinct price points: cheapest, 25th, median, 75th, most expensive
+      const seen = new Set<string>();
+      const picks = [
+        { m: cheapest, label: "Budget" },
+        { m: models[Math.floor(models.length * 0.25)] ?? cheapest, label: "Economy" },
+        { m: mid, label: "Balanced" },
+        { m: models[Math.floor(models.length * 0.75)] ?? expensive, label: "Advanced" },
+        { m: expensive, label: "Premium" },
+      ];
+
+      for (const pick of picks) {
+        if (seen.has(pick.m.modelId)) continue;
+        seen.add(pick.m.modelId);
+        const isRecommended = pick.m.modelId === mid.modelId;
+        tiers.push({
+          name: pick.label,
+          model: pick.m.modelId,
+          input: Math.round(pick.m.input * 100) / 100,
+          output: Math.round(pick.m.output * 100) / 100,
+          recommended: isRecommended,
+        });
+      }
+
+      // Ensure at least one is recommended
+      if (!tiers.some((t) => t.recommended) && tiers.length > 0) {
+        tiers[Math.floor(tiers.length / 2)].recommended = true;
+      }
+
+      result[ourProvider] = tiers;
+    }
+
+    // Cache the result
+    try {
+      await fs.mkdir(path.dirname(CACHE_FILE), { recursive: true });
+      await fs.writeFile(CACHE_FILE, JSON.stringify(result, null, 2), "utf-8");
+    } catch {
+      // Non-critical
+    }
+
+    return result;
+  } catch {
+    // Offline or error — return empty (caller falls back to hardcoded)
+    return {};
+  }
+}
+
+/**
+ * Get model tiers for a provider — tries dynamic first, falls back to hardcoded.
+ */
+export async function getModelTiers(provider: string): Promise<ModelTier[]> {
+  const dynamic = await fetchDynamicModels();
+  if (dynamic[provider] && dynamic[provider].length > 0) {
+    return dynamic[provider];
+  }
+  return PROVIDER_TIERS[provider] ?? [];
+}
+
 // ─── Provider display names and env var mapping ─────────────────────────────
 
 const PROVIDER_DISPLAY: Record<string, string> = {
@@ -115,12 +246,12 @@ const PROVIDER_DISPLAY: Record<string, string> = {
 };
 
 const PROVIDER_ENV_VAR: Record<string, string> = {
-  anthropic: "ANTHROPIC_API_KEY",
-  openai: "OPENAI_API_KEY",
-  groq: "GROQ_API_KEY",
-  xai: "XAI_API_KEY",
-  mistral: "MISTRAL_API_KEY",
-  custom: "GNOSYS_LLM_API_KEY",
+  anthropic: "GNOSYS_ANTHROPIC_KEY",
+  openai: "GNOSYS_OPENAI_KEY",
+  groq: "GNOSYS_GROQ_KEY",
+  xai: "GNOSYS_XAI_KEY",
+  mistral: "GNOSYS_MISTRAL_KEY",
+  custom: "GNOSYS_CUSTOM_KEY",
 };
 
 // Ordered list for the menu
@@ -551,11 +682,21 @@ export async function runSetup(opts: {
       }
     }
 
+    // ─── Pre-fetch dynamic models ─────────────────────────────────────
+    console.log(`${DIM}Fetching latest model pricing...${RESET}`);
+    const dynamicModels = await fetchDynamicModels();
+    if (Object.keys(dynamicModels).length > 0) {
+      console.log(`${DIM}${CHECK} Live pricing loaded from OpenRouter${RESET}`);
+    } else {
+      console.log(`${DIM}Using bundled model data (offline or fetch failed)${RESET}`);
+    }
+    console.log();
+
     // ─── Step 1/4 — Provider ──────────────────────────────────────────
     const providerOptions = PROVIDER_ORDER.map((key) => {
-      const tiers = PROVIDER_TIERS[key];
+      const tiers = dynamicModels[key] ?? PROVIDER_TIERS[key];
       const display = PROVIDER_DISPLAY[key];
-      if (tiers.length === 0) return display;
+      if (!tiers || tiers.length === 0) return display;
       const minIn = Math.min(...tiers.map((t) => t.input));
       const maxOut = Math.max(...tiers.map((t) => t.output));
       if (minIn === 0 && maxOut === 0) return display;
@@ -577,7 +718,7 @@ export async function runSetup(opts: {
     let model = "";
 
     if (!isSkip && provider !== "custom") {
-      const tiers = PROVIDER_TIERS[provider];
+      const tiers = dynamicModels[provider] ?? PROVIDER_TIERS[provider];
       if (tiers.length > 0) {
         const isLocal = provider === "ollama" || provider === "lmstudio";
 
