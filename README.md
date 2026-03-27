@@ -274,7 +274,7 @@ type = "local"
 command = ["gnosys", "serve"]
 ```
 
-> **Note:** API keys are configured globally in `~/.config/gnosys/.env`, not per-IDE. See [LLM Provider Setup](https://gnosys.ai/guide.html#guide-installation) in the User Guide.
+> **Note:** API keys are configured via `gnosys setup` (macOS Keychain, environment variable, or `~/.config/gnosys/.env`). See [LLM Provider Setup](https://gnosys.ai/guide.html#guide-llm-provider-setup) in the User Guide.
 
 ---
 
@@ -345,14 +345,18 @@ Eight providers behind a single interface — switch between cloud and local wit
 
 | Provider | Type | Default Model | API Key Env Var |
 |----------|------|---------------|-----------------|
-| **Anthropic** | Cloud | claude-sonnet-4-6 | `ANTHROPIC_API_KEY` |
+| **Anthropic** | Cloud | claude-sonnet-4-6 | `GNOSYS_ANTHROPIC_KEY` |
 | **Ollama** | Local | llama3.2 | — (runs locally) |
-| **Groq** | Cloud | llama-3.3-70b-versatile | `GROQ_API_KEY` |
-| **OpenAI** | Cloud | gpt-5.4-mini | `OPENAI_API_KEY` |
+| **Groq** | Cloud | llama-3.3-70b-versatile | `GNOSYS_GROQ_KEY` |
+| **OpenAI** | Cloud | gpt-5.4-mini | `GNOSYS_OPENAI_KEY` |
 | **LM Studio** | Local | default | — (runs locally) |
-| **xAI** | Cloud | grok-4.20 | `XAI_API_KEY` |
-| **Mistral** | Cloud | mistral-small-4 | `MISTRAL_API_KEY` |
-| **Custom** | Any | (user-defined) | `GNOSYS_LLM_API_KEY` |
+| **xAI** | Cloud | grok-4.20 | `GNOSYS_XAI_KEY` |
+| **Mistral** | Cloud | mistral-small-4 | `GNOSYS_MISTRAL_KEY` |
+| **Custom** | Any | (user-defined) | `GNOSYS_CUSTOM_KEY` |
+
+> Model lists and pricing are fetched dynamically from [OpenRouter](https://openrouter.ai) during `gnosys setup` and cached for 24 hours. Bundled defaults are used when offline.
+
+> **API Key Security:** `gnosys setup` offers three storage options: macOS Keychain (recommended — encrypted, no plaintext), environment variable (shell profile), or `~/.config/gnosys/.env` (least secure). Legacy env var names (`ANTHROPIC_API_KEY`, `GROQ_API_KEY`, `OPENAI_API_KEY`, etc.) are still supported for backward compatibility.
 
 Route tasks to different providers — a cheap model for structuring, a powerful model for synthesis:
 
@@ -561,6 +565,7 @@ Gnosys is open source (MIT) and actively developed. Here's how to get involved:
 - Graph visualization in the dashboard
 - Obsidian community plugin for native vault integration
 - Docker Hub published image for one-line deployment
+- Multimodal memory ingestion (PDFs, images, audio/video transcription)
 
 ---
 
