@@ -199,3 +199,131 @@ export async function findProjectIdentity(startDir: string): Promise<{
 
   return null;
 }
+
+// ─── Project Migration ──────────────────────────────────────────────────
+
+export interface MigrateOptions {
+  /** Directory that currently contains .gnosys/ */
+  sourcePath: string;
+  /** Directory to move .gnosys/ into */
+  targetPath: string;
+  /** New project name (default: basename of targetPath) */
+  newName?: string;
+  /** Remove the old .gnosys/ after successful copy */
+  deleteSource?: boolean;
+  /** Central DB instance for updating project registration */
+  centralDb?: GnosysDB;
+}
+
+export interface MigrateResult {
+  oldIdentity: ProjectIdentity;
+  newIdentity: ProjectIdentity;
+  memoryFileCount: number;
+}
+
+/**
+ * Migrate a .gnosys/ store from one directory to another.
+ *
+ * Copies the entire .gnosys/ tree, updates gnosys.json with the new
+ * working directory and project name, updates the central DB record,
+ * and registers in the file-based project registry.
+ */
+export async function migrateProject(opts: MigrateOptions): Promise<MigrateResult> {
+  const { sourcePath, targetPath, newName, deleteSource, centralDb } = opts;
+  const resolvedSource = path.resolve(sourcePath);
+  const resolvedTarget = path.resolve(targetPath);
+
+  const sourceStore = path.join(resolvedSource, ".gnosys");
+  const targetStore = path.join(resolvedTarget, ".gnosys");
+
+  // 1. Verify source has .gnosys/
+  try {
+    await fs.stat(sourceStore);
+  } catch {
+    throw new Error(`No .gnosys/ directory found at ${resolvedSource}`);
+  }
+
+  // 2. Read existing identity
+  const oldIdentity = await readProjectIdentity(resolvedSource);
+  if (!oldIdentity) {
+    throw new Error(`No valid gnosys.json found in ${sourceStore}`);
+  }
+
+  // 3. Verify target doesn't already have .gnosys/
+  try {
+    await fs.stat(targetStore);
+    throw new Error(
+      `Target already has a .gnosys/ directory at ${resolvedTarget}. ` +
+      `Remove it first or choose a different target.`
+    );
+  } catch (err: unknown) {
+    // Good — no .gnosys/ at target (stat threw ENOENT)
+    if (err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw err; // Re-throw our own "already exists" error
+    }
+  }
+
+  // 4. Copy entire .gnosys/ tree from source to target
+  const { execSync } = await import("child_process");
+  execSync(`cp -a "${sourceStore}" "${targetStore}"`, { stdio: "pipe" });
+
+  // 5. Count memory markdown files (for reporting)
+  const { glob } = await import("glob");
+  const memoryFiles = await glob("**/*.md", {
+    cwd: targetStore,
+    ignore: ["**/CHANGELOG.md", "**/MANIFEST.md", "**/.git/**", "**/.obsidian/**"],
+  });
+
+  // 6. Update gnosys.json in the new location
+  const projectName = newName || path.basename(resolvedTarget);
+  const now = new Date().toISOString();
+
+  const newIdentity: ProjectIdentity = {
+    ...oldIdentity,
+    projectName,
+    workingDirectory: resolvedTarget,
+  };
+  await writeProjectIdentity(resolvedTarget, newIdentity);
+
+  // 7. Update central DB if available
+  if (centralDb?.isAvailable()) {
+    centralDb.updateProject(oldIdentity.projectId, {
+      name: projectName,
+      working_directory: resolvedTarget,
+      modified: now,
+    });
+  }
+
+  // 8. Register in file-based project registry
+  const { GnosysResolver } = await import("./resolver.js");
+  const resolver = new GnosysResolver();
+  await resolver.registerProject(resolvedTarget);
+
+  // 9. Add .gnosys/ to target's .gitignore if not already there
+  try {
+    const targetGitignore = path.join(resolvedTarget, ".gitignore");
+    let gitignoreContent = "";
+    try {
+      gitignoreContent = await fs.readFile(targetGitignore, "utf-8");
+    } catch {
+      // No .gitignore yet
+    }
+    if (!gitignoreContent.includes(".gnosys")) {
+      const entry = "\n# Gnosys memory store\n.gnosys/\n";
+      await fs.writeFile(targetGitignore, gitignoreContent + entry, "utf-8");
+    }
+  } catch {
+    // Non-critical
+  }
+
+  // 10. Delete source if requested
+  if (deleteSource) {
+    await fs.rm(sourceStore, { recursive: true, force: true });
+  }
+
+  return {
+    oldIdentity,
+    newIdentity,
+    memoryFileCount: memoryFiles.length,
+  };
+}

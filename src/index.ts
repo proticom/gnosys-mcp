@@ -384,6 +384,60 @@ server.tool(
   },
   async ({ category, tag, store: storeFilter, status, projectRoot }) => {
     const ctx = await resolveToolContext(projectRoot);
+
+    // DB-first: read from central DB instead of scanning markdown files
+    const db = ctx.centralDb;
+    if (db?.isAvailable()) {
+      let dbMemories = status === "active" || !status
+        ? db.getActiveMemories()
+        : db.getAllMemories();
+
+      // Apply filters on DB results
+      if (status && status !== "active") {
+        dbMemories = dbMemories.filter((m) => m.status === status);
+      }
+      if (storeFilter) {
+        dbMemories = dbMemories.filter((m) => m.scope === storeFilter);
+      }
+      if (category) {
+        dbMemories = dbMemories.filter((m) => m.category === category);
+      }
+      if (tag) {
+        dbMemories = dbMemories.filter((m) => {
+          try {
+            const parsed = JSON.parse(m.tags || "[]");
+            const tagList: string[] = Array.isArray(parsed)
+              ? parsed
+              : Object.values(parsed).flat() as string[];
+            return tagList.includes(tag);
+          } catch {
+            return false;
+          }
+        });
+      }
+      // Filter by project if we have a project ID (so scoped queries only see their project)
+      if (ctx.projectId && !storeFilter) {
+        dbMemories = dbMemories.filter((m) => m.project_id === ctx.projectId || m.scope !== "project");
+      }
+
+      const lines = dbMemories.map(
+        (m) => `- [${m.scope}] **${m.title}** (${m.category}/${m.id}) [${m.status}]`
+      );
+
+      return {
+        content: [
+          {
+            type: "text",
+            text:
+              lines.length > 0
+                ? `${lines.length} memories:\n\n${lines.join("\n")}`
+                : "No memories match the filter.",
+          },
+        ],
+      };
+    }
+
+    // Fallback: read from markdown files if central DB unavailable
     let memories = await ctx.resolver.getAllMemories();
 
     if (storeFilter) {
@@ -476,7 +530,13 @@ server.tool(
 
     try {
       const result = await ingestion.ingest(input);
-      const id = await writeTarget.store.generateId(result.category);
+      if (!ctx.gnosysDb?.isAvailable()) {
+        return {
+          content: [{ type: "text", text: "Database not available. Cannot write memory." }],
+          isError: true,
+        };
+      }
+      const id = ctx.gnosysDb.getNextId(result.category, ctx.projectId ?? undefined);
 
       const today = new Date().toISOString().split("T")[0];
       const frontmatter = {
@@ -495,27 +555,18 @@ server.tool(
         supersedes: null,
       };
 
-      const filename = `${result.filename}.md`;
       const content = `# ${result.title}\n\n${result.content}`;
-      const relativePath = await writeTarget.store.writeMemory(
-        result.category,
-        filename,
-        frontmatter,
-        content
-      );
 
-      // v2.0: Dual-write to gnosys.db
-      if (ctx.gnosysDb?.isAvailable()) {
-        syncMemoryToDb(ctx.gnosysDb, frontmatter, content, relativePath);
-        auditToDb(ctx.gnosysDb, "write", id, { tool: "gnosys_add", category: result.category });
-      }
+      // Write to DB only (SQLite is sole source of truth)
+      syncMemoryToDb(ctx.gnosysDb, frontmatter, content, undefined, ctx.projectId, "project");
+      auditToDb(ctx.gnosysDb, "write", id, { tool: "gnosys_add", category: result.category });
 
       // Rebuild search index across all stores
       if (ctx.search) {
         await reindexAllStores();
       }
 
-      let response = `Memory added to [${writeTarget.label}]: **${result.title}**\nPath: ${writeTarget.label}:${relativePath}\nCategory: ${result.category}\nConfidence: ${result.confidence}`;
+      let response = `Memory added to [${writeTarget.label}]: **${result.title}**\nID: ${id}\nCategory: ${result.category}\nConfidence: ${result.confidence}`;
 
       if (result.proposedNewTags && result.proposedNewTags.length > 0) {
         const proposed = result.proposedNewTags
@@ -529,7 +580,7 @@ server.tool(
         const related = ctx.search.discover(result.relevance.split(" ").slice(0, 5).join(" "), 5);
         // Filter out the memory we just added
         const overlaps = related.filter(
-          (r) => !r.relative_path.endsWith(filename)
+          (r) => r.title !== result.title
         );
         if (overlaps.length > 0) {
           response += `\n\n⚠️ Potential overlaps detected — review these for contradictions:`;
@@ -590,12 +641,13 @@ server.tool(
       };
     }
 
-    const id = await writeTarget.store.generateId(category);
-    const slug = title
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "")
-      .substring(0, 60);
+    if (!ctx.gnosysDb?.isAvailable()) {
+      return {
+        content: [{ type: "text", text: "Database not available. Cannot write memory." }],
+        isError: true,
+      };
+    }
+    const id = ctx.gnosysDb.getNextId(category, ctx.projectId ?? undefined);
 
     const today = new Date().toISOString().split("T")[0];
     const frontmatter: MemoryFrontmatter = {
@@ -615,18 +667,10 @@ server.tool(
     };
 
     const fullContent = `# ${title}\n\n${content}`;
-    const relativePath = await writeTarget.store.writeMemory(
-      category,
-      `${slug}.md`,
-      frontmatter,
-      fullContent
-    );
 
-    // v2.0: Dual-write to gnosys.db
-    if (ctx.gnosysDb?.isAvailable()) {
-      syncMemoryToDb(ctx.gnosysDb, frontmatter, fullContent, relativePath);
-      auditToDb(ctx.gnosysDb, "write", id, { tool: "gnosys_add_structured", category });
-    }
+    // Write to DB only (SQLite is sole source of truth)
+    syncMemoryToDb(ctx.gnosysDb, frontmatter, fullContent, undefined, ctx.projectId, "project");
+    auditToDb(ctx.gnosysDb, "write", id, { tool: "gnosys_add_structured", category });
 
     if (ctx.search) await reindexAllStores();
 
@@ -634,7 +678,7 @@ server.tool(
       content: [
         {
           type: "text",
-          text: `Memory added to [${writeTarget.label}]: **${title}**\nPath: ${writeTarget.label}:${relativePath}`,
+          text: `Memory added to [${writeTarget.label}]: **${title}**\nID: ${id}`,
         },
       ],
     };
@@ -729,15 +773,10 @@ server.tool(
         const sourceStore = ctx.resolver
           .getStores()
           .find((s) => s.label === memory.sourceLabel);
-        if (sourceStore?.writable) {
+        if (sourceStore) {
           const count = (memory.frontmatter.reinforcement_count || 0) + 1;
-          await sourceStore.store.updateMemory(memory.relativePath, {
-            modified: new Date().toISOString().split("T")[0],
-            reinforcement_count: count,
-            last_reinforced: new Date().toISOString().split("T")[0],
-          } as any);
 
-          // v2.0: Sync reinforcement to gnosys.db
+          // Write reinforcement to DB only (SQLite is sole source of truth)
           if (ctx.gnosysDb?.isAvailable()) {
             syncReinforcementToDb(ctx.gnosysDb, memory_id, count);
             auditToDb(ctx.gnosysDb, "reinforce", memory_id, { signal, context });
@@ -759,7 +798,7 @@ server.tool(
 // ─── Tool: gnosys_init ───────────────────────────────────────────────────
 server.tool(
   "gnosys_init",
-  "Initialize Gnosys in a project directory. Creates .gnosys/ with project identity (gnosys.json), registers the project in the central DB (~/.gnosys/gnosys.db), and sets up tag registry + git. You MUST run this before any other Gnosys tool in a new project. Pass the full absolute path to the project root.",
+  "Initialize Gnosys in a project directory. Creates .gnosys/ with project identity (gnosys.json), registers the project in the central DB (~/.gnosys/gnosys.db), and sets up tag registry. You MUST run this before any other Gnosys tool in a new project. Pass the full absolute path to the project root.",
   {
     directory: z
       .string()
@@ -784,7 +823,7 @@ server.tool(
     }
 
     if (!isResync) {
-      // Create directory structure
+      // Create directory structure (DB is sole source of truth — no category folders or changelog)
       await fs.mkdir(storePath, { recursive: true });
       await fs.mkdir(path.join(storePath, ".config"), { recursive: true });
 
@@ -806,27 +845,6 @@ server.tool(
         JSON.stringify(defaultRegistry, null, 2),
         "utf-8"
       );
-
-      // Seed changelog
-      const changelog = `# Gnosys Changelog\n\n## ${new Date().toISOString().split("T")[0]}\n\n- Store initialized\n`;
-      await fs.writeFile(
-        path.join(storePath, "CHANGELOG.md"),
-        changelog,
-        "utf-8"
-      );
-
-      // Init git
-      try {
-        const { execSync } = await import("child_process");
-        execSync("git init", { cwd: storePath, stdio: "pipe" });
-        execSync("git add -A", { cwd: storePath, stdio: "pipe" });
-        execSync('git commit -m "Initialize Gnosys store"', {
-          cwd: storePath,
-          stdio: "pipe",
-        });
-      } catch {
-        // Git not available — that's fine
-      }
     }
 
     // v3.0: Create/update project identity and register in central DB
@@ -856,10 +874,103 @@ server.tool(
       content: [
         {
           type: "text",
-          text: `Gnosys store ${action} at ${storePath}\n\nProject Identity:\n- ID: ${identity.projectId}\n- Name: ${identity.projectName}\n- Directory: ${identity.workingDirectory}\n- Agent rules target: ${identity.agentRulesTarget || "none detected"}\n- Central DB: ${centralDb?.isAvailable() ? "registered ✓" : "not available"}\n\n${isResync ? "Identity re-synced." : "Created:\n- gnosys.json (project identity)\n- .config/ (internal config)\n- tags.json (tag registry)\n- CHANGELOG.md\n- git repo"}\n\nThe store is ready. Use gnosys_discover to find existing memories or gnosys_add to create new ones.`,
+          text: `Gnosys store ${action} at ${storePath}\n\nProject Identity:\n- ID: ${identity.projectId}\n- Name: ${identity.projectName}\n- Directory: ${identity.workingDirectory}\n- Agent rules target: ${identity.agentRulesTarget || "none detected"}\n- Central DB: ${centralDb?.isAvailable() ? "registered ✓" : "not available"}\n\n${isResync ? "Identity re-synced." : "Created:\n- gnosys.json (project identity)\n- .config/ (internal config)\n- tags.json (tag registry)"}\n\nThe store is ready. Use gnosys_discover to find existing memories or gnosys_add to create new ones.`,
         },
       ],
     };
+  }
+);
+
+// ─── Tool: gnosys_migrate ────────────────────────────────────────────────
+server.tool(
+  "gnosys_migrate",
+  "Migrate a Gnosys store (.gnosys/) from one directory to another. Updates the project name, working directory, and central DB registration. Use this when a project has moved or you want to consolidate stores.",
+  {
+    sourcePath: z.string().describe("Directory that currently contains .gnosys/ (absolute path)"),
+    targetPath: z.string().describe("Directory to move .gnosys/ into (absolute path)"),
+    newName: z.string().optional().describe("New project name (default: basename of target directory)"),
+    syncMemories: z.boolean().optional().default(false).describe("Sync markdown memories into central DB after migration"),
+    deleteOld: z.boolean().optional().default(false).describe("Delete the old .gnosys/ directory after successful migration"),
+  },
+  async ({ sourcePath, targetPath, newName, syncMemories, deleteOld }) => {
+    try {
+      const { migrateProject } = await import("./lib/projectIdentity.js");
+
+      const result = await migrateProject({
+        sourcePath,
+        targetPath,
+        newName,
+        deleteSource: deleteOld,
+        centralDb: centralDb || undefined,
+      });
+
+      const resolvedTargetPath = path.resolve(targetPath);
+      const newStorePath = path.join(resolvedTargetPath, ".gnosys");
+
+      let summary = `Migration complete!\n\n`;
+      summary += `Project: ${result.oldIdentity.projectName} → ${result.newIdentity.projectName}\n`;
+      summary += `Path: ${result.oldIdentity.workingDirectory} → ${result.newIdentity.workingDirectory}\n`;
+      summary += `Memory files: ${result.memoryFileCount}\n`;
+      summary += `Central DB: ${centralDb?.isAvailable() ? "updated ✓" : "not available"}`;
+
+      // Sync memories to central DB if requested
+      if (syncMemories && centralDb?.isAvailable()) {
+        const matter = (await import("gray-matter")).default;
+        const { syncMemoryToDb } = await import("./lib/dbWrite.js");
+        const { glob } = await import("glob");
+
+        const mdFiles = await glob("**/*.md", {
+          cwd: newStorePath,
+          ignore: ["**/CHANGELOG.md", "**/MANIFEST.md", "**/.git/**", "**/.obsidian/**"],
+        });
+
+        let synced = 0;
+        for (const file of mdFiles) {
+          try {
+            const filePath = path.join(newStorePath, file);
+            const raw = await fs.readFile(filePath, "utf-8");
+            const parsed = matter(raw);
+            if (parsed.data?.id) {
+              syncMemoryToDb(
+                centralDb,
+                parsed.data as MemoryFrontmatter,
+                parsed.content,
+                filePath,
+                result.newIdentity.projectId,
+                "project"
+              );
+              synced++;
+            }
+          } catch {
+            // Skip files that fail to parse
+          }
+        }
+
+        summary += `\n\nSynced ${synced} memories to central DB.`;
+      }
+
+      if (deleteOld) {
+        summary += `\n\nOld .gnosys/ at ${sourcePath} has been removed.`;
+      }
+
+      // Add the new store location to the resolver so future tool calls find it
+      await resolver.registerProject(resolvedTargetPath);
+      await resolver.addProjectStore(newStorePath);
+
+      const writeTarget = resolver.getWriteTarget();
+      if (writeTarget) {
+        search = new GnosysSearch(writeTarget.store.getStorePath());
+        tagRegistry = new GnosysTagRegistry(writeTarget.store.getStorePath());
+        await tagRegistry.load();
+        ingestion = new GnosysIngestion(writeTarget.store, tagRegistry);
+        await reindexAllStores();
+      }
+
+      return { content: [{ type: "text" as const, text: summary }] };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { content: [{ type: "text" as const, text: `Migration failed: ${msg}` }], isError: true };
+    }
   }
 );
 
@@ -950,50 +1061,28 @@ server.tool(
 
     const fullContent = newContent ? `# ${title || memory.frontmatter.title}\n\n${newContent}` : undefined;
 
-    const updated = await sourceStore.store.updateMemory(
-      memory.relativePath,
-      updates,
-      fullContent
-    );
-
-    if (!updated) {
+    const memoryId = memory.frontmatter.id;
+    if (!memoryId) {
       return {
-        content: [{ type: "text", text: `Failed to update: ${memPath}` }],
+        content: [{ type: "text", text: `Memory has no ID: ${memPath}` }],
         isError: true,
       };
     }
 
-    // Supersession cross-linking: if A supersedes B, mark B as superseded_by A
-    if (supersedes && updated.frontmatter.id) {
-      const allMemories = await ctx.resolver.getAllMemories();
-      const supersededMemory = allMemories.find(
-        (m) => m.frontmatter.id === supersedes
-      );
-      if (supersededMemory) {
-        const supersededStore = ctx.resolver
-          .getStores()
-          .find((s) => s.label === supersededMemory.sourceLabel);
-        if (supersededStore?.writable) {
-          await supersededStore.store.updateMemory(
-            supersededMemory.relativePath,
-            {
-              superseded_by: updated.frontmatter.id,
-              status: "superseded",
-            } as Partial<MemoryFrontmatter>
-          );
-        }
-      }
+    if (!ctx.gnosysDb?.isAvailable()) {
+      return {
+        content: [{ type: "text", text: "Database not available. Cannot update memory." }],
+        isError: true,
+      };
     }
 
-    // v2.0: Dual-write update to gnosys.db
-    if (ctx.gnosysDb?.isAvailable() && updated.frontmatter.id) {
-      syncUpdateToDb(ctx.gnosysDb, updated.frontmatter.id, updates, fullContent);
-      auditToDb(ctx.gnosysDb, "write", updated.frontmatter.id, { tool: "gnosys_update", changed: Object.keys(updates) });
+    // Write update to DB only (SQLite is sole source of truth)
+    syncUpdateToDb(ctx.gnosysDb, memoryId, updates, fullContent);
+    auditToDb(ctx.gnosysDb, "write", memoryId, { tool: "gnosys_update", changed: Object.keys(updates) });
 
-      // Cross-link supersession in db too
-      if (supersedes) {
-        syncUpdateToDb(ctx.gnosysDb, supersedes, { superseded_by: updated.frontmatter.id, status: "superseded" });
-      }
+    // Supersession cross-linking: if A supersedes B, mark B as superseded_by A
+    if (supersedes) {
+      syncUpdateToDb(ctx.gnosysDb, supersedes, { superseded_by: memoryId, status: "superseded" });
     }
 
     // Rebuild search index
@@ -1002,11 +1091,13 @@ server.tool(
     const changedFields = Object.keys(updates);
     if (newContent) changedFields.push("content");
 
+    const updatedTitle = title || memory.frontmatter.title;
+
     return {
       content: [
         {
           type: "text",
-          text: `Memory updated: **${updated.frontmatter.title}**\nPath: ${memory.sourceLabel}:${memory.relativePath}\nChanged: ${changedFields.join(", ")}`,
+          text: `Memory updated: **${updatedTitle}**\nID: ${memoryId}\nChanged: ${changedFields.join(", ")}`,
         },
       ],
     };
@@ -1203,8 +1294,12 @@ Output ONLY the JSON array, no markdown fences.`,
         } else {
           // Actually add via ingestion
           try {
+            if (!ctx.gnosysDb?.isAvailable()) {
+              results.push(`❌ FAILED: "${candidate.summary}": Database not available`);
+              continue;
+            }
             const result = await ingestion.ingest(candidate.summary);
-            const id = await writeTarget.store.generateId(result.category);
+            const id = ctx.gnosysDb.getNextId(result.category, ctx.projectId ?? undefined);
             const today = new Date().toISOString().split("T")[0];
 
             const frontmatter = {
@@ -1223,17 +1318,14 @@ Output ONLY the JSON array, no markdown fences.`,
               supersedes: null,
             };
 
-            const filename = `${result.filename}.md`;
             const content = `# ${result.title}\n\n${result.content}`;
-            const relPath = await writeTarget.store.writeMemory(
-              result.category,
-              filename,
-              frontmatter,
-              content
-            );
+
+            // Write to DB only (SQLite is sole source of truth)
+            syncMemoryToDb(ctx.gnosysDb, frontmatter, content, undefined, ctx.projectId, "project");
+            auditToDb(ctx.gnosysDb, "write", id, { tool: "gnosys_commit_context", category: result.category });
 
             results.push(
-              `➕ ADDED: "${result.title}"\n  Path: ${writeTarget.label}:${relPath}`
+              `➕ ADDED: "${result.title}"\n  ID: ${id}`
             );
             added++;
           } catch (err) {
@@ -2243,6 +2335,15 @@ server.tool(
 async function reindexAllStores(): Promise<void> {
   if (!search) return;
   search.clearIndex();
+
+  // DB-first: read from central DB instead of scanning markdown files
+  if (centralDb?.isAvailable()) {
+    const memories = centralDb.getActiveMemories();
+    search.addDbMemories(memories);
+    return;
+  }
+
+  // Fallback: read from markdown files if central DB unavailable
   const allStores = resolver.getStores();
   for (const s of allStores) {
     await search.addStoreMemories(s.store, s.label);

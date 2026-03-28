@@ -28,7 +28,7 @@ import { GnosysAsk } from "./lib/ask.js";
 import { getLLMProvider, isProviderAvailable, LLMProvider } from "./lib/llm.js";
 import { GnosysDB } from "./lib/db.js";
 import { migrate, formatMigrationReport } from "./lib/migrate.js";
-import { createProjectIdentity, readProjectIdentity, findProjectIdentity } from "./lib/projectIdentity.js";
+import { createProjectIdentity, readProjectIdentity, findProjectIdentity, migrateProject } from "./lib/projectIdentity.js";
 import { setPreference, getPreference, getAllPreferences, deletePreference } from "./lib/preferences.js";
 import { syncRules, syncToTarget } from "./lib/rulesGen.js";
 
@@ -440,41 +440,54 @@ program
 
       console.log("Structuring memory via LLM...");
       const result = await ingestion.ingest(input);
-      const id = await writeTarget.store.generateId(result.category);
 
-      const today = new Date().toISOString().split("T")[0];
-      const frontmatter = {
-        id,
-        title: result.title,
-        category: result.category,
-        tags: result.tags,
-        relevance: result.relevance,
-        author: opts.author as "human" | "ai" | "human+ai",
-        authority: opts.authority as
-          | "declared"
-          | "observed"
-          | "imported"
-          | "inferred",
-        confidence: result.confidence,
-        created: today,
-        modified: today,
-        last_reviewed: today,
-        status: "active" as const,
-        supersedes: null,
-      };
+      let centralDb: GnosysDB | null = null;
+      try {
+        centralDb = GnosysDB.openCentral();
+        const projectId = await resolveProjectId();
+        const id = centralDb.getNextId(result.category, projectId || undefined);
+        const today = new Date().toISOString().split("T")[0];
+        const now = new Date().toISOString();
+        const content = `# ${result.title}\n\n${result.content}`;
 
-      const content = `# ${result.title}\n\n${result.content}`;
-      const relPath = await writeTarget.store.writeMemory(
-        result.category,
-        `${result.filename}.md`,
-        frontmatter,
-        content
-      );
+        const tags = result.tags;
+        const tagsJson = Array.isArray(tags)
+          ? JSON.stringify(tags)
+          : JSON.stringify(Object.values(tags).flat());
 
-      console.log(`\nMemory added to [${writeTarget.label}]: ${result.title}`);
-      console.log(`Path: ${writeTarget.label}:${relPath}`);
-      console.log(`Category: ${result.category}`);
-      console.log(`Confidence: ${result.confidence}`);
+        centralDb.insertMemory({
+          id,
+          title: result.title,
+          category: result.category,
+          content,
+          summary: null,
+          tags: tagsJson,
+          relevance: result.relevance,
+          author: opts.author,
+          authority: opts.authority,
+          confidence: result.confidence,
+          reinforcement_count: 0,
+          content_hash: "",
+          status: "active",
+          tier: "active",
+          supersedes: null,
+          superseded_by: null,
+          last_reinforced: null,
+          created: now,
+          modified: now,
+          embedding: null,
+          source_path: null,
+          project_id: projectId,
+          scope: "project",
+        });
+
+        console.log(`\nMemory added to [${writeTarget.label}]: ${result.title}`);
+        console.log(`ID: ${id}`);
+        console.log(`Category: ${result.category}`);
+        console.log(`Confidence: ${result.confidence}`);
+      } finally {
+        centralDb?.close();
+      }
 
       if (result.proposedNewTags && result.proposedNewTags.length > 0) {
         console.log("\nProposed new tags (not yet in registry):");
@@ -520,6 +533,7 @@ program
     }
 
     if (!isResync) {
+      // Create directory structure (DB is sole source of truth — no category folders or changelog)
       await fs.mkdir(storePath, { recursive: true });
       await fs.mkdir(path.join(storePath, ".config"), { recursive: true });
 
@@ -563,31 +577,6 @@ program
         storeGitignore,
         "utf-8"
       );
-
-      const changelog = `# Gnosys Changelog\n\n## ${new Date().toISOString().split("T")[0]}\n\n- Store initialized\n`;
-      await fs.writeFile(
-        path.join(storePath, "CHANGELOG.md"),
-        changelog,
-        "utf-8"
-      );
-
-      try {
-        const { execSync } = await import("child_process");
-        execSync("git init", { cwd: storePath, stdio: "pipe" });
-        try {
-          execSync("git config user.name", { cwd: storePath, stdio: "pipe" });
-        } catch {
-          execSync('git config user.name "Gnosys"', { cwd: storePath, stdio: "pipe" });
-          execSync('git config user.email "gnosys@local"', { cwd: storePath, stdio: "pipe" });
-        }
-        execSync("git add -A && git add -f .config/", { cwd: storePath, stdio: "pipe" });
-        execSync('git commit -m "Initialize Gnosys store"', {
-          cwd: storePath,
-          stdio: "pipe",
-        });
-      } catch {
-        // Git not available
-      }
     }
 
     // v3.0: Create/update project identity and register in central DB
@@ -641,11 +630,205 @@ program
       console.log(`  gnosys.json   (project identity)`);
       console.log(`  .config/      (internal config)`);
       console.log(`  tags.json     (tag registry)`);
-      console.log(`  CHANGELOG.md`);
-      console.log(`  git repo`);
     }
 
     console.log(`\nStart adding memories with: gnosys add "your knowledge here"`);
+  });
+
+// ─── gnosys migrate ─────────────────────────────────────────────────────
+program
+  .command("migrate")
+  .description("Interactively migrate a .gnosys/ store to a new directory. Moves files, updates project name/paths, syncs to central DB, and cleans up.")
+  .option("--from <dir>", "Source directory containing .gnosys/ (skips prompt)")
+  .option("--to <dir>", "Target directory to move .gnosys/ into (skips prompt)")
+  .option("--name <name>", "New project name (skips prompt, default: basename of target)")
+  .option("--yes", "Skip all confirmation prompts (non-interactive mode)")
+  .action(async (opts: { from?: string; to?: string; name?: string; yes?: boolean }) => {
+    const { createInterface } = await import("readline/promises");
+    const rl = opts.yes ? null : createInterface({ input: process.stdin, output: process.stdout });
+
+    const ask = async (question: string, defaultValue?: string): Promise<string> => {
+      if (!rl) return defaultValue || "";
+      const suffix = defaultValue ? ` (${defaultValue})` : "";
+      const answer = (await rl.question(`${question}${suffix}: `)).trim();
+      return answer || defaultValue || "";
+    };
+
+    try {
+      console.log("\n── Gnosys Project Migration ──\n");
+
+      // 1. Resolve source
+      let sourceDir: string;
+      if (opts.from) {
+        sourceDir = path.resolve(opts.from);
+      } else {
+        // Try auto-detect first
+        const found = await findProjectIdentity(process.cwd());
+        const defaultSource = found ? found.projectRoot : "";
+        const sourceInput = await ask("Source directory (contains .gnosys/)", defaultSource);
+        if (!sourceInput) {
+          console.error("No source directory provided.");
+          rl?.close();
+          process.exit(1);
+        }
+        sourceDir = path.resolve(sourceInput);
+      }
+
+      // Verify source has .gnosys/
+      const storePath = path.join(sourceDir, ".gnosys");
+      try {
+        await fs.stat(storePath);
+      } catch {
+        console.error(`No .gnosys/ directory found at ${sourceDir}`);
+        rl?.close();
+        process.exit(1);
+      }
+
+      // Read identity (may not exist for pre-v3 stores)
+      const identity = await readProjectIdentity(sourceDir);
+
+      // Count memory files
+      const { glob } = await import("glob");
+      const memFiles = await glob("**/*.md", {
+        cwd: storePath,
+        ignore: ["**/CHANGELOG.md", "**/MANIFEST.md", "**/.git/**", "**/.obsidian/**"],
+      });
+
+      console.log("\nSource project:");
+      if (identity) {
+        console.log(`  Name:      ${identity.projectName}`);
+        console.log(`  ID:        ${identity.projectId}`);
+      } else {
+        console.log(`  Name:      (unregistered — pre-v3 store)`);
+      }
+      console.log(`  Directory: ${sourceDir}`);
+      console.log(`  Memories:  ${memFiles.length} markdown files`);
+
+      // 2. Resolve target
+      let targetDir: string;
+      if (opts.to) {
+        targetDir = path.resolve(opts.to);
+      } else {
+        const targetInput = await ask("\nTarget directory (where .gnosys/ should live)");
+        if (!targetInput) {
+          console.error("No target directory provided.");
+          rl?.close();
+          process.exit(1);
+        }
+        targetDir = path.resolve(targetInput);
+      }
+
+      // 3. Resolve name
+      const defaultName = opts.name || path.basename(targetDir);
+      const newName = opts.yes
+        ? defaultName
+        : await ask("Project name", defaultName);
+
+      // 4. Ask about sync and cleanup
+      let doSync = true;
+      let doDelete = true;
+      if (!opts.yes) {
+        const syncAnswer = await ask("\nSync memories to central DB?", "Y");
+        doSync = syncAnswer.toLowerCase() !== "n" && syncAnswer.toLowerCase() !== "no";
+
+        const deleteAnswer = await ask("Delete old .gnosys/ after migration?", "Y");
+        doDelete = deleteAnswer.toLowerCase() !== "n" && deleteAnswer.toLowerCase() !== "no";
+      }
+
+      // 5. Show summary and confirm
+      console.log("\n── Migration Summary ──");
+      console.log(`  From:       ${sourceDir}/.gnosys/`);
+      console.log(`  To:         ${targetDir}/.gnosys/`);
+      console.log(`  Name:       ${identity?.projectName || "(new)"} → ${newName}`);
+      console.log(`  Memories:   ${memFiles.length} files`);
+      console.log(`  Sync to DB: ${doSync ? "yes" : "no"}`);
+      console.log(`  Delete old: ${doDelete ? "yes" : "no"}`);
+
+      if (!opts.yes) {
+        const confirm = await ask("\nProceed?", "Y");
+        if (confirm.toLowerCase() === "n" || confirm.toLowerCase() === "no") {
+          console.log("Aborted.");
+          rl?.close();
+          return;
+        }
+      }
+
+      rl?.close();
+
+      // 6. Open central DB
+      let centralDb: GnosysDB | null = null;
+      try {
+        centralDb = GnosysDB.openCentral();
+        if (!centralDb.isAvailable()) centralDb = null;
+      } catch {
+        centralDb = null;
+      }
+
+      // 7. Run migration
+      console.log("\nMigrating...");
+      const result = await migrateProject({
+        sourcePath: sourceDir,
+        targetPath: targetDir,
+        newName,
+        deleteSource: doDelete,
+        centralDb: centralDb || undefined,
+      });
+
+      console.log(`  Copied ${result.memoryFileCount} memory files`);
+      console.log(`  Project: ${result.newIdentity.projectName} (${result.newIdentity.projectId})`);
+      console.log(`  Path:    ${result.newIdentity.workingDirectory}`);
+      console.log(`  Central DB: ${centralDb ? "updated ✓" : "not available"}`);
+
+      // 8. Sync memories to central DB
+      if (doSync && centralDb) {
+        console.log("\nSyncing memories to central DB...");
+        const matter = (await import("gray-matter")).default;
+        const { syncMemoryToDb } = await import("./lib/dbWrite.js");
+        const newStorePath = path.join(targetDir, ".gnosys");
+
+        const mdFiles = await glob("**/*.md", {
+          cwd: newStorePath,
+          ignore: ["**/CHANGELOG.md", "**/MANIFEST.md", "**/.git/**", "**/.obsidian/**"],
+        });
+
+        let synced = 0;
+        for (const file of mdFiles) {
+          try {
+            const filePath = path.join(newStorePath, file);
+            const raw = await fs.readFile(filePath, "utf-8");
+            const parsed = matter(raw);
+            if (parsed.data?.id) {
+              syncMemoryToDb(
+                centralDb,
+                parsed.data as import("./lib/store.js").MemoryFrontmatter,
+                parsed.content,
+                filePath,
+                result.newIdentity.projectId,
+                "project"
+              );
+              synced++;
+            }
+          } catch {
+            // Skip files that fail to parse
+          }
+        }
+
+        console.log(`  Synced ${synced} memories to central DB`);
+      }
+
+      if (centralDb) centralDb.close();
+
+      if (doDelete) {
+        console.log(`\nOld .gnosys/ at ${sourceDir} removed.`);
+      }
+
+      console.log(`\nMigration complete! Run 'gnosys projects' to verify.`);
+    } catch (err: unknown) {
+      rl?.close();
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`\nMigration failed: ${msg}`);
+      process.exit(1);
+    }
   });
 
 // ─── gnosys stale ───────────────────────────────────────────────────────
@@ -763,42 +946,42 @@ program
         ? `# ${opts.title || memory.frontmatter.title}\n\n${opts.content}`
         : undefined;
 
-      const updated = await sourceStore.store.updateMemory(
-        memory.relativePath,
-        updates,
-        fullContent
-      );
-
-      if (!updated) {
-        console.error(`Failed to update: ${memPath}`);
+      const memoryId = memory.frontmatter.id;
+      if (!memoryId) {
+        console.error(`Memory has no ID: ${memPath}`);
         process.exit(1);
       }
 
-      // Supersession cross-linking
-      if (opts.supersedes && updated.frontmatter.id) {
-        const allMemories = await resolver.getAllMemories();
-        const supersededMemory = allMemories.find(
-          (m) => m.frontmatter.id === opts.supersedes
-        );
-        if (supersededMemory) {
-          const supersededStore = resolver
-            .getStores()
-            .find((s) => s.label === supersededMemory.sourceLabel);
-          if (supersededStore?.writable) {
-            await supersededStore.store.updateMemory(
-              supersededMemory.relativePath,
-              { superseded_by: updated.frontmatter.id, status: "superseded" } as any
+      let centralDb: GnosysDB | null = null;
+      try {
+        centralDb = GnosysDB.openCentral();
+        const { syncUpdateToDb } = await import("./lib/dbWrite.js");
+        syncUpdateToDb(centralDb, memoryId, updates as any, fullContent);
+
+        // Supersession cross-linking
+        if (opts.supersedes && memoryId) {
+          const allMemories = await resolver.getAllMemories();
+          const supersededMemory = allMemories.find(
+            (m) => m.frontmatter.id === opts.supersedes
+          );
+          if (supersededMemory) {
+            syncUpdateToDb(
+              centralDb,
+              supersededMemory.frontmatter.id,
+              { superseded_by: memoryId, status: "superseded" } as any
             );
             console.log(`Cross-linked: ${supersededMemory.frontmatter.title} marked as superseded.`);
           }
         }
+      } finally {
+        centralDb?.close();
       }
 
       const changedFields = Object.keys(updates);
       if (opts.content) changedFields.push("content");
 
-      console.log(`Memory updated: ${updated.frontmatter.title}`);
-      console.log(`Path: ${memory.sourceLabel}:${memory.relativePath}`);
+      console.log(`Memory updated: ${opts.title || memory.frontmatter.title}`);
+      console.log(`ID: ${memoryId}`);
       console.log(`Changed: ${changedFields.join(", ")}`);
     }
   );
@@ -838,17 +1021,15 @@ program
 
       // If 'useful', update the memory's modified date (reset decay)
       if (opts.signal === "useful") {
-        const allMemories = await resolver.getAllMemories();
-        const memory = allMemories.find((m) => m.frontmatter.id === memoryId);
-        if (memory) {
-          const sourceStore = resolver
-            .getStores()
-            .find((s) => s.label === memory.sourceLabel);
-          if (sourceStore?.writable) {
-            await sourceStore.store.updateMemory(memory.relativePath, {
-              modified: new Date().toISOString().split("T")[0],
-            } as any);
-          }
+        let centralDb: GnosysDB | null = null;
+        try {
+          centralDb = GnosysDB.openCentral();
+          const { syncUpdateToDb } = await import("./lib/dbWrite.js");
+          syncUpdateToDb(centralDb, memoryId, {
+            modified: new Date().toISOString().split("T")[0],
+          } as any);
+        } finally {
+          centralDb?.close();
         }
       }
 
@@ -941,16 +1122,7 @@ program
         }
       }
 
-      // ─── Default: file-based store (original behavior) ────────────
-      const resolver = await getResolver();
-      const writeTarget = resolver.getWriteTarget(
-        (opts.store as any) || undefined
-      );
-      if (!writeTarget) {
-        console.error("No writable store found.");
-        process.exit(1);
-      }
-
+      // ─── DB-only write ────────────────────────────────────────────
       let tags: Record<string, string[]>;
       try {
         tags = JSON.parse(opts.tags);
@@ -959,40 +1131,49 @@ program
         process.exit(1);
       }
 
-      const id = await writeTarget.store.generateId(opts.category);
-      const slug = opts.title
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-|-$/g, "")
-        .substring(0, 60);
+      let centralDb: GnosysDB | null = null;
+      try {
+        centralDb = GnosysDB.openCentral();
+        const projectId = await resolveProjectId();
+        const id = centralDb.getNextId(opts.category, projectId || undefined);
+        const now = new Date().toISOString();
+        const content = `# ${opts.title}\n\n${opts.content}`;
 
-      const today = new Date().toISOString().split("T")[0];
-      const frontmatter = {
-        id,
-        title: opts.title,
-        category: opts.category,
-        tags,
-        relevance: opts.relevance,
-        author: opts.author as "human" | "ai" | "human+ai",
-        authority: opts.authority as "declared" | "observed" | "imported" | "inferred",
-        confidence: parseFloat(opts.confidence),
-        created: today,
-        modified: today,
-        last_reviewed: today,
-        status: "active" as const,
-        supersedes: null,
-      };
+        const tagsJson = Array.isArray(tags)
+          ? JSON.stringify(tags)
+          : JSON.stringify(Object.values(tags).flat());
 
-      const content = `# ${opts.title}\n\n${opts.content}`;
-      const relPath = await writeTarget.store.writeMemory(
-        opts.category,
-        `${slug}.md`,
-        frontmatter,
-        content
-      );
+        centralDb.insertMemory({
+          id,
+          title: opts.title,
+          category: opts.category,
+          content,
+          summary: null,
+          tags: tagsJson,
+          relevance: opts.relevance || opts.content.slice(0, 200),
+          author: opts.author,
+          authority: opts.authority,
+          confidence: parseFloat(opts.confidence),
+          reinforcement_count: 0,
+          content_hash: "",
+          status: "active",
+          tier: "active",
+          supersedes: null,
+          superseded_by: null,
+          last_reinforced: null,
+          created: now,
+          modified: now,
+          embedding: null,
+          source_path: null,
+          project_id: projectId,
+          scope: "project",
+        });
 
-      console.log(`Memory added to [${writeTarget.label}]: ${opts.title}`);
-      console.log(`Path: ${writeTarget.label}:${relPath}`);
+        console.log(`Memory added: ${opts.title}`);
+        console.log(`ID: ${id}`);
+      } finally {
+        centralDb?.close();
+      }
     }
   );
 
@@ -1228,55 +1409,71 @@ Output ONLY the JSON array, no markdown fences.`,
     let added = 0;
     let skipped = 0;
 
-    for (const candidate of candidates) {
-      const searchTerms = candidate.search_terms.join(" ");
-      const existing = search.discover(searchTerms, 3);
+    let centralDb: GnosysDB | null = null;
+    try {
+      centralDb = GnosysDB.openCentral();
+      const projectId = await resolveProjectId();
 
-      if (existing.length > 0) {
-        console.log(`  ⏭ SKIP: "${candidate.summary}"`);
-        console.log(`    Overlaps with: ${existing[0].title}`);
-        skipped++;
-      } else if (opts.dryRun) {
-        console.log(`  ➕ WOULD ADD: "${candidate.summary}" [${candidate.type}]`);
-        added++;
-      } else {
-        try {
-          const result = await ingestion.ingest(candidate.summary);
-          const id = await writeTarget.store.generateId(result.category);
-          const today = new Date().toISOString().split("T")[0];
+      for (const candidate of candidates) {
+        const searchTerms = candidate.search_terms.join(" ");
+        const existing = search.discover(searchTerms, 3);
 
-          const frontmatter = {
-            id,
-            title: result.title,
-            category: result.category,
-            tags: result.tags,
-            relevance: result.relevance,
-            author: "ai" as "human" | "ai" | "human+ai",
-            authority: "observed" as "declared" | "observed" | "imported" | "inferred",
-            confidence: result.confidence,
-            created: today,
-            modified: today,
-            last_reviewed: today,
-            status: "active" as const,
-            supersedes: null,
-          };
-
-          const content = `# ${result.title}\n\n${result.content}`;
-          const relPath = await writeTarget.store.writeMemory(
-            result.category,
-            `${result.filename}.md`,
-            frontmatter,
-            content
-          );
-
-          console.log(`  ➕ ADDED: "${result.title}"`);
-          console.log(`    Path: ${writeTarget.label}:${relPath}`);
+        if (existing.length > 0) {
+          console.log(`  ⏭ SKIP: "${candidate.summary}"`);
+          console.log(`    Overlaps with: ${existing[0].title}`);
+          skipped++;
+        } else if (opts.dryRun) {
+          console.log(`  ➕ WOULD ADD: "${candidate.summary}" [${candidate.type}]`);
           added++;
-        } catch (err) {
-          console.error(`  ❌ FAILED: "${candidate.summary}": ${err instanceof Error ? err.message : String(err)}`);
+        } else {
+          try {
+            const result = await ingestion.ingest(candidate.summary);
+            const id = centralDb.getNextId(result.category, projectId || undefined);
+            const now = new Date().toISOString();
+            const content = `# ${result.title}\n\n${result.content}`;
+
+            const resultTags = result.tags;
+            const tagsJson = Array.isArray(resultTags)
+              ? JSON.stringify(resultTags)
+              : JSON.stringify(Object.values(resultTags).flat());
+
+            centralDb.insertMemory({
+              id,
+              title: result.title,
+              category: result.category,
+              content,
+              summary: null,
+              tags: tagsJson,
+              relevance: result.relevance,
+              author: "ai",
+              authority: "observed",
+              confidence: result.confidence,
+              reinforcement_count: 0,
+              content_hash: "",
+              status: "active",
+              tier: "active",
+              supersedes: null,
+              superseded_by: null,
+              last_reinforced: null,
+              created: now,
+              modified: now,
+              embedding: null,
+              source_path: null,
+              project_id: projectId,
+              scope: "project",
+            });
+
+            console.log(`  ➕ ADDED: "${result.title}"`);
+            console.log(`    ID: ${id}`);
+            added++;
+          } catch (err) {
+            console.error(`  ❌ FAILED: "${candidate.summary}": ${err instanceof Error ? err.message : String(err)}`);
+          }
         }
+        console.log();
       }
-      console.log();
+    } finally {
+      centralDb?.close();
     }
 
     search.close();
@@ -3237,10 +3434,10 @@ program
     }
   });
 
-// ─── gnosys migrate --to-central ────────────────────────────────────────
+// ─── gnosys migrate-db ──────────────────────────────────────────────────
 program
-  .command("migrate")
-  .description("Migrate data. Use --to-central to move per-project stores into the central DB.")
+  .command("migrate-db")
+  .description("Legacy data migration. Use --to-central to move per-project stores into the central DB.")
   .option("--to-central", "Migrate all discovered per-project stores into ~/.gnosys/gnosys.db")
   .option("-v, --verbose", "Verbose output")
   .action(async (opts: { toCentral?: boolean; verbose?: boolean }) => {

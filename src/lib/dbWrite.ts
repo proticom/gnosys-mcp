@@ -18,6 +18,13 @@ import { GnosysDB, DbMemory } from "./db.js";
 import { MemoryFrontmatter, Memory } from "./store.js";
 import { fnv1a } from "./db.js";
 
+/** Coerce Date objects (from gray-matter parsing) to ISO date strings. */
+function toDateStr(value: unknown): string | null {
+  if (value instanceof Date) return value.toISOString().split("T")[0];
+  if (typeof value === "string") return value;
+  return null;
+}
+
 /**
  * Sync a memory write to gnosys.db after it's been written to .md.
  * Call this after GnosysStore.writeMemory() or updateMemory().
@@ -55,9 +62,9 @@ export function syncMemoryToDb(
     tier: frontmatter.status === "archived" ? "archive" : "active",
     supersedes: frontmatter.supersedes || null,
     superseded_by: frontmatter.superseded_by || null,
-    last_reinforced: frontmatter.last_reinforced || null,
-    created: frontmatter.created || new Date().toISOString().split("T")[0],
-    modified: frontmatter.modified || new Date().toISOString().split("T")[0],
+    last_reinforced: toDateStr(frontmatter.last_reinforced) || null,
+    created: toDateStr(frontmatter.created) || new Date().toISOString().split("T")[0],
+    modified: toDateStr(frontmatter.modified) || new Date().toISOString().split("T")[0],
     source_path: sourcePath || null,
     source_file: (frontmatter as Record<string, unknown>).source_file as string || null,
     source_page: (frontmatter as Record<string, unknown>).source_page as string || null,

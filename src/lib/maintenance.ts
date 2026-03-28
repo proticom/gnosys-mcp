@@ -16,6 +16,8 @@ import { GnosysConfig, DEFAULT_CONFIG } from "./config.js";
 import { LLMProvider, getLLMProvider } from "./llm.js";
 import { GnosysResolver, ResolvedStore } from "./resolver.js";
 import { GnosysArchive, getArchiveEligible } from "./archive.js";
+import { GnosysDB } from "./db.js";
+import { syncMemoryToDb, syncUpdateToDb, syncConfidenceToDb, syncReinforcementToDb } from "./dbWrite.js";
 import { acquireWriteLock } from "./lock.js";
 import { auditLog } from "./audit.js";
 import { execFileSync } from "child_process";
@@ -94,10 +96,12 @@ export class GnosysMaintenanceEngine {
   private config: GnosysConfig;
   private embeddings: GnosysEmbeddings | null = null;
   private provider: LLMProvider | null = null;
+  private db: GnosysDB | null = null;
 
-  constructor(resolver: GnosysResolver, config?: GnosysConfig) {
+  constructor(resolver: GnosysResolver, config?: GnosysConfig, db?: GnosysDB | null) {
     this.resolver = resolver;
     this.config = config || DEFAULT_CONFIG;
+    this.db = db || null;
 
     try {
       this.provider = getLLMProvider(this.config, "structuring");
@@ -423,22 +427,23 @@ Merged content:`;
       supersedes: `${pair.memoryA.frontmatter.id}, ${pair.memoryB.frontmatter.id}`,
     };
 
-    // Write the merged memory
+    // Write the merged memory to central DB
     const filename = `${mergedTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}.md`;
+    const sourcePath = `${category}/${filename}`;
 
-    await safeGitOperation(writeTarget.path, `Consolidate: ${pair.memoryA.frontmatter.id} + ${pair.memoryB.frontmatter.id}`, async () => {
-      await writeTarget.store.writeMemory(category, filename, newFrontmatter, mergedContent, { autoCommit: false });
+    if (this.db) {
+      syncMemoryToDb(this.db, newFrontmatter, mergedContent, sourcePath);
 
-      // Mark originals as superseded
-      await writeTarget.store.updateMemory(pair.memoryA.relativePath, {
+      // Mark originals as superseded in DB
+      syncUpdateToDb(this.db, pair.memoryA.frontmatter.id, {
         status: "superseded",
         superseded_by: newId,
       });
-      await writeTarget.store.updateMemory(pair.memoryB.relativePath, {
+      syncUpdateToDb(this.db, pair.memoryB.frontmatter.id, {
         status: "superseded",
         superseded_by: newId,
       });
-    });
+    }
 
     log("action", `  Consolidated "${pair.memoryA.frontmatter.title}" + "${pair.memoryB.frontmatter.title}" → ${newId}`);
   }
@@ -450,14 +455,14 @@ Merged content:`;
    */
   private async updateDecayedConfidence(
     stale: StaleMemory,
-    writeTarget: ResolvedStore,
+    _writeTarget: ResolvedStore,
     log: (level: "info" | "warn" | "action", message: string) => void
   ): Promise<void> {
-    await safeGitOperation(writeTarget.path, `Decay: ${stale.memory.frontmatter.id} (${stale.originalConfidence.toFixed(2)} → ${stale.decayedConfidence.toFixed(2)})`, async () => {
-      await writeTarget.store.updateMemory(stale.memory.relativePath, {
-        confidence: Math.round(stale.decayedConfidence * 100) / 100,
-      });
-    });
+    const roundedConfidence = Math.round(stale.decayedConfidence * 100) / 100;
+
+    if (this.db) {
+      syncConfidenceToDb(this.db, stale.memory.frontmatter.id, roundedConfidence);
+    }
 
     log("action", `  Decay updated: "${stale.memory.frontmatter.title}" → ${stale.decayedConfidence.toFixed(2)}`);
   }
@@ -470,18 +475,18 @@ Merged content:`;
    */
   static async reinforce(
     store: GnosysStore,
-    relativePath: string
+    relativePath: string,
+    db?: GnosysDB | null
   ): Promise<void> {
     const memory = await store.readMemory(relativePath);
     if (!memory) return;
 
     const currentCount = ((memory.frontmatter as any).reinforcement_count as number) || 0;
-    const today = new Date().toISOString().split("T")[0];
+    const newCount = currentCount + 1;
 
-    await store.updateMemory(relativePath, {
-      reinforcement_count: currentCount + 1,
-      last_reinforced: today,
-    } as any);
+    if (db) {
+      syncReinforcementToDb(db, memory.frontmatter.id, newCount);
+    }
   }
 
   /**
@@ -490,10 +495,10 @@ Merged content:`;
    */
   static async reinforceBatch(
     store: GnosysStore,
-    relativePaths: string[]
+    relativePaths: string[],
+    db?: GnosysDB | null
   ): Promise<number> {
     let reinforced = 0;
-    const today = new Date().toISOString().split("T")[0];
 
     for (const rp of relativePaths) {
       try {
@@ -501,10 +506,11 @@ Merged content:`;
         if (!memory) continue;
 
         const currentCount = ((memory.frontmatter as any).reinforcement_count as number) || 0;
-        await store.updateMemory(rp, {
-          reinforcement_count: currentCount + 1,
-          last_reinforced: today,
-        } as any);
+        const newCount = currentCount + 1;
+
+        if (db) {
+          syncReinforcementToDb(db, memory.frontmatter.id, newCount);
+        }
         reinforced++;
       } catch {
         // Skip — reinforcement is best-effort

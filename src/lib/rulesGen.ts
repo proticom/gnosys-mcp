@@ -61,7 +61,7 @@ This project uses **Gnosys** for persistent memory via MCP. Gnosys uses a centra
 ### Write automatically
 
 - When user says "remember", "memorize", "save this", "note this down", "don't forget" — call \`gnosys_add\`
-- When user states a decision or preference (even casually) — commit to \`decisions/\`
+- When user states a decision or preference (even casually) — commit to \`decisions\` category
 - When user provides a spec or plan — commit BEFORE starting work
 - After significant implementation — commit findings and gotchas
 - User preferences (coding style, conventions) — use \`gnosys_preference_set\`

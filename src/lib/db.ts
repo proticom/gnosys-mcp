@@ -662,6 +662,43 @@ export class GnosysDB {
     this.db.prepare(`UPDATE projects SET ${fields.join(", ")} WHERE id = ?`).run(...values);
   }
 
+  deleteProject(id: string): void {
+    this.db.prepare("DELETE FROM projects WHERE id = ?").run(id);
+  }
+
+  /**
+   * Reassign all memories from one project to another.
+   * Returns the number of memories updated.
+   */
+  reassignMemories(fromProjectId: string, toProjectId: string): number {
+    const result = this.db
+      .prepare("UPDATE memories SET project_id = ? WHERE project_id = ?")
+      .run(toProjectId, fromProjectId);
+    return result.changes;
+  }
+
+  /**
+   * Generate the next sequential ID for a category.
+   * Format: first 4 chars of category + dash + zero-padded number (e.g., "arch-012").
+   */
+  getNextId(category: string, projectId?: string): string {
+    const prefix = category.substring(0, 4);
+    let query = "SELECT id FROM memories WHERE id LIKE ?";
+    const params: unknown[] = [`${prefix}-%`];
+    if (projectId) {
+      query += " AND project_id = ?";
+      params.push(projectId);
+    }
+    const rows = this.db.prepare(query).all(...params) as Array<{ id: string }>;
+
+    let maxNum = 0;
+    for (const row of rows) {
+      const match = row.id.match(/(\d+)$/);
+      if (match) maxNum = Math.max(maxNum, parseInt(match[1]));
+    }
+    return `${prefix}-${String(maxNum + 1).padStart(3, "0")}`;
+  }
+
   // ─── FTS5 Search ────────────────────────────────────────────────────
 
   searchFts(query: string, limit: number = 20): Array<{ id: string; title: string; snippet: string; rank: number }> {

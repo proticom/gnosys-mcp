@@ -24,6 +24,8 @@ import fs from "fs/promises";
 import { statSync } from "fs";
 import matter from "gray-matter";
 import { GnosysStore, Memory, MemoryFrontmatter } from "./store.js";
+import { GnosysDB } from "./db.js";
+import { syncMemoryToDb, syncDearchiveToDb } from "./dbWrite.js";
 import { GnosysConfig } from "./config.js";
 import { enableWAL } from "./lock.js";
 import { auditLog } from "./audit.js";
@@ -222,7 +224,8 @@ export class GnosysArchive {
    */
   async dearchiveMemory(
     memoryId: string,
-    store: GnosysStore
+    store: GnosysStore,
+    centralDb?: GnosysDB | null
   ): Promise<string | null> {
     if (!this.db) return null;
 
@@ -257,17 +260,16 @@ export class GnosysArchive {
     frontmatter.status = "active";
     frontmatter.modified = new Date().toISOString().split("T")[0];
 
-    // Write back to active markdown
+    // Write to central DB instead of markdown
     const filename = row.original_path.split("/").pop() || `${row.id}.md`;
-    const relativePath = await store.writeMemory(
-      row.category,
-      filename,
-      frontmatter,
-      row.content,
-      { autoCommit: false }
-    );
+    const relativePath = `${row.category}/${filename}`;
 
-    // Remove from archive
+    if (centralDb) {
+      syncMemoryToDb(centralDb, frontmatter, row.content, relativePath);
+      syncDearchiveToDb(centralDb, memoryId);
+    }
+
+    // Remove from archive.db
     const tx = this.db.transaction(() => {
       this.db.prepare("DELETE FROM archived_memories WHERE id = ?").run(memoryId);
       this.db.prepare("DELETE FROM archive_fts WHERE id = ?").run(memoryId);
@@ -289,11 +291,12 @@ export class GnosysArchive {
    */
   async dearchiveBatch(
     memoryIds: string[],
-    store: GnosysStore
+    store: GnosysStore,
+    centralDb?: GnosysDB | null
   ): Promise<string[]> {
     const restored: string[] = [];
     for (const id of memoryIds) {
-      const rp = await this.dearchiveMemory(id, store);
+      const rp = await this.dearchiveMemory(id, store, centralDb);
       if (rp) restored.push(rp);
     }
     return restored;

@@ -8,6 +8,8 @@ import { parse as csvParse } from "csv-parse/sync";
 import fs from "fs/promises";
 import { GnosysIngestion } from "./ingest.js";
 import { GnosysStore, MemoryFrontmatter } from "./store.js";
+import { GnosysDB } from "./db.js";
+import { syncMemoryToDb } from "./dbWrite.js";
 
 // ─── Interfaces ──────────────────────────────────────────────────────────
 
@@ -224,7 +226,10 @@ function applyMapping(
 export async function performImport(
   store: GnosysStore,
   ingestion: GnosysIngestion,
-  options: ImportOptions
+  options: ImportOptions,
+  db?: GnosysDB | null,
+  projectId?: string | null,
+  scope?: string
 ): Promise<ImportResult> {
   const startTime = Date.now();
   const results: ImportResult = {
@@ -363,7 +368,7 @@ export async function performImport(
           return;
         }
 
-        // Write memory
+        // Write memory to central DB
         const id = await store.generateId(category);
         const today = new Date().toISOString().split("T")[0];
 
@@ -383,13 +388,11 @@ export async function performImport(
         };
 
         const fullContent = `# ${title}\n\n${content}`;
-        const relativePath = await store.writeMemory(
-          category,
-          `${filename}.md`,
-          frontmatter,
-          fullContent,
-          { autoCommit: !batchCommit }
-        );
+        const relativePath = `${category}/${filename}.md`;
+
+        if (db) {
+          syncMemoryToDb(db, frontmatter, fullContent, relativePath, projectId, scope);
+        }
 
         results.imported.push({ title, category, path: relativePath });
       } catch (err) {
@@ -414,19 +417,7 @@ export async function performImport(
 
   results.totalProcessed = total;
 
-  // Phase 5: Batch commit
-  if (!options.dryRun && batchCommit && results.imported.length > 0) {
-    options.onProgress?.({
-      processed: total,
-      total,
-      current: "Committing...",
-      stage: "committing",
-    });
-
-    await store.batchCommit(
-      `Bulk import: ${results.imported.length} memories from ${options.format} (${options.mode} mode)`
-    );
-  }
+  // Phase 5: (batch commit removed — DB writes are immediate)
 
   results.duration = Date.now() - startTime;
   return results;

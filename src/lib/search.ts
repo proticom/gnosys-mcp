@@ -134,6 +134,51 @@ export class GnosysSearch {
   }
 
   /**
+   * Add memories from DB rows to the index WITHOUT clearing existing entries.
+   * DB-first alternative to addStoreMemories — no markdown reads required.
+   */
+  addDbMemories(memories: Array<{ id: string; title: string; category: string; tags: string; relevance: string | null; content: string }>, storeLabel?: string): number {
+    if (!this.db) return 0;
+
+    const insert = this.db.prepare(
+      "INSERT INTO memories_fts (relative_path, title, category, tags, relevance, content) VALUES (?, ?, ?, ?, ?, ?)"
+    );
+
+    const tx = this.db.transaction(() => {
+      for (const m of memories) {
+        // Parse tags — could be JSON array or JSON object
+        let tagsStr = m.tags || "";
+        try {
+          const parsed = JSON.parse(tagsStr);
+          if (Array.isArray(parsed)) {
+            tagsStr = parsed.join(" ");
+          } else if (typeof parsed === "object") {
+            tagsStr = Object.values(parsed).flat().join(" ");
+          }
+        } catch {
+          // Already a plain string
+        }
+
+        const indexPath = storeLabel
+          ? `${storeLabel}:${m.category}/${m.id}.md`
+          : `${m.category}/${m.id}.md`;
+
+        insert.run(
+          indexPath,
+          m.title,
+          m.category,
+          tagsStr,
+          m.relevance || "",
+          m.content
+        );
+      }
+    });
+
+    tx();
+    return memories.length;
+  }
+
+  /**
    * Search memories by keyword query.
    */
   search(query: string, limit: number = 20): SearchResult[] {
