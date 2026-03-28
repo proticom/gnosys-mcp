@@ -21,6 +21,9 @@ import { GnosysTagRegistry } from "./tags.js";
 import { GnosysStore } from "./store.js";
 import { createProvider } from "./llm.js";
 import { loadConfig, DEFAULT_CONFIG, getProviderModel, type GnosysConfig } from "./config.js";
+import { syncMemoryToDb } from "./dbWrite.js";
+import { GnosysDB } from "./db.js";
+import { findProjectIdentity } from "./projectIdentity.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -354,6 +357,16 @@ export async function ingestFile(options: MultimodalIngestOptions): Promise<Mult
   await tagRegistry.load();
   const ingestion = new GnosysIngestion(gnosysStore, tagRegistry, config);
 
+  // Detect project ID for DB writes
+  const projectDir = path.dirname(storePath);
+  let projectId: string | null = null;
+  try {
+    const found = await findProjectIdentity(projectDir);
+    if (found) projectId = found.identity.projectId;
+  } catch {
+    // Non-critical — will write without project scope
+  }
+
   const today = new Date().toISOString().split("T")[0];
   const memories: MultimodalIngestResult["memories"] = [];
   const errors: MultimodalIngestResult["errors"] = [];
@@ -415,8 +428,9 @@ export async function ingestFile(options: MultimodalIngestOptions): Promise<Mult
         continue;
       }
 
-      // Generate a unique ID and write the memory
-      const id = await gnosysStore.generateId(category);
+      // Generate a unique ID and write to central DB (no markdown files)
+      const centralDb = GnosysDB.openCentral();
+      const id = centralDb.getNextId(category, projectId || undefined);
 
       const frontmatter = {
         id,
@@ -439,12 +453,8 @@ export async function ingestFile(options: MultimodalIngestOptions): Promise<Mult
       };
 
       const memoryContent = `# ${title}\n\n${content}`;
-      const relPath = await gnosysStore.writeMemory(
-        category,
-        `${filename}.md`,
-        frontmatter,
-        memoryContent,
-      );
+      syncMemoryToDb(centralDb, frontmatter, memoryContent, undefined, projectId || undefined, "project");
+      centralDb.close();
 
       // Link the memory to its attachment
       await linkMemoryToAttachment(storePath, attachment.uuid, id);
@@ -452,7 +462,7 @@ export async function ingestFile(options: MultimodalIngestOptions): Promise<Mult
       memories.push({
         id,
         title,
-        path: relPath,
+        path: `${category}/${filename}`,
         page: chunk.sourcePage,
         timerange: chunk.sourceTimerange,
       });
@@ -561,10 +571,21 @@ async function ingestImage(
     };
   }
 
-  // Write the memory
-  const gnosysStore = new GnosysStore(storePath);
+  // Write the memory to central DB (no markdown files)
+  const centralDb = GnosysDB.openCentral();
   const today = new Date().toISOString().split("T")[0];
-  const id = await gnosysStore.generateId(category);
+
+  // Detect project ID for DB writes
+  const projectDir = path.dirname(storePath);
+  let projectId: string | null = null;
+  try {
+    const found = await findProjectIdentity(projectDir);
+    if (found) projectId = found.identity.projectId;
+  } catch {
+    // Non-critical
+  }
+
+  const id = centralDb.getNextId(category, projectId || undefined);
 
   const frontmatter = {
     id,
@@ -586,19 +607,15 @@ async function ingestImage(
   };
 
   const memoryContent = `# ${title}\n\n${imageDesc.text}`;
-  const relPath = await gnosysStore.writeMemory(
-    category,
-    `${filename}.md`,
-    frontmatter,
-    memoryContent
-  );
+  syncMemoryToDb(centralDb, frontmatter, memoryContent, undefined, projectId || undefined, "project");
+  centralDb.close();
 
   // Link the memory to its attachment
   await linkMemoryToAttachment(storePath, attachment.uuid, id);
 
   return {
     attachment,
-    memories: [{ id, title, path: relPath }],
+    memories: [{ id, title, path: `${category}/${filename}` }],
     errors: [],
     duration: Date.now() - startTime,
     fileType: "image",
