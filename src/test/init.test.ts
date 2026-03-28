@@ -67,37 +67,22 @@ describe("gnosys init", () => {
     await expect(fs.stat(wrongPath)).rejects.toThrow();
   });
 
-  it("creates CHANGELOG.md at store root", async () => {
+  it("does NOT create CHANGELOG.md (removed in DB-only refactor)", async () => {
     execSync(`node ${path.resolve("dist/cli.js")} init --directory ${tmpDir}`, {
       stdio: "pipe",
     });
 
     const changelogPath = path.join(tmpDir, ".gnosys", "CHANGELOG.md");
-    const content = await fs.readFile(changelogPath, "utf-8");
-    expect(content).toContain("# Gnosys Changelog");
-    expect(content).toContain("Store initialized");
+    await expect(fs.stat(changelogPath)).rejects.toThrow();
   });
 
-  it("initializes a git repository", async () => {
+  it("does NOT initialize a git repository (removed in DB-only refactor)", async () => {
     execSync(`node ${path.resolve("dist/cli.js")} init --directory ${tmpDir}`, {
       stdio: "pipe",
     });
 
     const gitDir = path.join(tmpDir, ".gnosys", ".git");
-    const stat = await fs.stat(gitDir);
-    expect(stat.isDirectory()).toBe(true);
-  });
-
-  it("creates an initial git commit", async () => {
-    execSync(`node ${path.resolve("dist/cli.js")} init --directory ${tmpDir}`, {
-      stdio: "pipe",
-    });
-
-    const log = execSync("git log --oneline", {
-      cwd: path.join(tmpDir, ".gnosys"),
-      encoding: "utf-8",
-    });
-    expect(log).toContain("Initialize Gnosys store");
+    await expect(fs.stat(gitDir)).rejects.toThrow();
   });
 
   it("re-syncs if .gnosys already exists (no error)", () => {

@@ -97,7 +97,8 @@ describe("rules generation", () => {
     const block = generateRulesBlock([], []);
     expect(block).toContain("Gnosys Memory System");
     expect(block).toContain("gnosys_discover");
-    expect(block).not.toContain("User preferences");
+    // With no preferences, the block should not contain a "### User preferences" section header
+    expect(block).not.toContain("### User preferences");
   });
 
   it("includes preferences in generated block", () => {
