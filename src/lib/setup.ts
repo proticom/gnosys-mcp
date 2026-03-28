@@ -1175,13 +1175,13 @@ export async function runSetup(opts: {
         // skipIdx is unused as a variable but documents the last index
 
         if (keyChoice === keychainIdx) {
-          // macOS Keychain — ask for the key directly and write it
+          // macOS Keychain — reuse existing key if available, otherwise ask
           console.log();
-          const key = await askInput(rl, `Enter your ${provider} API key`);
+          const key = existingKey || await askInput(rl, `Enter your ${provider} API key`);
           if (key) {
             const success = writeApiKeyToKeychain(envVarName, key);
             if (success) {
-              console.log(`  ${CHECK} Key saved to macOS Keychain (${maskKey(key)})`);
+              console.log(`  ${CHECK} Key ${existingKey ? "moved" : "saved"} to macOS Keychain (${maskKey(key)})`);
               apiKeyWritten = true;
               apiKeySource = "macOS Keychain";
             } else {
@@ -1193,13 +1193,13 @@ export async function runSetup(opts: {
             }
           }
         } else if (keyChoice === gnomeIdx) {
-          // Linux GNOME Keyring — ask for the key directly
+          // Linux GNOME Keyring — reuse existing key if available, otherwise ask
           console.log();
-          const key = await askInput(rl, `Enter your ${provider} API key`);
+          const key = existingKey || await askInput(rl, `Enter your ${provider} API key`);
           if (key) {
             const success = writeApiKeyToSecretTool(envVarName, key, provider);
             if (success) {
-              console.log(`  ${CHECK} Key saved to GNOME Keyring (${maskKey(key)})`);
+              console.log(`  ${CHECK} Key ${existingKey ? "moved" : "saved"} to GNOME Keyring (${maskKey(key)})`);
               apiKeyWritten = true;
               apiKeySource = "GNOME Keyring";
             } else {
