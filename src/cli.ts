@@ -632,6 +632,17 @@ program
       console.log(`  tags.json     (tag registry)`);
     }
 
+    // Configure IDE hooks for automatic memory recall
+    const { configureIdeHooks } = await import("./lib/projectIdentity.js");
+    const hookResult = await configureIdeHooks(targetDir);
+    if (hookResult.configured) {
+      console.log(`\nIDE hooks (${hookResult.ide}):`);
+      console.log(`  ${hookResult.details}`);
+      console.log(`  File: ${hookResult.filePath}`);
+    } else {
+      console.log(`\nIDE hooks: ${hookResult.details}`);
+    }
+
     console.log(`\nStart adding memories with: gnosys add "your knowledge here"`);
   });
 
@@ -2799,6 +2810,10 @@ program
 
           centralDb.close();
         }
+
+        // Configure IDE hooks for automatic memory recall
+        const { configureIdeHooks } = await import("./lib/projectIdentity.js");
+        await configureIdeHooks(projectDir);
 
         upgraded.push(projectDir);
       } catch (err) {

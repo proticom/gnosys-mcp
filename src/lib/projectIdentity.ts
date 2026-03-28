@@ -200,6 +200,240 @@ export async function findProjectIdentity(startDir: string): Promise<{
   return null;
 }
 
+// ─── IDE Hook Configuration ─────────────────────────────────────────────
+
+export interface IdeHookResult {
+  ide: "claude-code" | "codex" | "cursor" | null;
+  configured: boolean;
+  filePath: string | null;
+  details: string;
+}
+
+/**
+ * Configure IDE-specific hooks so Gnosys memory recall is automatic.
+ *
+ * - Claude Code: SessionStart hook in .claude/settings.json
+ * - Codex: SessionStart hook in .codex/hooks.json + features flag in .codex/config.toml
+ * - Cursor: alwaysApply rule in .cursor/rules/gnosys.mdc (text only, no shell hooks)
+ */
+export async function configureIdeHooks(projectDir: string): Promise<IdeHookResult> {
+  const resolvedDir = path.resolve(projectDir);
+
+  // --- Claude Code ---
+  if (fsSync.existsSync(path.join(resolvedDir, ".claude")) || fsSync.existsSync(path.join(resolvedDir, "CLAUDE.md"))) {
+    return configureClaudeCode(resolvedDir);
+  }
+
+  // --- Codex ---
+  if (fsSync.existsSync(path.join(resolvedDir, ".codex"))) {
+    return configureCodex(resolvedDir);
+  }
+
+  // --- Cursor ---
+  if (fsSync.existsSync(path.join(resolvedDir, ".cursor"))) {
+    return configureCursor(resolvedDir);
+  }
+
+  return { ide: null, configured: false, filePath: null, details: "No supported IDE detected (.claude/, .cursor/, or .codex/ not found)" };
+}
+
+/**
+ * Claude Code: Add SessionStart hook to .claude/settings.json
+ */
+async function configureClaudeCode(projectDir: string): Promise<IdeHookResult> {
+  const settingsPath = path.join(projectDir, ".claude", "settings.json");
+
+  // Ensure .claude/ directory exists
+  await fs.mkdir(path.join(projectDir, ".claude"), { recursive: true });
+
+  // Read existing settings or start fresh
+  let settings: Record<string, unknown> = {};
+  try {
+    const raw = await fs.readFile(settingsPath, "utf-8");
+    settings = JSON.parse(raw);
+  } catch {
+    // No settings yet
+  }
+
+  // Build the Gnosys SessionStart hook
+  const gnosysHook = {
+    type: "command",
+    command: "gnosys recall --query \"session start\" --projectRoot \"$CLAUDE_PROJECT_DIR\" 2>/dev/null || true",
+    timeout: 10,
+  };
+
+  // Merge into existing hooks without clobbering other SessionStart hooks
+  const hooks = (settings.hooks || {}) as Record<string, unknown[]>;
+  const sessionStartEntries = (hooks.SessionStart || []) as Array<Record<string, unknown>>;
+
+  // Check if a Gnosys hook already exists
+  const hasGnosysHook = sessionStartEntries.some((entry) => {
+    const entryHooks = (entry.hooks || []) as Array<Record<string, unknown>>;
+    return entryHooks.some((h) => typeof h.command === "string" && (h.command as string).includes("gnosys recall"));
+  });
+
+  if (!hasGnosysHook) {
+    sessionStartEntries.push({
+      matcher: "startup|resume|compact",
+      hooks: [gnosysHook],
+    });
+    hooks.SessionStart = sessionStartEntries;
+    settings.hooks = hooks;
+
+    await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf-8");
+  }
+
+  return {
+    ide: "claude-code",
+    configured: true,
+    filePath: settingsPath,
+    details: hasGnosysHook
+      ? "SessionStart hook already configured"
+      : "Added SessionStart hook for automatic memory recall",
+  };
+}
+
+/**
+ * Codex: Add SessionStart hook to .codex/hooks.json + enable feature flag
+ */
+async function configureCodex(projectDir: string): Promise<IdeHookResult> {
+  const hooksPath = path.join(projectDir, ".codex", "hooks.json");
+  const configPath = path.join(projectDir, ".codex", "config.toml");
+
+  // Ensure .codex/ directory exists
+  await fs.mkdir(path.join(projectDir, ".codex"), { recursive: true });
+
+  // Build hooks.json
+  let hooksConfig: Record<string, unknown> = {};
+  try {
+    const raw = await fs.readFile(hooksPath, "utf-8");
+    hooksConfig = JSON.parse(raw);
+  } catch {
+    // No hooks yet
+  }
+
+  const gnosysHook = {
+    type: "command",
+    command: "gnosys recall --query \"session start\" --projectRoot \"$PWD\" 2>/dev/null || true",
+    timeout: 10,
+  };
+
+  const hooks = (hooksConfig.hooks || {}) as Record<string, unknown[]>;
+  const sessionStartEntries = (hooks.SessionStart || []) as Array<Record<string, unknown>>;
+
+  const hasGnosysHook = sessionStartEntries.some((entry) => {
+    const entryHooks = (entry.hooks || []) as Array<Record<string, unknown>>;
+    return entryHooks.some((h) => typeof h.command === "string" && (h.command as string).includes("gnosys recall"));
+  });
+
+  if (!hasGnosysHook) {
+    sessionStartEntries.push({
+      matcher: "startup|resume",
+      hooks: [gnosysHook],
+    });
+    hooks.SessionStart = sessionStartEntries;
+    hooksConfig.hooks = hooks;
+
+    await fs.writeFile(hooksPath, JSON.stringify(hooksConfig, null, 2) + "\n", "utf-8");
+  }
+
+  // Enable hooks feature flag in config.toml (append if not present)
+  let configContent = "";
+  try {
+    configContent = await fs.readFile(configPath, "utf-8");
+  } catch {
+    // No config yet
+  }
+
+  if (!configContent.includes("codex_hooks")) {
+    const featureBlock = configContent.includes("[features]")
+      ? "" // Already has [features] section — we'll append the flag
+      : "\n[features]\n";
+    const flagLine = "codex_hooks = true\n";
+
+    if (configContent.includes("[features]")) {
+      // Insert after [features] line
+      configContent = configContent.replace("[features]", `[features]\n${flagLine}`);
+    } else {
+      configContent += featureBlock + flagLine;
+    }
+    await fs.writeFile(configPath, configContent, "utf-8");
+  }
+
+  return {
+    ide: "codex",
+    configured: true,
+    filePath: hooksPath,
+    details: hasGnosysHook
+      ? "SessionStart hook already configured"
+      : "Added SessionStart hook + enabled hooks feature flag",
+  };
+}
+
+/**
+ * Cursor: Write .cursor/rules/gnosys.mdc with alwaysApply: true
+ * Cursor has no shell hooks, so we inject strong instructions for the AI to call Gnosys tools.
+ */
+async function configureCursor(projectDir: string): Promise<IdeHookResult> {
+  const rulesDir = path.join(projectDir, ".cursor", "rules");
+  const rulePath = path.join(rulesDir, "gnosys.mdc");
+
+  await fs.mkdir(rulesDir, { recursive: true });
+
+  // Check if already exists
+  let alreadyExists = false;
+  try {
+    await fs.stat(rulePath);
+    alreadyExists = true;
+  } catch {
+    // Good — doesn't exist
+  }
+
+  const ruleContent = `---
+description: Gnosys memory system — automatic recall and write
+alwaysApply: true
+---
+
+# MANDATORY: Gnosys Memory Recall
+
+**YOU MUST call \`gnosys_discover\` at the START of every task before doing any work.**
+This is not optional. Gnosys contains project decisions, architecture, and context that prevents wasted effort.
+
+## At task start (REQUIRED)
+1. Call \`gnosys_discover\` with keywords relevant to the task
+2. Call \`gnosys_read\` on any results that look relevant
+3. Then proceed with the task using that context
+
+## During work (automatic)
+- When the user states a decision or preference — call \`gnosys_add\` to save it
+- After significant implementation — call \`gnosys_add\` with findings and gotchas
+- When the user says "remember", "save this", "note this" — call \`gnosys_add\`
+
+## Key tools
+| Action | Tool |
+|--------|------|
+| Find memories | \`gnosys_discover\` then \`gnosys_read\` |
+| Search | \`gnosys_hybrid_search\` or \`gnosys_search\` |
+| Write | \`gnosys_add\` or \`gnosys_add_structured\` |
+| Update | \`gnosys_update\`, \`gnosys_reinforce\` |
+
+**Always pass \`projectRoot\` set to the workspace root with every Gnosys tool call.**
+`;
+
+  if (!alreadyExists) {
+    await fs.writeFile(rulePath, ruleContent, "utf-8");
+  }
+
+  return {
+    ide: "cursor",
+    configured: true,
+    filePath: rulePath,
+    details: alreadyExists
+      ? "Cursor rule already exists at .cursor/rules/gnosys.mdc"
+      : "Created alwaysApply rule for automatic memory recall instructions",
+  };
+}
+
 // ─── Project Migration ──────────────────────────────────────────────────
 
 export interface MigrateOptions {

@@ -869,12 +869,20 @@ server.tool(
       await reindexAllStores();
     }
 
+    // Configure IDE hooks for automatic memory recall
+    const { configureIdeHooks } = await import("./lib/projectIdentity.js");
+    const hookResult = await configureIdeHooks(targetDir);
+
     const action = isResync ? "re-synced" : "initialized";
+    const hookInfo = hookResult.configured
+      ? `\n\nIDE Hooks (${hookResult.ide}):\n- ${hookResult.details}\n- File: ${hookResult.filePath}`
+      : `\n\nIDE hooks: ${hookResult.details}`;
+
     return {
       content: [
         {
           type: "text",
-          text: `Gnosys store ${action} at ${storePath}\n\nProject Identity:\n- ID: ${identity.projectId}\n- Name: ${identity.projectName}\n- Directory: ${identity.workingDirectory}\n- Agent rules target: ${identity.agentRulesTarget || "none detected"}\n- Central DB: ${centralDb?.isAvailable() ? "registered ✓" : "not available"}\n\n${isResync ? "Identity re-synced." : "Created:\n- gnosys.json (project identity)\n- .config/ (internal config)\n- tags.json (tag registry)"}\n\nThe store is ready. Use gnosys_discover to find existing memories or gnosys_add to create new ones.`,
+          text: `Gnosys store ${action} at ${storePath}\n\nProject Identity:\n- ID: ${identity.projectId}\n- Name: ${identity.projectName}\n- Directory: ${identity.workingDirectory}\n- Agent rules target: ${identity.agentRulesTarget || "none detected"}\n- Central DB: ${centralDb?.isAvailable() ? "registered ✓" : "not available"}\n\n${isResync ? "Identity re-synced." : "Created:\n- gnosys.json (project identity)\n- .config/ (internal config)\n- tags.json (tag registry)"}${hookInfo}\n\nThe store is ready. Use gnosys_discover to find existing memories or gnosys_add to create new ones.`,
         },
       ],
     };
