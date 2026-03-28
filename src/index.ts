@@ -2933,6 +2933,180 @@ server.tool(
   }
 );
 
+// ─── MCP Prompts (slash commands) ────────────────────────────────────────
+// These appear as /gnosys-recall, /gnosys-discover, /gnosys-memorize in
+// Cursor, Claude Code, and Codex.
+
+server.prompt(
+  "gnosys-recall",
+  "Inject top Gnosys memories for the current project into context. Use this at the start of any task to load relevant knowledge.",
+  async () => {
+    if (!centralDb?.isAvailable()) {
+      return {
+        messages: [
+          {
+            role: "user" as const,
+            content: { type: "text" as const, text: "<gnosys-recall>\nNo central DB available. Run gnosys_init first.\n</gnosys-recall>" },
+          },
+        ],
+      };
+    }
+
+    // Detect current project from cwd
+    const projectId = await detectCurrentProject(centralDb, undefined);
+
+    // Get active memories, filter by project, sort by modified desc, take top 15
+    const allActive = centralDb.getActiveMemories();
+    const projectMemories = projectId
+      ? allActive.filter((m) => m.project_id === projectId)
+      : allActive;
+    const sorted = projectMemories
+      .sort((a, b) => (b.modified || "").localeCompare(a.modified || ""))
+      .slice(0, 15);
+
+    if (sorted.length === 0) {
+      return {
+        messages: [
+          {
+            role: "user" as const,
+            content: { type: "text" as const, text: "<gnosys-recall>\nNo memories found for this project.\n</gnosys-recall>" },
+          },
+        ],
+      };
+    }
+
+    const lines = sorted.map((m) => {
+      const snippet = m.content ? m.content.slice(0, 200) : "(no content)";
+      return `### [${m.id}] ${m.title}\n*${m.category} | confidence: ${m.confidence}*\n${snippet}`;
+    });
+
+    const text = `<gnosys-recall project="${projectId || "unknown"}" count="${sorted.length}">\n${lines.join("\n\n")}\n</gnosys-recall>`;
+
+    return {
+      messages: [
+        {
+          role: "user" as const,
+          content: { type: "text" as const, text },
+        },
+      ],
+    };
+  }
+);
+
+server.prompt(
+  "gnosys-discover",
+  "Search Gnosys memories on a specific topic and inject results into context.",
+  { topic: z.string().describe("Topic or keywords to search for") },
+  async ({ topic }) => {
+    if (!centralDb?.isAvailable() || !centralDb?.isMigrated()) {
+      return {
+        messages: [
+          {
+            role: "user" as const,
+            content: { type: "text" as const, text: `<gnosys-discover topic="${topic}">\nNo central DB available. Run gnosys_init first.\n</gnosys-discover>` },
+          },
+        ],
+      };
+    }
+
+    // Use FTS5 search from central DB
+    const results = centralDb.searchFts(topic, 15);
+
+    if (results.length === 0) {
+      return {
+        messages: [
+          {
+            role: "user" as const,
+            content: { type: "text" as const, text: `<gnosys-discover topic="${topic}">\nNo memories found for "${topic}". Try different keywords.\n</gnosys-discover>` },
+          },
+        ],
+      };
+    }
+
+    const lines = results.map((r) => {
+      const snippet = r.snippet
+        ? r.snippet.replace(/>>>/g, "**").replace(/<<</g, "**")
+        : "(no snippet)";
+      return `### [${r.id}] ${r.title}\n${snippet}`;
+    });
+
+    const text = `<gnosys-discover topic="${topic}" count="${results.length}">\n${lines.join("\n\n")}\n</gnosys-discover>`;
+
+    return {
+      messages: [
+        {
+          role: "user" as const,
+          content: { type: "text" as const, text },
+        },
+      ],
+    };
+  }
+);
+
+server.prompt(
+  "gnosys-memorize",
+  "Analyze the current conversation and save new decisions, findings, and context as Gnosys memories. Checks for duplicates automatically.",
+  async () => {
+    // Check for last memorized timestamp from preferences
+    let lastMemorizedInfo = "This is the first time /gnosys-memorize has been run — analyze all conversation content.";
+    if (centralDb?.isAvailable()) {
+      const pref = getPreference(centralDb, "cursor.lastMemorized");
+      if (pref) {
+        lastMemorizedInfo = `Last memorized at: ${pref.value}. Focus only on conversation content AFTER this timestamp.`;
+      }
+    }
+
+    const instructions = `<gnosys-memorize>
+## Instructions: Extract and save memories from this conversation
+
+${lastMemorizedInfo}
+
+### What to extract
+Scan the conversation for:
+1. **Decisions** — any choice made about architecture, tools, libraries, approaches, or workflow
+2. **Preferences** — coding style, conventions, how the user wants things done
+3. **Architecture findings** — patterns discovered, system behavior, integration details
+4. **Gotchas** — things that didn't work as expected, workarounds found, subtle bugs
+5. **Requirements** — specs, constraints, acceptance criteria discussed
+
+### How to save each memory
+For each candidate memory:
+1. First call \`gnosys_search\` with relevant keywords to check if it already exists
+2. If a similar memory exists, call \`gnosys_update\` to augment it instead of creating a duplicate
+3. If genuinely new, call \`gnosys_add_structured\` (NOT \`gnosys_add\`) with these fields:
+   - **title**: Clear, descriptive title (e.g. "Decision: Use Postgres over SQLite for production")
+   - **category**: One of: \`decisions\`, \`architecture\`, \`requirements\`, \`concepts\`, \`roadmap\`, \`landscape\`, \`open-questions\`
+   - **content**: The full memory in markdown
+   - **tags**: Object with arrays, e.g. \`{"domain": ["database", "backend"], "type": ["decision"]}\`
+   - **relevance**: A keyword cloud for discovery search — 10-30 space-separated terms covering:
+     * The primary topic and its synonyms
+     * Related technologies, libraries, tools mentioned
+     * The problem domain and use case
+     * Action verbs (chose, rejected, implemented, configured)
+     * Any names, acronyms, or abbreviations used in discussion
+     Example: \`"postgres sqlite database migration production scaling orm prisma drizzle chose rejected backend data-layer persistence"\`
+
+Using \`gnosys_add_structured\` instead of \`gnosys_add\` means **no separate LLM API call is needed** — YOU are the LLM doing the structuring.
+
+### When done
+After saving all memories, call \`gnosys_preference_set\` with:
+- key: \`cursor.lastMemorized\`
+- value: \`${new Date().toISOString()}\`
+
+This marks the conversation checkpoint so the next /gnosys-memorize only processes new content.
+</gnosys-memorize>`;
+
+    return {
+      messages: [
+        {
+          role: "user" as const,
+          content: { type: "text" as const, text: instructions },
+        },
+      ],
+    };
+  }
+);
+
 // ─── Start the server ────────────────────────────────────────────────────
 async function main() {
   // v3.0: Initialize central DB at ~/.gnosys/gnosys.db

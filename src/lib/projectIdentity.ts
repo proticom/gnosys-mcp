@@ -240,7 +240,7 @@ export async function configureIdeHooks(projectDir: string): Promise<IdeHookResu
 /**
  * Claude Code: Add SessionStart hook to .claude/settings.json
  */
-async function configureClaudeCode(projectDir: string): Promise<IdeHookResult> {
+export async function configureClaudeCode(projectDir: string): Promise<IdeHookResult> {
   const settingsPath = path.join(projectDir, ".claude", "settings.json");
 
   // Ensure .claude/ directory exists
@@ -296,7 +296,7 @@ async function configureClaudeCode(projectDir: string): Promise<IdeHookResult> {
 /**
  * Codex: Add SessionStart hook to .codex/hooks.json + enable feature flag
  */
-async function configureCodex(projectDir: string): Promise<IdeHookResult> {
+export async function configureCodex(projectDir: string): Promise<IdeHookResult> {
   const hooksPath = path.join(projectDir, ".codex", "hooks.json");
   const configPath = path.join(projectDir, ".codex", "config.toml");
 
@@ -374,7 +374,7 @@ async function configureCodex(projectDir: string): Promise<IdeHookResult> {
  * Cursor: Write .cursor/rules/gnosys.mdc with alwaysApply: true
  * Cursor has no shell hooks, so we inject strong instructions for the AI to call Gnosys tools.
  */
-async function configureCursor(projectDir: string): Promise<IdeHookResult> {
+export async function configureCursor(projectDir: string): Promise<IdeHookResult> {
   const rulesDir = path.join(projectDir, ".cursor", "rules");
   const rulePath = path.join(rulesDir, "gnosys.mdc");
 
