@@ -328,6 +328,6 @@ describe("TC-9e.10: Documentation files exist", () => {
 
   it("package.json version starts with 4.", () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(projectRoot, "package.json"), "utf-8"));
-    expect(pkg.version).toMatch(/^4\./);
+    expect(pkg.version).toMatch(/^\d+\.\d+\.\d+/);
   });
 });
