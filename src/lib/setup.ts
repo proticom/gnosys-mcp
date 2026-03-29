@@ -519,29 +519,46 @@ function detectKeySource(envVarName: string, legacyEnvVar: string): string {
  */
 export async function detectIDEs(projectDir: string): Promise<string[]> {
   const detected: string[] = [];
+  const home = os.homedir();
 
-  // Check for Claude CLI
+  // Check for Claude Code — CLI in PATH or global ~/.claude/ directory
   try {
     execSync("which claude", { stdio: "ignore" });
     detected.push("claude");
   } catch {
-    // Not installed
+    try {
+      const stat = await fs.stat(path.join(home, ".claude"));
+      if (stat.isDirectory()) detected.push("claude");
+    } catch {
+      // Not installed
+    }
   }
 
-  // Check for .cursor/ directory
+  // Check for Cursor — global ~/.cursor/ directory or app installed
   try {
-    const stat = await fs.stat(path.join(projectDir, ".cursor"));
+    const stat = await fs.stat(path.join(home, ".cursor"));
     if (stat.isDirectory()) detected.push("cursor");
   } catch {
-    // Not present
+    // Also check macOS Applications
+    try {
+      await fs.stat("/Applications/Cursor.app");
+      detected.push("cursor");
+    } catch {
+      // Not installed
+    }
   }
 
-  // Check for .codex/ directory
+  // Check for Codex — CLI in PATH or global ~/.codex/ directory
   try {
-    const stat = await fs.stat(path.join(projectDir, ".codex"));
-    if (stat.isDirectory()) detected.push("codex");
+    execSync("which codex", { stdio: "ignore" });
+    detected.push("codex");
   } catch {
-    // Not present
+    try {
+      const stat = await fs.stat(path.join(home, ".codex"));
+      if (stat.isDirectory()) detected.push("codex");
+    } catch {
+      // Not installed
+    }
   }
 
   return detected;
