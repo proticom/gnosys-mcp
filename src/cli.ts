@@ -3116,7 +3116,27 @@ program
   .action(async (opts: { directory?: string }) => {
     const projectDir = opts.directory ? path.resolve(opts.directory) : process.cwd();
     const storePath = path.join(projectDir, ".gnosys");
-    const cfg = await loadConfig(storePath);
+    const globalStorePath = path.join(os.homedir(), ".gnosys");
+
+    // Load config: try project-level first, fall back to global ~/.gnosys/
+    let cfg: GnosysConfig;
+    let configSource: string;
+    try {
+      const projectCfg = await loadConfig(storePath);
+      // Check if it's just defaults (no actual config file) by seeing if dream has been configured
+      const hasProjectConfig = projectCfg.dream?.provider !== DEFAULT_CONFIG.dream?.provider ||
+        projectCfg.llm?.defaultProvider !== DEFAULT_CONFIG.llm?.defaultProvider;
+      if (hasProjectConfig) {
+        cfg = projectCfg;
+        configSource = storePath;
+      } else {
+        cfg = await loadConfig(globalStorePath);
+        configSource = globalStorePath;
+      }
+    } catch {
+      cfg = await loadConfig(globalStorePath);
+      configSource = globalStorePath;
+    }
 
     const GREEN = "\x1b[32m";
     const RED = "\x1b[31m";
@@ -3128,7 +3148,7 @@ program
     const CROSS = `${RED}✗${RESET}`;
     const WARN = `${YELLOW}⚠${RESET}`;
 
-    console.log(`\n${BOLD}Gnosys LLM Check${RESET}\n`);
+    console.log(`\n${BOLD}Gnosys LLM Check${RESET} ${DIM}(config: ${configSource})${RESET}\n`);
 
     // Define the 5 tasks and how to resolve each
     interface TaskCheck {
