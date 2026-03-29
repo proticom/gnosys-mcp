@@ -182,7 +182,11 @@ export async function fetchDynamicModels(): Promise<Record<string, ModelTier[]>>
       const models = data.data
         .filter((m) => m.id.startsWith(prefix + "/"))
         .map((m) => {
-          const modelId = m.id.slice(prefix.length + 1);
+          let modelId = m.id.slice(prefix.length + 1);
+          // Anthropic API uses hyphens (claude-haiku-4-5) but OpenRouter uses dots (claude-haiku-4.5)
+          if (ourProvider === "anthropic") {
+            modelId = modelId.replace(/(\d+)\.(\d+)/g, "$1-$2");
+          }
           const input = parseFloat(m.pricing?.prompt ?? "0") * 1e6;
           const output = parseFloat(m.pricing?.completion ?? "0") * 1e6;
           const isPreview = /preview|beta/i.test(modelId);

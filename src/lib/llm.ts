@@ -76,19 +76,27 @@ export interface LLMProvider {
 export class AnthropicProvider implements LLMProvider {
   readonly name: LLMProviderName = "anthropic";
   readonly model: string;
-  private client: any; // Anthropic SDK client
+  private client: any = null; // Anthropic SDK client (lazy-initialized)
   private config: GnosysConfig;
+  private apiKey: string;
+  private clientPromise: Promise<any> | null = null;
 
   constructor(model: string, apiKey: string, config?: GnosysConfig) {
     this.model = model;
     this.config = config || DEFAULT_CONFIG;
+    this.apiKey = apiKey;
+  }
 
-    // Dynamic import is handled in factory; here we just create the client
-    const Anthropic = require("@anthropic-ai/sdk").default || require("@anthropic-ai/sdk");
-    this.client = new Anthropic({ apiKey });
-
-    // Prevent apiKey from leaking in stack traces or serialization
-    Object.defineProperty(this, "_apiKey", { enumerable: false, value: undefined });
+  private async getClient(): Promise<any> {
+    if (this.client) return this.client;
+    if (!this.clientPromise) {
+      this.clientPromise = import("@anthropic-ai/sdk").then((mod) => {
+        const Anthropic = mod.default || mod;
+        this.client = new Anthropic({ apiKey: this.apiKey });
+        return this.client;
+      });
+    }
+    return this.clientPromise;
   }
 
   async generate(
@@ -102,9 +110,10 @@ export class AnthropicProvider implements LLMProvider {
       return this.streamGenerate(prompt, options, streamCallbacks);
     }
 
+    const client = await this.getClient();
     const response = await withRetry(
       () =>
-        this.client.messages.create({
+        client.messages.create({
           model: this.model,
           max_tokens: maxTokens,
           ...(options?.system ? { system: options.system } : {}),
@@ -127,7 +136,8 @@ export class AnthropicProvider implements LLMProvider {
   ): Promise<string> {
     const maxTokens = options?.maxTokens || 4096;
 
-    const stream = this.client.messages.stream({
+    const client = await this.getClient();
+    const stream = client.messages.stream({
       model: this.model,
       max_tokens: maxTokens,
       ...(options?.system ? { system: options.system } : {}),
@@ -158,9 +168,10 @@ export class AnthropicProvider implements LLMProvider {
   ): Promise<string> {
     const maxTokens = options?.maxTokens || 4096;
 
+    const client = await this.getClient();
     const response = await withRetry(
       () =>
-        this.client.messages.create({
+        client.messages.create({
           model: this.model,
           max_tokens: maxTokens,
           ...(options?.system ? { system: options.system } : {}),
@@ -193,7 +204,8 @@ export class AnthropicProvider implements LLMProvider {
 
   async testConnection(): Promise<boolean> {
     try {
-      const response = await this.client.messages.create({
+      const client = await this.getClient();
+      const response = await client.messages.create({
         model: this.model,
         max_tokens: 10,
         messages: [{ role: "user", content: "Say hi" }],
