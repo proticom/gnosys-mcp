@@ -155,15 +155,9 @@ async function resolveToolContext(projectRoot?: string): Promise<ToolContext> {
       await scopedSearch.addStoreMemories(scopedWriteTarget.store);
     }
 
-    // Initialize GnosysDB for the scoped store
-    try {
-      scopedDb = new GnosysDB(scopedStorePath);
-      if (!scopedDb.isAvailable() || !scopedDb.isMigrated()) {
-        scopedDb = null;
-      }
-    } catch {
-      scopedDb = null;
-    }
+    // v5.2: No local project DB — central DB is sole source of truth.
+    // Removed: new GnosysDB(scopedStorePath) which created an empty
+    // gnosys.db in the project's .gnosys/ directory.
   }
 
   return {
@@ -3157,26 +3151,9 @@ async function main() {
     // Build search index across all stores
     await reindexAllStores();
 
-    // v2.0: Initialize GnosysDB (unified SQLite store)
-    try {
-      gnosysDb = new GnosysDB(writeTarget.store.getStorePath());
-      if (gnosysDb.isAvailable() && gnosysDb.isMigrated()) {
-        const counts = gnosysDb.getMemoryCount();
-        console.error(
-          `GnosysDB: migrated ✓ (${counts.active} active, ${counts.archived} archived, schema v${gnosysDb.getSchemaVersion()})`
-        );
-      } else if (gnosysDb.isAvailable()) {
-        console.error(
-          "GnosysDB: available but not migrated. Run `gnosys migrate` to populate."
-        );
-      } else {
-        gnosysDb = null;
-        console.error("GnosysDB: not available (better-sqlite3 missing)");
-      }
-    } catch {
-      gnosysDb = null;
-      console.error("GnosysDB: initialization failed — using legacy paths");
-    }
+    // v5.2: gnosysDb now points to the central DB (sole source of truth).
+    // No local project DB is created or opened.
+    gnosysDb = centralDb;
 
     // Initialize hybrid search + ask engine (embeddings loaded lazily)
     const embeddings = new GnosysEmbeddings(writeTarget.store.getStorePath());
