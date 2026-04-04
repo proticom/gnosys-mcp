@@ -24,6 +24,7 @@ import {
   cliInit,
   cli,
   cliJson,
+  extractJson,
 } from "./_helpers.js";
 import { GnosysDB, MemoryScope } from "../lib/db.js";
 import {
@@ -330,7 +331,7 @@ describe("TC-9c.5: CLI --json output includes scope info", () => {
 
   it("gnosys list --json produces valid JSON", () => {
     const output = cli("list", tmpDir, { json: true });
-    const parsed = JSON.parse(output);
+    const parsed = JSON.parse(extractJson(output));
     expect(parsed).toHaveProperty("count");
     expect(Array.isArray(parsed.memories)).toBe(true);
   });
@@ -345,20 +346,20 @@ describe("TC-9c.5: CLI --json output includes scope info", () => {
     } catch { /* may fail without LLM, but add-structured should work */ }
 
     const output = cli("search databases", tmpDir, { json: true });
-    const parsed = JSON.parse(output);
+    const parsed = JSON.parse(extractJson(output));
     expect(parsed).toHaveProperty("query", "databases");
     expect(parsed).toHaveProperty("results");
   });
 
   it("gnosys stats --json produces valid JSON", () => {
     const output = cli("stats", tmpDir, { json: true });
-    const parsed = JSON.parse(output);
+    const parsed = JSON.parse(extractJson(output));
     expect(typeof parsed.totalCount).toBe("number");
   });
 
   it("gnosys dashboard --json produces valid JSON", () => {
     const output = cli("dashboard --json", tmpDir);
-    const parsed = JSON.parse(output);
+    const parsed = JSON.parse(extractJson(output));
     expect(parsed).toBeDefined();
   });
 });
@@ -440,7 +441,7 @@ describe("TC-9c.6: CLI parity — all major commands functional", () => {
 
   it("gnosys audit --json outputs valid JSON", () => {
     const output = cli("audit --json", tmpDir);
-    const parsed = JSON.parse(output);
+    const parsed = JSON.parse(extractJson(output));
     expect(parsed).toHaveProperty("entries");
   });
 
