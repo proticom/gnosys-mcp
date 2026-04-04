@@ -2826,8 +2826,9 @@ program
 // ─── gnosys upgrade ─────────────────────────────────────────────────────
 program
   .command("upgrade")
-  .description("Re-initialize all registered projects after a Gnosys version upgrade. Updates agent rules, project registry, and stamps the central DB with the current version.")
-  .action(async () => {
+  .description("Re-initialize all registered projects after a Gnosys version upgrade. Updates agent rules, project registry, stamps the central DB, and regenerates the portfolio dashboard.")
+  .option("--skip-dashboard", "Skip regenerating the portfolio dashboard")
+  .action(async (opts: { skipDashboard?: boolean }) => {
     const currentVersion = pkg.version;
     console.log(`Gnosys v${currentVersion} — upgrading registered projects...\n`);
 
@@ -3023,6 +3024,28 @@ program
     if (skipped.length > 0) {
       console.log(`\nNote: ${skipped.length} project(s) not found on this machine.`);
       console.log(`If they exist on another machine, run 'gnosys upgrade' there too.`);
+    }
+
+    // 6. Regenerate portfolio dashboard
+    if (!opts.skipDashboard) {
+      try {
+        const dashboardPath = path.join(home, "gnosys-dashboard.html");
+        const dashboardMdPath = path.join(home, "gnosys-dashboard.md");
+        const centralDb = GnosysDB.openCentral();
+        if (centralDb.isAvailable()) {
+          const { generatePortfolio, formatPortfolioMarkdown } = await import("./lib/portfolio.js");
+          const { generatePortfolioHtml } = await import("./lib/portfolioHtml.js");
+          const report = generatePortfolio(centralDb);
+          await fs.writeFile(dashboardPath, generatePortfolioHtml(report, dashboardPath), "utf-8");
+          await fs.writeFile(dashboardMdPath, formatPortfolioMarkdown(report), "utf-8");
+          centralDb.close();
+          console.log(`\nPortfolio dashboard regenerated:`);
+          console.log(`  HTML: ${dashboardPath}`);
+          console.log(`  MD:   ${dashboardMdPath}`);
+        }
+      } catch {
+        console.log(`\n  Could not regenerate portfolio dashboard`);
+      }
     }
   });
 
@@ -4161,6 +4184,100 @@ program
         console.log(`\nTop tags: ${briefing.topTags.slice(0, 10).map((t) => `${t.tag}(${t.count})`).join(", ") || "None"}`);
         console.log(`\n${briefing.summary}`);
       }
+    } catch (err) {
+      console.error(`Error: ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    } finally {
+      centralDb?.close();
+    }
+  });
+
+// ─── gnosys portfolio ───────────────────────────────────────────────────
+program
+  .command("portfolio")
+  .description("Portfolio dashboard — all projects with status, roadmap, and recent activity")
+  .option("-o, --output <file>", "Write dashboard to a file (auto-detects format from extension)")
+  .option("--html", "Output as HTML dashboard")
+  .option("--json", "Output as JSON")
+  .action(async (opts: { output?: string; html: boolean; json: boolean }) => {
+    let centralDb: GnosysDB | null = null;
+    try {
+      centralDb = GnosysDB.openCentral();
+      if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
+
+      const { generatePortfolio, formatPortfolioMarkdown } = await import("./lib/portfolio.js");
+
+      const report = generatePortfolio(centralDb);
+
+      // Detect format from output extension if not explicitly set
+      const useHtml = opts.html || (opts.output?.endsWith(".html") ?? false);
+      const useJson = opts.json || (opts.output?.endsWith(".json") ?? false);
+
+      if (useJson) {
+        const json = JSON.stringify(report, null, 2);
+        if (opts.output) {
+          const { writeFileSync } = await import("fs");
+          writeFileSync(opts.output, json, "utf-8");
+          console.log(`Portfolio written to ${opts.output}`);
+        } else {
+          console.log(json);
+        }
+        return;
+      }
+
+      if (useHtml) {
+        const { generatePortfolioHtml } = await import("./lib/portfolioHtml.js");
+        const html = generatePortfolioHtml(report, opts.output);
+        if (opts.output) {
+          const { writeFileSync } = await import("fs");
+          writeFileSync(opts.output, html, "utf-8");
+          console.log(`Portfolio dashboard written to ${opts.output}`);
+        } else {
+          console.log(html);
+        }
+        return;
+      }
+
+      const markdown = formatPortfolioMarkdown(report);
+      if (opts.output) {
+        const { writeFileSync } = await import("fs");
+        writeFileSync(opts.output, markdown, "utf-8");
+        console.log(`Portfolio dashboard written to ${opts.output}`);
+      } else {
+        console.log(markdown);
+      }
+    } catch (err) {
+      console.error(`Error: ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    } finally {
+      centralDb?.close();
+    }
+  });
+
+// ─── gnosys update-status ────────────────────────────────────────────────
+program
+  .command("update-status")
+  .description("Show the prompt to give an AI agent to update this project's status for the portfolio dashboard")
+  .option("-d, --directory <dir>", "Project directory (auto-detects if omitted)")
+  .option("-p, --project <id>", "Project ID")
+  .action(async (opts: { directory?: string; project?: string }) => {
+    let centralDb: GnosysDB | null = null;
+    try {
+      centralDb = GnosysDB.openCentral();
+      if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
+
+      const { detectCurrentProject } = await import("./lib/federated.js");
+      const { generateStatusPrompt } = await import("./lib/portfolio.js");
+
+      let pid = opts.project || null;
+      if (!pid) pid = await detectCurrentProject(centralDb, opts.directory || undefined);
+      if (!pid) { console.error("No project specified and none detected."); process.exit(1); }
+
+      const project = centralDb.getProject(pid);
+      if (!project) { console.error(`Project not found: ${pid}`); process.exit(1); }
+
+      const prompt = generateStatusPrompt(project.name, project.working_directory);
+      console.log(prompt);
     } catch (err) {
       console.error(`Error: ${err instanceof Error ? err.message : err}`);
       process.exit(1);

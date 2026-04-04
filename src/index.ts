@@ -54,6 +54,7 @@ import { createProjectIdentity, readProjectIdentity, findProjectIdentity, checkD
 import { setPreference, getPreference, getAllPreferences, deletePreference, Preference } from "./lib/preferences.js";
 import { syncRules, generateRulesBlock, removeRulesBlock } from "./lib/rulesGen.js";
 import { federatedSearch, federatedDiscover, detectAmbiguity, generateBriefing, generateAllBriefings, getWorkingSet, formatWorkingSet, detectCurrentProject } from "./lib/federated.js";
+import { generatePortfolio, formatPortfolioCompact, formatPortfolioMarkdown, generateStatusPrompt } from "./lib/portfolio.js";
 
 // Initialize resolver (discovers all layered stores)
 const resolver = new GnosysResolver();
@@ -2820,6 +2821,60 @@ server.tool(
     ].join("\n");
 
     return { content: [{ type: "text" as const, text }] };
+  }
+);
+
+// ─── Tool: gnosys_portfolio ─────────────────────────────────────────────
+
+server.tool(
+  "gnosys_portfolio",
+  "Portfolio dashboard — shows all registered projects with memory counts, categories, status snapshots, roadmap items, and recent activity. Use for cross-project status overview.",
+  {
+    format: z.enum(["compact", "full"]).optional().describe("Output format: compact (default) or full markdown"),
+  },
+  async ({ format }) => {
+    if (!centralDb?.isAvailable()) {
+      return { content: [{ type: "text" as const, text: "Central DB not available." }], isError: true };
+    }
+
+    const report = generatePortfolio(centralDb);
+    if (report.projects.length === 0) {
+      return { content: [{ type: "text" as const, text: "No projects with active memories found." }] };
+    }
+
+    const text = format === "full"
+      ? formatPortfolioMarkdown(report)
+      : formatPortfolioCompact(report);
+
+    return { content: [{ type: "text" as const, text }] };
+  }
+);
+
+// ─── Tool: gnosys_update_status ─────────────────────────────────────────
+
+server.tool(
+  "gnosys_update_status",
+  "Get the prompt/template for writing a dashboard-compatible status memory for this project. Returns instructions for creating a landscape memory with the correct heading format so the portfolio dashboard can parse it. Run this, then follow the instructions to analyze and write the status.",
+  {
+    projectRoot: z.string().optional().describe("Project root for auto-detection"),
+  },
+  async ({ projectRoot }) => {
+    if (!centralDb?.isAvailable()) {
+      return { content: [{ type: "text" as const, text: "Central DB not available." }], isError: true };
+    }
+
+    const pid = await detectCurrentProject(centralDb, projectRoot || undefined);
+    if (!pid) {
+      return { content: [{ type: "text" as const, text: "No project detected from current directory." }], isError: true };
+    }
+
+    const project = centralDb.getProject(pid);
+    if (!project) {
+      return { content: [{ type: "text" as const, text: `Project not found: ${pid}` }], isError: true };
+    }
+
+    const prompt = generateStatusPrompt(project.name, project.working_directory);
+    return { content: [{ type: "text" as const, text: prompt }] };
   }
 );
 
