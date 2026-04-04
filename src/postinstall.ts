@@ -41,7 +41,10 @@ async function main() {
     console.log(`\n  ${title}\n`);
     console.log("  Next steps:");
     console.log("    1. gnosys upgrade              sync all projects + regenerate dashboard");
-    console.log("    2. Restart IDE MCP server       Cursor: Cmd+Shift+P > MCP: Restart All Servers");
+    console.log("    2. Restart MCP servers:");
+    console.log("         Cursor:      Cmd+Shift+P > MCP: Restart All Servers");
+    console.log("         Claude Code:  /mcp > restart gnosys (or start new session)");
+    console.log("         Codex:       start new session");
     console.log("    3. gnosys status --web          open the portfolio dashboard");
     console.log("");
 

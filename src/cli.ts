@@ -5442,7 +5442,12 @@ try {
       console.log("");
       console.log("  Run now:");
       console.log("    gnosys upgrade              sync all projects + regenerate dashboard");
-      console.log("    Restart IDE MCP server       Cursor: Cmd+Shift+P > MCP: Restart All Servers");
+      console.log("");
+      console.log("  Then restart MCP servers:");
+      console.log("    Cursor:     Cmd+Shift+P > MCP: Restart All Servers");
+      console.log("    Claude Code: /mcp > restart gnosys (or start new session)");
+      console.log("    Codex:      start new session");
+      console.log("");
       console.log("    gnosys status --web          open the portfolio dashboard");
       console.log("");
     }
