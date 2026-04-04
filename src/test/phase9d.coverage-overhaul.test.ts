@@ -29,6 +29,7 @@ import {
   cliInit,
   cli,
   cliJson,
+  extractJson,
 } from "./_helpers.js";
 import { GnosysDB, DbMemory } from "../lib/db.js";
 import { GnosysDbSearch } from "../lib/dbSearch.js";
@@ -1030,7 +1031,7 @@ describe("TC-9d.10: CLI working-set commands", () => {
 
   it("gnosys audit --json reports empty entries for fresh project", () => {
     const output = cli("audit --json", tmpDir);
-    const parsed = JSON.parse(output);
+    const parsed = JSON.parse(extractJson(output));
     expect(parsed).toHaveProperty("entries");
   });
 });

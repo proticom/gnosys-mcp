@@ -15,7 +15,7 @@ import { GnosysStore, MemoryFrontmatter } from "../lib/store.js";
 
 // ─── Constants ──────────────────────────────────────────────────────────
 
-export const CLI = `node ${path.resolve("dist/cli.js")}`;
+export const CLI = `node "${path.resolve("dist/cli.js")}"`;  // quoted for paths with spaces
 
 // ─── Test Environment ───────────────────────────────────────────────────
 
@@ -72,18 +72,33 @@ export function cli(
 }
 
 /**
+ * Extract JSON from CLI output that may contain upgrade warnings or other
+ * non-JSON text before the actual JSON payload.
+ */
+export function extractJson(output: string): string {
+  // Find the first { or [ which starts the JSON payload
+  const objStart = output.indexOf("{");
+  const arrStart = output.indexOf("[");
+  let start = -1;
+  if (objStart >= 0 && arrStart >= 0) start = Math.min(objStart, arrStart);
+  else if (objStart >= 0) start = objStart;
+  else if (arrStart >= 0) start = arrStart;
+  return start >= 0 ? output.slice(start) : output;
+}
+
+/**
  * Run a gnosys CLI command and parse JSON output.
  */
 export function cliJson<T = unknown>(command: string, projectDir: string): T {
   const output = cli(command, projectDir, { json: true });
-  return JSON.parse(output) as T;
+  return JSON.parse(extractJson(output)) as T;
 }
 
 /**
  * Initialize a gnosys project in a directory via CLI.
  */
 export function cliInit(dir: string): string {
-  return execSync(`${CLI} init --directory ${dir}`, {
+  return execSync(`${CLI} init --directory "${dir}"`, {
     encoding: "utf-8",
     stdio: ["pipe", "pipe", "pipe"],
   });

@@ -16,7 +16,7 @@ afterEach(async () => {
 
 describe("gnosys init", () => {
   it("creates .gnosys store directory", async () => {
-    execSync(`node ${path.resolve("dist/cli.js")} init --directory ${tmpDir}`, {
+    execSync(`node "${path.resolve("dist/cli.js")}" init --directory "${tmpDir}"`, {
       stdio: "pipe",
     });
 
@@ -26,7 +26,7 @@ describe("gnosys init", () => {
   });
 
   it("creates .gnosys/.config internal config directory", async () => {
-    execSync(`node ${path.resolve("dist/cli.js")} init --directory ${tmpDir}`, {
+    execSync(`node "${path.resolve("dist/cli.js")}" init --directory "${tmpDir}"`, {
       stdio: "pipe",
     });
 
@@ -36,7 +36,7 @@ describe("gnosys init", () => {
   });
 
   it("does NOT create a nested .gnosys/.gnosys", async () => {
-    execSync(`node ${path.resolve("dist/cli.js")} init --directory ${tmpDir}`, {
+    execSync(`node "${path.resolve("dist/cli.js")}" init --directory "${tmpDir}"`, {
       stdio: "pipe",
     });
 
@@ -45,7 +45,7 @@ describe("gnosys init", () => {
   });
 
   it("places tags.json inside .gnosys/.config (internal config)", async () => {
-    execSync(`node ${path.resolve("dist/cli.js")} init --directory ${tmpDir}`, {
+    execSync(`node "${path.resolve("dist/cli.js")}" init --directory "${tmpDir}"`, {
       stdio: "pipe",
     });
 
@@ -59,7 +59,7 @@ describe("gnosys init", () => {
   });
 
   it("does NOT place tags.json at .gnosys root", async () => {
-    execSync(`node ${path.resolve("dist/cli.js")} init --directory ${tmpDir}`, {
+    execSync(`node "${path.resolve("dist/cli.js")}" init --directory "${tmpDir}"`, {
       stdio: "pipe",
     });
 
@@ -68,7 +68,7 @@ describe("gnosys init", () => {
   });
 
   it("does NOT create CHANGELOG.md (removed in DB-only refactor)", async () => {
-    execSync(`node ${path.resolve("dist/cli.js")} init --directory ${tmpDir}`, {
+    execSync(`node "${path.resolve("dist/cli.js")}" init --directory "${tmpDir}"`, {
       stdio: "pipe",
     });
 
@@ -77,7 +77,7 @@ describe("gnosys init", () => {
   });
 
   it("does NOT initialize a git repository (removed in DB-only refactor)", async () => {
-    execSync(`node ${path.resolve("dist/cli.js")} init --directory ${tmpDir}`, {
+    execSync(`node "${path.resolve("dist/cli.js")}" init --directory "${tmpDir}"`, {
       stdio: "pipe",
     });
 
@@ -87,13 +87,13 @@ describe("gnosys init", () => {
 
   it("re-syncs if .gnosys already exists (no error)", () => {
     // First init
-    execSync(`node ${path.resolve("dist/cli.js")} init --directory ${tmpDir}`, {
+    execSync(`node "${path.resolve("dist/cli.js")}" init --directory "${tmpDir}"`, {
       stdio: "pipe",
     });
 
     // Second init should succeed (re-sync, not fail)
     const output = execSync(
-      `node ${path.resolve("dist/cli.js")} init --directory ${tmpDir}`,
+      `node "${path.resolve("dist/cli.js")}" init --directory "${tmpDir}"`,
       { encoding: "utf-8" }
     );
     expect(output).toContain("re-synced");
@@ -101,7 +101,7 @@ describe("gnosys init", () => {
 
   it("outputs helpful instructions", () => {
     const output = execSync(
-      `node ${path.resolve("dist/cli.js")} init --directory ${tmpDir}`,
+      `node "${path.resolve("dist/cli.js")}" init --directory "${tmpDir}"`,
       { encoding: "utf-8" }
     );
 
@@ -110,7 +110,7 @@ describe("gnosys init", () => {
   });
 
   it("creates gnosys.json project identity file", async () => {
-    execSync(`node ${path.resolve("dist/cli.js")} init --directory ${tmpDir}`, {
+    execSync(`node "${path.resolve("dist/cli.js")}" init --directory "${tmpDir}"`, {
       stdio: "pipe",
     });
 
@@ -124,7 +124,7 @@ describe("gnosys init", () => {
   });
 
   it("generates stable projectId on re-init", async () => {
-    execSync(`node ${path.resolve("dist/cli.js")} init --directory ${tmpDir}`, {
+    execSync(`node "${path.resolve("dist/cli.js")}" init --directory "${tmpDir}"`, {
       stdio: "pipe",
     });
 
@@ -133,7 +133,7 @@ describe("gnosys init", () => {
     const id1 = JSON.parse(raw1).projectId;
 
     // Re-init
-    execSync(`node ${path.resolve("dist/cli.js")} init --directory ${tmpDir}`, {
+    execSync(`node "${path.resolve("dist/cli.js")}" init --directory "${tmpDir}"`, {
       stdio: "pipe",
     });
 

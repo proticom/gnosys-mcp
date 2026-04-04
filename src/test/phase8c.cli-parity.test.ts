@@ -13,7 +13,7 @@ import fsp from "fs/promises";
 import path from "path";
 import os from "os";
 import { execSync } from "child_process";
-import { CLI, cliInit } from "./_helpers.js";
+import { CLI, cliInit, extractJson } from "./_helpers.js";
 
 let tmpDir: string;
 
@@ -94,7 +94,7 @@ describe("Phase 8c: CLI Parity", () => {
   describe("TC-8c.2: --json flag produces valid JSON", () => {
     it("gnosys list --json outputs valid JSON", () => {
       const output = run("list", { json: true });
-      const parsed = JSON.parse(output);
+      const parsed = JSON.parse(extractJson(output));
       expect(parsed).toHaveProperty("count");
       expect(parsed).toHaveProperty("memories");
       expect(Array.isArray(parsed.memories)).toBe(true);
@@ -102,7 +102,7 @@ describe("Phase 8c: CLI Parity", () => {
 
     it("gnosys stats --json outputs valid JSON", () => {
       const output = run("stats", { json: true });
-      const parsed = JSON.parse(output);
+      const parsed = JSON.parse(extractJson(output));
       expect(parsed).toHaveProperty("totalCount");
     });
 
@@ -111,7 +111,7 @@ describe("Phase 8c: CLI Parity", () => {
         encoding: "utf-8",
         stdio: ["pipe", "pipe", "pipe"],
       });
-      const parsed = JSON.parse(output);
+      const parsed = JSON.parse(extractJson(output));
       expect(parsed).toHaveProperty("count");
       expect(parsed).toHaveProperty("projects");
       expect(Array.isArray(parsed.projects)).toBe(true);
@@ -119,7 +119,7 @@ describe("Phase 8c: CLI Parity", () => {
 
     it("gnosys pref get --json outputs valid JSON", () => {
       const output = run("pref get", { json: true });
-      const parsed = JSON.parse(output);
+      const parsed = JSON.parse(extractJson(output));
       expect(parsed).toHaveProperty("preferences");
     });
   });
@@ -136,7 +136,7 @@ describe("Phase 8c: CLI Parity", () => {
       // This test verifies that when GNOSYS_PROJECT is set,
       // commands operate on that project
       const output = run("list", { json: true });
-      const parsed = JSON.parse(output);
+      const parsed = JSON.parse(extractJson(output));
       // Should not error — the project context is correctly resolved
       expect(parsed).toHaveProperty("count");
     });

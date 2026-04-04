@@ -329,7 +329,10 @@ describe("Final Acceptance Tests", () => {
         stdio: ["pipe", "pipe", "pipe"],
       });
 
-      const parsed = JSON.parse(output);
+      // Extract JSON from output (may contain upgrade warnings before the JSON)
+      const jsonStart = output.indexOf("{");
+      const jsonStr = jsonStart >= 0 ? output.slice(jsonStart) : output;
+      const parsed = JSON.parse(jsonStr);
       expect(parsed).toHaveProperty("count");
       expect(parsed).toHaveProperty("memories");
     });

@@ -184,9 +184,11 @@ describe("Setup Wizard", () => {
 
     it("returns empty array for bare directory", async () => {
       const ides = await detectIDEs(tmpDir);
-      // May include "claude" if the CLI is installed on the test machine
-      const withoutClaude = ides.filter((i) => i !== "claude");
-      expect(withoutClaude).toHaveLength(0);
+      // detectIDEs checks global installs (home dir, PATH, /Applications),
+      // so filter out any globally-installed IDEs on the test machine
+      const globallyInstalled = ["claude", "cursor", "codex"];
+      const projectOnly = ides.filter((i) => !globallyInstalled.includes(i));
+      expect(projectOnly).toHaveLength(0);
     });
   });
 

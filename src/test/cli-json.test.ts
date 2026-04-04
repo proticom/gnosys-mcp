@@ -3,13 +3,14 @@ import fs from "fs/promises";
 import path from "path";
 import os from "os";
 import { execSync } from "child_process";
+import { extractJson } from "./_helpers.js";
 
 let tmpDir: string;
 
 beforeEach(async () => {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "gnosys-json-test-"));
   // Init a store so commands have something to work with
-  execSync(`node ${path.resolve("dist/cli.js")} init --directory ${tmpDir}`, {
+  execSync(`node "${path.resolve("dist/cli.js")}" init --directory "${tmpDir}"`, {
     stdio: "pipe",
   });
 });
@@ -21,10 +22,10 @@ afterEach(async () => {
 describe("CLI --json flag", () => {
   it("gnosys list --json outputs valid JSON", () => {
     const output = execSync(
-      `node ${path.resolve("dist/cli.js")} list --json`,
+      `node "${path.resolve("dist/cli.js")}" list --json`,
       { encoding: "utf-8", env: { ...process.env, GNOSYS_PROJECT: tmpDir } }
     );
-    const parsed = JSON.parse(output);
+    const parsed = JSON.parse(extractJson(output));
     expect(parsed).toHaveProperty("count");
     expect(parsed).toHaveProperty("memories");
     expect(Array.isArray(parsed.memories)).toBe(true);
@@ -32,19 +33,19 @@ describe("CLI --json flag", () => {
 
   it("gnosys stats --json outputs valid JSON", () => {
     const output = execSync(
-      `node ${path.resolve("dist/cli.js")} stats --json`,
+      `node "${path.resolve("dist/cli.js")}" stats --json`,
       { encoding: "utf-8", env: { ...process.env, GNOSYS_PROJECT: tmpDir } }
     );
-    const parsed = JSON.parse(output);
+    const parsed = JSON.parse(extractJson(output));
     expect(parsed).toHaveProperty("totalCount");
   });
 
   it("gnosys projects --json outputs valid JSON", () => {
     const output = execSync(
-      `node ${path.resolve("dist/cli.js")} projects --json`,
+      `node "${path.resolve("dist/cli.js")}" projects --json`,
       { encoding: "utf-8" }
     );
-    const parsed = JSON.parse(output);
+    const parsed = JSON.parse(extractJson(output));
     expect(parsed).toHaveProperty("count");
     expect(parsed).toHaveProperty("projects");
     expect(Array.isArray(parsed.projects)).toBe(true);
@@ -52,30 +53,30 @@ describe("CLI --json flag", () => {
 
   it("gnosys pref get --json outputs valid JSON with no prefs", () => {
     const output = execSync(
-      `node ${path.resolve("dist/cli.js")} pref get --json`,
+      `node "${path.resolve("dist/cli.js")}" pref get --json`,
       { encoding: "utf-8" }
     );
-    const parsed = JSON.parse(output);
+    const parsed = JSON.parse(extractJson(output));
     expect(parsed).toHaveProperty("preferences");
   });
 
   it("gnosys pref set + get --json round-trips", () => {
     execSync(
-      `node ${path.resolve("dist/cli.js")} pref set test-key "test value"`,
+      `node "${path.resolve("dist/cli.js")}" pref set test-key "test value"`,
       { stdio: "pipe" }
     );
 
     const output = execSync(
-      `node ${path.resolve("dist/cli.js")} pref get test-key --json`,
+      `node "${path.resolve("dist/cli.js")}" pref get test-key --json`,
       { encoding: "utf-8" }
     );
-    const parsed = JSON.parse(output);
+    const parsed = JSON.parse(extractJson(output));
     expect(parsed.key).toBe("test-key");
     expect(parsed.value).toBe("test value");
 
     // Cleanup
     execSync(
-      `node ${path.resolve("dist/cli.js")} pref delete test-key`,
+      `node "${path.resolve("dist/cli.js")}" pref delete test-key`,
       { stdio: "pipe" }
     );
   });
