@@ -4254,6 +4254,158 @@ program
     }
   });
 
+// ─── gnosys status ──────────────────────────────────────────────────────
+program
+  .command("status")
+  .description("Show project status. From a project dir: shows that project. With --global: shows all projects. With --web: opens the HTML dashboard.")
+  .option("-d, --directory <dir>", "Project directory (auto-detects if omitted)")
+  .option("-p, --project <id>", "Project ID")
+  .option("-g, --global", "Show all projects")
+  .option("-w, --web", "Open the HTML dashboard in the browser")
+  .option("--json", "Output as JSON")
+  .action(async (opts: { directory?: string; project?: string; global?: boolean; web?: boolean; json: boolean }) => {
+    let centralDb: GnosysDB | null = null;
+    try {
+      centralDb = GnosysDB.openCentral();
+      if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
+
+      const { detectCurrentProject } = await import("./lib/federated.js");
+      const { generatePortfolio, formatPortfolioMarkdown } = await import("./lib/portfolio.js");
+
+      const report = generatePortfolio(centralDb);
+
+      // --web: regenerate HTML dashboard and open it
+      if (opts.web) {
+        const { generatePortfolioHtml } = await import("./lib/portfolioHtml.js");
+        const home = process.env.HOME || process.env.USERPROFILE || "/tmp";
+        const dashboardPath = path.join(home, "gnosys-dashboard.html");
+        const { writeFileSync } = await import("fs");
+        writeFileSync(dashboardPath, generatePortfolioHtml(report, dashboardPath), "utf-8");
+        const { exec } = await import("child_process");
+        exec(`open "${dashboardPath}"`);
+        console.log(`Dashboard opened: ${dashboardPath}`);
+        return;
+      }
+
+      // --global: show all projects
+      if (opts.global) {
+        if (opts.json) {
+          console.log(JSON.stringify(report, null, 2));
+          return;
+        }
+
+        console.log(`\n  Portfolio — ${report.totalProjects} projects, ${report.totalMemories} memories\n`);
+
+        // Action items summary
+        if (report.allActionItems.length > 0) {
+          console.log(`  \x1b[31mACTION ITEMS (${report.allActionItems.length}):\x1b[0m`);
+          for (const a of report.allActionItems.slice(0, 8)) {
+            const icon = a.type === "question" ? "?" : a.type === "blocker" ? "!" : a.type === "manual" ? ">" : "*";
+            console.log(`    [${icon}] ${a.projectName}: ${a.text.slice(0, 80)}`);
+          }
+          if (report.allActionItems.length > 8) console.log(`    ... and ${report.allActionItems.length - 8} more`);
+          console.log("");
+        }
+
+        // Per-project summary
+        for (const snap of report.projects) {
+          const r = snap.readiness;
+          const color = r.score >= 90 ? "\x1b[32m" : r.score >= 65 ? "\x1b[34m" : r.score >= 40 ? "\x1b[33m" : "\x1b[31m";
+          const reset = "\x1b[0m";
+          const blockers = snap.actionItems.length + r.blocking.length;
+          const blockerStr = blockers > 0 ? ` — \x1b[31m${blockers} blocker${blockers !== 1 ? "s" : ""}\x1b[0m` : "";
+          console.log(`  ${color}${String(r.score).padStart(3)}%${reset} ${r.label.padEnd(12)} ${snap.project.name}${blockerStr}`);
+        }
+
+        console.log(`\n  Run 'gnosys status --web' to open the visual dashboard.`);
+        return;
+      }
+
+      // Single project (default): auto-detect from cwd
+      let pid = opts.project || null;
+      if (!pid) pid = await detectCurrentProject(centralDb, opts.directory || undefined);
+      if (!pid) { console.error("No project detected. Run from a project directory, use --project, or use --global for all."); process.exit(1); }
+
+      const project = centralDb.getProject(pid);
+      if (!project) { console.error(`Project not found: ${pid}`); process.exit(1); }
+
+      const snap = report.projects.find((s) => s.project.id === pid);
+
+      if (!snap) {
+        console.error(`No memories found for project: ${project.name}`);
+        console.log(`\nRun 'gnosys update-status' to create a status snapshot.`);
+        process.exit(1);
+      }
+
+      if (opts.json) {
+        console.log(JSON.stringify({
+          project: project.name,
+          readiness: snap.readiness,
+          actionItems: snap.actionItems,
+          memoryCounts: snap.memoryCounts,
+          latestStatus: snap.latestStatus ? { id: snap.latestStatus.id, title: snap.latestStatus.title, modified: snap.latestStatus.modified } : null,
+        }, null, 2));
+        return;
+      }
+
+      // Formatted output
+      const r = snap.readiness;
+      const color = r.score >= 90 ? "\x1b[32m" : r.score >= 65 ? "\x1b[34m" : r.score >= 40 ? "\x1b[33m" : "\x1b[31m";
+      const reset = "\x1b[0m";
+
+      console.log(`\n  ${project.name} — ${color}${r.label} (${r.score}%)${reset}`);
+      console.log(`  ${snap.memoryCounts.total} memories across ${Object.keys(snap.memoryCounts.byCategory).length} categories\n`);
+
+      if (snap.latestStatus) {
+        const age = Math.floor((Date.now() - new Date(snap.latestStatus.modified).getTime()) / (1000 * 60 * 60 * 24));
+        const stale = age > 7 ? ` \x1b[33m(${age}d old — consider running 'gnosys update-status')\x1b[0m` : ` (${age}d ago)`;
+        console.log(`  Last status: ${snap.latestStatus.title}${stale}\n`);
+      } else {
+        console.log(`  \x1b[33mNo status snapshot found. Run 'gnosys update-status' to create one.\x1b[0m\n`);
+      }
+
+      // Action items
+      if (snap.actionItems.length > 0) {
+        console.log(`  ACTION ITEMS (${snap.actionItems.length}):`);
+        for (const a of snap.actionItems) {
+          const icon = a.type === "question" ? "?" : a.type === "blocker" ? "!" : a.type === "manual" ? ">" : "*";
+          console.log(`    [${icon}] ${a.text}`);
+        }
+        console.log("");
+      }
+
+      // Blocking
+      if (r.blocking.length > 0) {
+        console.log(`  BLOCKING GO-LIVE (${r.blocking.length}):`);
+        for (const b of r.blocking.slice(0, 10)) {
+          console.log(`    - ${b}`);
+        }
+        if (r.blocking.length > 10) console.log(`    ... and ${r.blocking.length - 10} more`);
+        console.log("");
+      }
+
+      // Done summary
+      if (r.done.length > 0) {
+        console.log(`  COMPLETED (${r.done.length} items)`);
+        for (const d of r.done.slice(0, 5)) {
+          console.log(`    + ${d}`);
+        }
+        if (r.done.length > 5) console.log(`    ... and ${r.done.length - 5} more`);
+        console.log("");
+      }
+
+      // Suggest update if no status or stale
+      if (!snap.latestStatus) {
+        console.log(`  Tip: Run 'gnosys update-status' to generate a status snapshot.`);
+      }
+    } catch (err) {
+      console.error(`Error: ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    } finally {
+      centralDb?.close();
+    }
+  });
+
 // ─── gnosys update-status ────────────────────────────────────────────────
 program
   .command("update-status")

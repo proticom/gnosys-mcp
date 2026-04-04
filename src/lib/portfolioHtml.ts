@@ -166,18 +166,33 @@ function generateActivity(snap: ProjectSnapshot, accent: string): string {
   return `<div class="section"><h4><span class="material-icons-outlined">history</span> Recent Activity</h4>${items}</div>`;
 }
 
+function getStatusAge(snap: ProjectSnapshot): { days: number; label: string; stale: boolean } {
+  if (!snap.latestStatus) return { days: -1, label: "No status", stale: true };
+  const modified = new Date(snap.latestStatus.modified).getTime();
+  const days = Math.floor((Date.now() - modified) / (1000 * 60 * 60 * 24));
+  if (days === 0) return { days, label: "Today", stale: false };
+  if (days === 1) return { days, label: "Yesterday", stale: false };
+  if (days <= 7) return { days, label: `${days}d ago`, stale: false };
+  if (days <= 14) return { days, label: `${days}d ago`, stale: true };
+  return { days, label: `${days}d ago`, stale: true };
+}
+
 function generateProjectCard(snap: ProjectSnapshot, index: number): string {
   const c = PALETTE[index % PALETTE.length];
   const hasBlockers = snap.actionItems.length > 0 || snap.readiness.blocking.length > 0;
   const blockerCount = snap.actionItems.length + snap.readiness.blocking.length;
+  const age = getStatusAge(snap);
+  const staleBadge = age.stale
+    ? `<span class="stale-badge" title="${age.days < 0 ? "No status memory exists. Run gnosys update-status in this project." : `Status is ${age.days} days old. Run gnosys update-status to refresh.`}"><span class="material-icons-outlined">schedule</span>${age.label}</span>`
+    : `<span class="fresh-badge" title="Status last updated ${age.label}">${age.label}</span>`;
 
   return `
-    <div class="project-card${hasBlockers ? " has-blockers" : ""}" id="proj-${esc(snap.project.name)}" data-project="${esc(snap.project.name)}">
+    <div class="project-card${hasBlockers ? " has-blockers" : ""}${age.stale ? " stale-status" : ""}" id="proj-${esc(snap.project.name)}" data-project="${esc(snap.project.name)}">
       <div class="card-head" style="border-left:4px solid ${c.accent}" onclick="toggle(this)">
         <div class="card-head-left">
           ${generateReadinessRing(snap.readiness.score)}
           <div>
-            <h3 style="color:${c.accent}">${esc(snap.project.name)}</h3>
+            <h3 style="color:${c.accent}">${esc(snap.project.name)} ${staleBadge}</h3>
             <div class="card-label">${snap.readiness.label}${hasBlockers ? ` &mdash; <strong style="color:#d93025">${blockerCount} blocker${blockerCount !== 1 ? "s" : ""}</strong>` : ""}</div>
           </div>
         </div>
@@ -355,6 +370,16 @@ code{font-family:'JetBrains Mono',monospace;font-size:.75rem;background:var(--bo
 /* ── Regen spinner ── */
 @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
 .spinning{animation:spin .8s linear infinite}
+
+/* ── Staleness indicators ── */
+.stale-badge{display:inline-flex;align-items:center;gap:.2rem;font-size:.6rem;font-weight:500;color:#d93025;background:#fef2f2;border:1px solid #fca5a5;padding:.1rem .4rem;border-radius:4px;margin-left:.4rem;vertical-align:middle}
+.stale-badge .material-icons-outlined{font-size:.75rem}
+.fresh-badge{display:inline-flex;font-size:.6rem;font-weight:500;color:var(--text2);background:var(--bg);padding:.1rem .4rem;border-radius:4px;margin-left:.4rem;vertical-align:middle}
+@media(prefers-color-scheme:dark){.stale-badge{background:#2a1215;border-color:#7f1d1d}}
+.stale-status .card-head{opacity:.85}
+.readiness-stale{opacity:.7;border:1px dashed var(--border)}
+.readiness-age{font-size:.6rem;color:var(--text2);margin-top:.25rem}
+.readiness-age.stale{color:#d93025;font-weight:600}
 </style>
 </head>
 <body>
@@ -422,12 +447,20 @@ code{font-family:'JetBrains Mono',monospace;font-size:.75rem;background:var(--bo
   <div class="readiness-bar" id="readiness-section">
     <h2><span class="material-icons-outlined">speed</span> Production Readiness</h2>
     <div class="readiness-grid">
-      ${report.projects.map((s, i) => `
-        <div class="readiness-card" onclick="scrollToProject('${esc(s.project.name)}')">
+      ${report.projects.map((s, i) => {
+        const a = getStatusAge(s);
+        const staleClass = a.stale ? " readiness-stale" : "";
+        const ageHtml = a.stale
+          ? `<div class="readiness-age stale">${a.label}</div>`
+          : `<div class="readiness-age">${a.label}</div>`;
+        return `
+        <div class="readiness-card${staleClass}" onclick="scrollToProject('${esc(s.project.name)}')">
           ${generateReadinessRing(s.readiness.score)}
           <h4>${esc(s.project.name)}</h4>
           <div class="label">${s.readiness.label}</div>
-        </div>`).join("\n")}
+          ${ageHtml}
+        </div>`;
+      }).join("\n")}
     </div>
   </div>
 
