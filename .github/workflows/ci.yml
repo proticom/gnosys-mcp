@@ -12,7 +12,7 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [20, 22]
+        node-version: [22, 24]
 
     steps:
       - uses: actions/checkout@v5
@@ -33,19 +33,19 @@ jobs:
         run: npm test
 
       - name: Run tests with coverage
-        if: matrix.node-version == 22
+        if: matrix.node-version == 24
         run: npm run test:coverage
 
       - name: Upload coverage report
-        if: matrix.node-version == 22
-        uses: actions/upload-artifact@v4
+        if: matrix.node-version == 24
+        uses: actions/upload-artifact@v5
         with:
           name: coverage-report
           path: coverage/
           retention-days: 14
 
       - name: Check coverage thresholds
-        if: matrix.node-version == 22
+        if: matrix.node-version == 24
         run: |
           if [ -f coverage/coverage-summary.json ]; then
             echo "Coverage summary:"
@@ -63,16 +63,16 @@ jobs:
         run: |
           test -f dist/index.js
           test -f dist/cli.js
-          echo "✓ Build artifacts verified"
+          echo "Build artifacts verified"
 
   typecheck:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
       - run: npm ci
@@ -87,9 +87,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
       - run: npm ci
@@ -134,7 +134,6 @@ jobs:
           echo "Project B: $B_COUNT memories"
           echo "Project C: $C_COUNT memories"
 
-          # Each project should have at least 1 memory (the one we added, plus possibly bootstrap)
           [ "$A_COUNT" -ge 1 ] || { echo "FAIL: Project A has $A_COUNT memories"; exit 1; }
           [ "$B_COUNT" -ge 1 ] || { echo "FAIL: Project B has $B_COUNT memories"; exit 1; }
           [ "$C_COUNT" -ge 1 ] || { echo "FAIL: Project C has $C_COUNT memories"; exit 1; }
@@ -151,10 +150,9 @@ jobs:
           GNOSYS_PROJECT="$PROJ_B" node dist/cli.js dashboard --json > /dev/null
           GNOSYS_PROJECT="$PROJ_C" node dist/cli.js audit --json > /dev/null
 
-          # Cleanup
           rm -rf "$PROJ_A" "$PROJ_B" "$PROJ_C"
 
-          echo "✓ Multi-project scenario passed"
+          echo "Multi-project scenario passed"
 
   network-share-simulation:
     runs-on: ubuntu-latest
@@ -163,9 +161,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
       - run: npm ci
@@ -182,9 +180,10 @@ jobs:
           # Initialize project on "network share"
           node dist/cli.js init --directory "$SHARE_DIR"
 
-          # Verify initialization
+          # Verify initialization — DB-only architecture uses central ~/.gnosys/gnosys.db
           test -d "$SHARE_DIR/.gnosys" || { echo "FAIL: .gnosys dir not created"; exit 1; }
-          test -f "$SHARE_DIR/.gnosys/gnosys.db" || { echo "FAIL: gnosys.db not created"; exit 1; }
+          test -f "$SHARE_DIR/.gnosys/gnosys.json" || { echo "FAIL: gnosys.json not created"; exit 1; }
+          test -f "$HOME/.gnosys/gnosys.db" || { echo "FAIL: central gnosys.db not created"; exit 1; }
 
           # Add and search memories
           GNOSYS_PROJECT="$SHARE_DIR" node dist/cli.js add-structured \
@@ -199,7 +198,6 @@ jobs:
           STATS=$(GNOSYS_PROJECT="$SHARE_DIR" node dist/cli.js stats --json)
           echo "Stats: $STATS"
 
-          # Cleanup
           rm -rf "$SHARE_DIR"
 
-          echo "✓ Network share simulation passed"
+          echo "Network share simulation passed"
