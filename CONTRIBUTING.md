@@ -61,7 +61,7 @@ npm run test:watch
 
 ## Sandbox Development
 
-The v3.0 sandbox is a persistent background process that provides a stable runtime for agent memory operations. Understanding its architecture is essential for sandbox-related work.
+The sandbox is a persistent background process that provides a stable runtime for agent memory operations. Understanding its architecture is essential for sandbox-related work.
 
 ### Architecture
 
@@ -113,12 +113,51 @@ The v3.0 sandbox is a persistent background process that provides a stable runti
 
 ```
 src/
-  ├── cli.ts                 # CLI entry point
+  ├── index.ts               # MCP server entry point (50+ tools, stdio protocol)
+  ├── cli.ts                 # CLI entry point (30+ commands)
   ├── lib/
-  │   ├── llm.ts            # LLM provider abstractions (Anthropic, Ollama, Groq, OpenAI, LM Studio)
+  │   ├── db.ts              # SQLite abstraction (central gnosys.db)
+  │   ├── dbWrite.ts         # Frontmatter → DB row mapping
+  │   ├── resolver.ts        # Layered store discovery (project → user → global)
+  │   ├── store.ts           # GnosysStore (bootstrap/import of markdown files)
+  │   ├── config.ts          # gnosys.json schema (Zod), task model routing
+  │   │
+  │   │   # Search pipeline
+  │   ├── search.ts          # FTS5 keyword search
+  │   ├── embeddings.ts      # Semantic embeddings (@xenova/transformers or API)
+  │   ├── hybridSearch.ts    # Hybrid search with Reciprocal Rank Fusion
+  │   ├── federation.ts      # Federated search across projects with tier boosting
+  │   │
+  │   │   # LLM & inference
+  │   ├── llm.ts             # LLM provider abstractions (6+ providers: Anthropic, Ollama, Groq, OpenAI, LM Studio, and more)
+  │   ├── ingest.ts          # LLM-powered document structuring pipeline
+  │   ├── structuredIngest.ts # No-LLM fallback (TF-IDF keyword extraction)
+  │   │
+  │   │   # Web knowledge base (v4.0)
+  │   ├── webIngest.ts       # Site crawler (sitemap / directory / URL list → Gnosys markdown)
+  │   ├── webIndex.ts        # Build-time inverted index generator (TF-IDF, gnosys-index.json)
+  │   ├── staticSearch.ts    # Zero-dep runtime search, exported as gnosys/web subpath
+  │   │
+  │   │   # Memory management
   │   ├── maintenance.ts     # Memory decay, deduplication, consolidation, reinforcement
-  │   ├── graph.ts           # Persistent wikilink graph
+  │   ├── dream.ts           # Idle-time consolidation engine (Dream Mode)
+  │   ├── trace.ts           # Process tracing & reflection (call chains, confidence updates)
+  │   │
+  │   │   # Knowledge graph
+  │   ├── graph.ts           # Persistent wikilink graph (graph.json)
+  │   ├── wikilinks.ts       # Wikilink parsing and indexing
+  │   │
+  │   │   # Multimodal & attachments
+  │   ├── multimodalIngest.ts # Image/document ingestion pipeline
+  │   ├── attachments.ts     # Attachment storage and retrieval
+  │   │
+  │   │   # Portfolios
+  │   ├── portfolio.ts       # Portfolio data model and operations
+  │   ├── portfolioHtml.ts   # Portfolio HTML rendering
+  │   │
+  │   │   # Utilities
   │   ├── dashboard.ts       # System status aggregation
+  │   ├── retry.ts           # Retry logic for transient errors
   │   └── ...
   ├── sandbox/
   │   ├── server.ts          # Unix domain socket server
@@ -126,7 +165,7 @@ src/
   │   ├── manager.ts         # Lifecycle management
   │   ├── helper-template.ts # Helper library template
   │   └── index.ts           # Exports
-  ├── test/                  # Shared test utilities
+  ├── test/                  # 718 tests across 35+ files
   └── prompts/               # System prompts
 ```
 

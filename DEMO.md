@@ -1,13 +1,13 @@
-# Gnosys v3.0 — Real-World Demo
+# Gnosys — Real-World Demo
 
-This document shows Gnosys importing real data from two production APIs: **USDA FoodData Central** and **NVD (National Vulnerability Database)**, then demonstrates the v3.0 features: sandbox-first runtime, central SQLite brain, federated search, Dream Mode consolidation, and Obsidian export.
+This document shows Gnosys importing real data from two production APIs: **USDA FoodData Central** and **NVD (National Vulnerability Database)**, then demonstrates core features: sandbox-first runtime, central SQLite brain, federated search, Dream Mode consolidation, and Obsidian export.
 
 ## What This Proves
 
 - Gnosys handles messy real-world JSON from government APIs
 - Bulk import creates atomic memories in the central `~/.gnosys/gnosys.db` with rich YAML frontmatter
 - Wikilinks (`[[vendor/product]]`, `[[Food Category]]`) work out of the box
-- Dual-write keeps human-readable `.md` copies as a safety net and Obsidian export path
+- All memories live in the central `~/.gnosys/gnosys.db` — no dual-write markdown files at runtime
 - Federated search ranks results across project, user, and global scopes
 - Dream Mode discovers relationships and generates summaries across the knowledge base
 - `gnosys export` regenerates a full Obsidian vault from the central database
@@ -50,9 +50,9 @@ gnosys import usda-import-ready.json \
   Total:    100
 ```
 
-### Sample dual-write file: `.gnosys/usda-foods/almond-butter-creamy.md`
+### Sample exported file: `.gnosys/usda-foods/almond-butter-creamy.md`
 
-> **Note:** The primary record lives in `~/.gnosys/gnosys.db`. This `.md` file is the dual-write copy kept for safety and Obsidian export.
+> **Note:** The record lives in `~/.gnosys/gnosys.db`. Run `gnosys export` to generate `.md` files on-demand for Obsidian.
 
 ```yaml
 ---
@@ -131,9 +131,9 @@ gnosys import nvd-import-ready.json \
   Total:    20
 ```
 
-### Sample dual-write file: `.gnosys/nvd-cves/cve-1999-0095.md`
+### Sample exported file: `.gnosys/nvd-cves/cve-1999-0095.md`
 
-> **Note:** The primary record lives in `~/.gnosys/gnosys.db`. This `.md` file is the dual-write safety copy.
+> **Note:** The record lives in `~/.gnosys/gnosys.db`. Run `gnosys export` to generate `.md` files on-demand for Obsidian.
 
 ```yaml
 ---
@@ -167,31 +167,20 @@ The debug command in Sendmail is enabled, allowing attackers to execute commands
 └── gnosys.db            # All 120 memories in SQLite (sub-10ms reads)
 ```
 
-### Project dual-write copies (safety net + Obsidian export)
+### Project config directory
 
 ```
 your-project/.gnosys/
 ├── gnosys.json           # Project identity (projectId, name)
-├── usda-foods/           # 100 food memory .md copies
-│   ├── almond-butter-creamy.md
-│   ├── apples-fuji-with-skin-raw.md
-│   ├── beef-ground-80-lean-meat-20-fat-raw.md
-│   ├── broccoli-raw.md
-│   ├── cheese-cheddar.md
-│   └── ... (100 files)
-├── nvd-cves/             # 20 CVE memory .md copies
-│   ├── cve-1999-0095.md
-│   ├── cve-1999-0082.md
-│   └── ... (20 files)
 └── .config/
     └── tags.yml
 ```
 
-The `.md` files are human-readable and Obsidian-compatible. Run `gnosys export --to ~/vaults/demo` to generate a clean Obsidian vault from the central DB at any time.
+All memories are stored only in `~/.gnosys/gnosys.db`. Run `gnosys export --to ~/vaults/demo` to generate a clean Obsidian vault of `.md` files from the central DB at any time.
 
 ## LLM Provider Configuration
 
-Gnosys supports five LLM providers: Anthropic, Ollama, Groq, OpenAI, and LM Studio.
+Gnosys supports multiple LLM providers: Anthropic, Ollama, Groq, OpenAI, LM Studio, and more.
 
 ```bash
 # Check current setup
@@ -201,14 +190,14 @@ gnosys config show
 ```
 LLM Configuration:
   Default provider: anthropic
-  Anthropic model:  claude-sonnet-4-20250514
+  Anthropic model:  claude-sonnet-4-6
   Anthropic API key: set via env
   Ollama model:     llama3.2
   Ollama URL:       http://localhost:11434
 
 Task Models:
-  Structuring: anthropic/claude-sonnet-4-20250514 (default)
-  Synthesis:   anthropic/claude-sonnet-4-20250514 (default)
+  Structuring: anthropic/claude-sonnet-4-6 (default)
+  Synthesis:   anthropic/claude-sonnet-4-6 (default)
 ```
 
 Switch to Ollama for fully offline operation:
@@ -388,7 +377,7 @@ Actions (5):
 gnosys maintain --auto-apply
 ```
 
-All changes are written to the central DB with dual-write `.md` updates. Use `gnosys backup` before maintenance for point-in-time recovery.
+All changes are written to the central DB. Use `gnosys backup` before maintenance for point-in-time recovery.
 
 ### Doctor with Maintenance Health
 
@@ -444,7 +433,7 @@ gnosys dashboard
 
 ```
 ╔══════════════════════════════════════════════════════╗
-║          GNOSYS DASHBOARD  v1.2.0                   ║
+║          GNOSYS DASHBOARD  v5.2                     ║
 ╠══════════════════════════════════════════════════════╣
 ║  MEMORY STORES                                      ║
 ╟──────────────────────────────────────────────────────╢
@@ -474,8 +463,8 @@ gnosys dashboard
 ║  SYSTEM OF COGNITION (SOC)                          ║
 ╟──────────────────────────────────────────────────────╢
 ║  Default: anthropic                                 ║
-║  Structuring → anthropic/claude-sonnet-4-20250514   ║
-║  Synthesis   → anthropic/claude-sonnet-4-20250514   ║
+║  Structuring → anthropic/claude-sonnet-4-6   ║
+║  Synthesis   → anthropic/claude-sonnet-4-6   ║
 ║                                                     ║
 ║  ✓ anthropic: ready                                 ║
 ║  ✓ ollama: ready                                    ║
@@ -568,9 +557,9 @@ Concurrent writes are safe — the locking system prevents corruption when multi
 
 ---
 
-## Central Brain (v3.0)
+## Central Brain
 
-In v3.0, all imports go directly to the central `~/.gnosys/gnosys.db`. There's no separate migration step needed for new imports. If you have existing v2.x data in per-project `.gnosys/gnosys.db` files, migrate with:
+All imports go directly to the central `~/.gnosys/gnosys.db`. There's no separate migration step needed for new imports. If you have existing v2.x data in per-project `.gnosys/gnosys.db` files, migrate with:
 
 ```bash
 gnosys migrate --to-central
@@ -590,7 +579,7 @@ FTS5 index: synced (120 documents)
 WAL mode: enabled
 ```
 
-All reads and writes go through the central SQLite DB. Dual-write `.md` copies are maintained as a safety net and for Obsidian export.
+All reads and writes go through the central SQLite DB. Use `gnosys export` to generate Obsidian-compatible `.md` files on demand.
 
 ---
 
@@ -657,9 +646,9 @@ Open the exported folder in Obsidian to get graph view, wikilinks, backlinks, an
 
 ---
 
-## Multi-Project Support (v3.0)
+## Multi-Project Support
 
-In v3.0, the central `~/.gnosys/gnosys.db` holds all projects. Each project is identified by its `project_id` column, registered via `gnosys init`. The sandbox process holds the database connection and routes requests by project automatically.
+The central `~/.gnosys/gnosys.db` holds all projects. Each project is identified by its `project_id` column, registered via `gnosys init`. The sandbox process holds the database connection and routes requests by project automatically.
 
 Debug with:
 
