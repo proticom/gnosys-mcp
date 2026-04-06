@@ -2887,8 +2887,8 @@ program
     const failed: string[] = [];
 
     for (const projectDir of projects) {
-      // Skip test projects in /tmp/
-      if (projectDir.startsWith("/tmp/") || projectDir.startsWith("/private/tmp/")) {
+      // Skip test/temp directories
+      if (projectDir.startsWith("/tmp/") || projectDir.startsWith("/private/tmp/") || projectDir.startsWith("/var/folders/") || projectDir.startsWith("/private/var/folders/")) {
         continue;
       }
 
