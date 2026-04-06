@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/gnosys"><img src="https://img.shields.io/npm/v/gnosys.svg" alt="npm version"></a>
   <a href="https://github.com/proticom/gnosys/actions"><img src="https://github.com/proticom/gnosys/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/tests-558%20passing-brightgreen" alt="tests">
+  <img src="https://img.shields.io/badge/tests-718%20passing-brightgreen" alt="tests">
   <img src="https://img.shields.io/badge/coverage-lib%2040%25%20|%20sandbox%2045%25-yellow" alt="coverage">
   <a href="https://gnosys.ai"><img src="https://img.shields.io/badge/docs-gnosys.ai-C04C4C" alt="docs"></a>
   <a href="https://gnosys.ai/guide.html"><img src="https://img.shields.io/badge/user%20guide-gnosys.ai%2Fguide-555560" alt="user guide"></a>
@@ -18,11 +18,11 @@
 
 **Gnosys** gives AI agents persistent memory that survives across sessions, projects, and machines.
 
-Gnosys is **sandbox-first**: a persistent background process holds the database connection while agents import a tiny helper library and call memory operations like normal code — no MCP schemas, no round-trips, near-zero context cost. The central brain at `~/.gnosys/gnosys.db` unifies all projects, user preferences, and global knowledge. Federated search ranks results across scopes with tier boosting and recency awareness. In v4.0, the **Web Knowledge Base** turns any website into a searchable knowledge base for serverless chatbots — pre-computed JSON index, zero runtime dependencies. Process tracing builds call chains from source code. Dream Mode consolidates knowledge during idle time. One-command export regenerates a full Obsidian vault.
+Gnosys is **sandbox-first**: a persistent background process holds the database connection while agents import a tiny helper library and call memory operations like normal code — no MCP schemas, no round-trips, near-zero context cost. The central brain at `~/.gnosys/gnosys.db` unifies all projects, user preferences, and global knowledge. Federated search ranks results across scopes with tier boosting and recency awareness. The **Web Knowledge Base** turns any website into a searchable knowledge base for serverless chatbots — pre-computed JSON index, zero runtime dependencies. **Multimodal ingestion** handles PDFs, images, audio, and video. **Portfolio Dashboard** gives a bird's-eye view of all projects. Process tracing builds call chains from source code. Dream Mode consolidates knowledge during idle time. One-command export regenerates a full Obsidian vault.
 
 It also runs as a CLI and a complete MCP server that drops straight into Cursor, Claude Desktop, Claude Code, Cowork, Codex, or any MCP client.
 
-No vector DBs. No black boxes. No external services. Just SQLite, Markdown, and Obsidian — the way knowledge should be.
+No vector DBs. No black boxes. No external services. Just SQLite and optional Obsidian export — the way knowledge should be.
 
 ---
 
@@ -30,7 +30,7 @@ No vector DBs. No black boxes. No external services. Just SQLite, Markdown, and 
 
 Most "memory for LLMs" solutions use vector databases, embeddings, or proprietary services. They're opaque — you can't see what the model remembers, can't edit it, can't version it, can't share it.
 
-Gnosys takes a different approach: the central brain is a single SQLite database (`~/.gnosys/gnosys.db`) with sub-10ms reads, while every memory is also dual-written as a plain Markdown file with YAML frontmatter. The Markdown layer is a human-readable safety net and Obsidian export path — you can read it, edit it, grep it, and back it up with the tools you already use.
+Gnosys takes a different approach: the central brain is a single SQLite database (`~/.gnosys/gnosys.db`) with sub-10ms reads. SQLite is the sole source of truth — no dual-write, no scattered files. When you want a human-readable view, `gnosys export` generates a full Obsidian vault on demand. History lives in the audit_log table, not Git.
 
 **What makes it different:**
 
@@ -39,7 +39,9 @@ Gnosys takes a different approach: the central brain is a single SQLite database
 - **Federated search** — tier-boosted search across project (1.5x) > user (1.0x) > global (0.7x) scopes with recency and reinforcement boosts.
 - **Web Knowledge Base** — `gnosys web build` turns any website into a searchable knowledge base for serverless chatbots. Powers [Sir Chats-A-Lot](https://sir-chats-a-lot.com).
 - **Dream Mode** — idle-time consolidation: confidence decay, self-critique, summary generation, relationship discovery. Never deletes — only suggests reviews.
-- **Transparent** — every memory has a human-readable `.md` file alongside the database. Export to Obsidian vault with one command.
+- **Transparent** — DB-only with on-demand Obsidian export. `gnosys export` generates a full vault of human-readable `.md` files whenever you need them.
+- **Portfolio Dashboard** — `gnosys status` for one project, `gnosys status --global` for all projects, `gnosys status --web` for an HTML dashboard. `gnosys update-status` runs a guided 8-section checklist for AI agents.
+- **Multimodal ingestion** — ingest PDFs, images, audio, and video. Extraction pipelines for each media type feed structured memories into the central DB.
 - **Hybrid Search** — FTS5 keyword + semantic embeddings via Reciprocal Rank Fusion (RRF).
 - **Multi-project** — MCP roots + per-tool `projectRoot` routing + central project registry. Multiple Cursor windows, zero conflicts.
 - **Process tracing** — `gnosys trace <dir>` builds call chains from source code with `leads_to`, `follows_from`, and `requires` relationships.
@@ -300,8 +302,8 @@ command = ["gnosys", "serve"]
 | `gnosys_import` | Bulk import from CSV, JSON, or JSONL |
 | `gnosys_init` | Initialize a new store |
 | `gnosys_stale` | Find memories not modified within N days |
-| `gnosys_history` | Git-backed version history for a memory |
-| `gnosys_rollback` | Rollback a memory to a previous commit |
+| `gnosys_history` | Version history for a memory (audit log) |
+| `gnosys_rollback` | Rollback a memory to a previous version |
 | `gnosys_timeline` | Show when memories were created/modified over time |
 | `gnosys_stats` | Summary statistics for the memory store |
 | `gnosys_links` | Show wikilinks and backlinks for a memory |
@@ -317,8 +319,10 @@ command = ["gnosys", "serve"]
 | `gnosys_stores` | Show active stores, MCP roots, and detected project stores |
 | `gnosys_tags` | List tag registry |
 | `gnosys_tags_add` | Add a new tag to the registry |
+| `gnosys_ingest_file` | Ingest a file (PDF, image, audio, video, DOCX) into memory |
+| `gnosys_portfolio` | Portfolio dashboard — project status across all registered projects |
+| `gnosys_update_status` | Guided 8-section status update checklist for AI agents |
 | **Centralized Brain** | |
-| `gnosys_projects` | List all registered projects in the central DB |
 | `gnosys_backup` | Create a point-in-time backup of the central DB |
 | `gnosys_restore` | Restore the central DB from a backup |
 | `gnosys_migrate_to_central` | Migrate project data into the central DB |
@@ -337,7 +341,7 @@ command = ["gnosys", "serve"]
 
 ### Central Brain
 
-All memories live in a single `~/.gnosys/gnosys.db` with `project_id` and `scope` columns. Every write is dual-written to both SQLite and a human-readable `.md` file. Sub-10ms reads, WAL mode for concurrent access. See the [User Guide](https://gnosys.ai/guide.html) for the full schema and memory format.
+All memories live in a single `~/.gnosys/gnosys.db` with `project_id` and `scope` columns. SQLite is the sole source of truth — no dual-write, no markdown files on disk. Sub-10ms reads, WAL mode for concurrent access. Use `gnosys export` to generate an Obsidian vault on demand. See the [User Guide](https://gnosys.ai/guide.html) for the full schema and memory format.
 
 ### LLM Providers
 
@@ -348,10 +352,10 @@ Eight providers behind a single interface — switch between cloud and local wit
 | **Anthropic** | Cloud | claude-sonnet-4-6 | `GNOSYS_ANTHROPIC_KEY` |
 | **Ollama** | Local | llama3.2 | — (runs locally) |
 | **Groq** | Cloud | llama-3.3-70b-versatile | `GNOSYS_GROQ_KEY` |
-| **OpenAI** | Cloud | gpt-5.4-mini | `GNOSYS_OPENAI_KEY` |
+| **OpenAI** | Cloud | gpt-4o-mini | `GNOSYS_OPENAI_KEY` |
 | **LM Studio** | Local | default | — (runs locally) |
-| **xAI** | Cloud | grok-4.20 | `GNOSYS_XAI_KEY` |
-| **Mistral** | Cloud | mistral-small-4 | `GNOSYS_MISTRAL_KEY` |
+| **xAI** | Cloud | grok-3 | `GNOSYS_XAI_KEY` |
+| **Mistral** | Cloud | mistral-small-latest | `GNOSYS_MISTRAL_KEY` |
 | **Custom** | Any | (user-defined) | `GNOSYS_CUSTOM_KEY` |
 
 > Model lists and pricing are fetched dynamically from [OpenRouter](https://openrouter.ai) during `gnosys setup` and cached for 24 hours. Bundled defaults are used when offline.
@@ -422,9 +426,9 @@ gnosys import events.jsonl --format jsonl \
 | Aspect | Plain Markdown | RAG (Vector DB) | Knowledge Graph | **Gnosys** |
 |--------|---------------|-----------------|-----------------|-----------|
 | **Examples** | CLAUDE.md, .cursorrules | Mem0, LangChain Memory | Graphiti/Zep, Mem0 Graph | — |
-| **Storage** | `.md` files | Embeddings in vector DB | Nodes/edges in graph DB | Unified SQLite DB + `.md` dual-write |
-| **Transparency** | Perfect | Lossy (embeddings) | High (query nodes) | High (SQLite + dual-write `.md` + Obsidian export) |
-| **Version history** | Git native | None built-in | None built-in | Dual-write `.md` files (optional Git) |
+| **Storage** | `.md` files | Embeddings in vector DB | Nodes/edges in graph DB | Central SQLite DB (on-demand Obsidian export) |
+| **Transparency** | Perfect | Lossy (embeddings) | High (query nodes) | High (SQLite + audit log + Obsidian export) |
+| **Version history** | Git native | None built-in | None built-in | Audit log table in SQLite |
 | **Keyword search** | Manual / grep | BM25 layer (some) | BM25 layer (some) | FTS5 (built-in) |
 | **Semantic search** | None | Vector similarity | Graph + vectors | Vector + FTS5 hybrid (RRF) |
 | **Relationship traversal** | None | None | Multi-hop graph queries | Wikilinks (manual encoding) |
@@ -457,7 +461,11 @@ All commands support `--json` for programmatic output. See the [User Guide](http
 
 **Export & config:** `export`, `setup`, `config show`, `config set`, `dashboard`, `doctor`, `stores`
 
-**Centralized brain:** `projects`, `backup`, `restore`, `migrate`, `pref set/get/delete`, `sync`, `ambiguity`, `briefing`, `working-set`
+**Portfolio & status:** `status`, `status --global`, `status --web`, `portfolio`, `update-status`
+
+**Centralized brain:** `backup`, `restore`, `migrate`, `pref set/get/delete`, `sync`, `ambiguity`, `briefing`, `working-set`
+
+**Multimodal ingestion:** `ingest-file` (PDF, image, audio, video, DOCX)
 
 **Sandbox:** `sandbox start/stop/status`, `helper generate`
 
@@ -472,13 +480,13 @@ All commands support `--json` for programmatic output. See the [User Guide](http
 ```bash
 npm install          # Install dependencies
 npm run build        # Compile TypeScript
-npm test             # Run test suite (558 tests)
+npm test             # Run test suite (718 tests)
 npm run test:watch   # Run tests in watch mode
-npm run test:coverage # Run tests with v8 coverage report
+npm run test:coverage # Run tests with v8 coverage report (HTML in coverage/)
 npm run dev          # Run MCP server in dev mode (tsx)
 ```
 
-558 tests across 35+ files. CI runs on Node 20 + 22 with multi-project scenario testing, network-share simulation, and TypeScript strict checking.
+718 tests across 35+ files. CI runs on Node 20 + 22 with multi-project scenario testing, network-share simulation, and TypeScript strict checking. Publishing uses OIDC trusted publishing via GitHub Actions — no npm tokens needed.
 
 ---
 
@@ -491,14 +499,14 @@ src/
   lib/
     db.ts             # Central SQLite (6-table schema, project_id + scope)
     dbSearch.ts       # Adapter bridging GnosysDB to search interfaces
-    dbWrite.ts        # Dual-write helpers (sync .md <-> gnosys.db)
+    dbWrite.ts        # DB write helpers (SQLite sole source of truth)
     migrate.ts        # Migration: v1.x -> v2.0 -> central DB
     dream.ts          # Dream Mode engine + idle scheduler
     export.ts         # Obsidian Export Bridge (gnosys.db -> vault)
     federated.ts      # Federated search, ambiguity detection, briefings
     preferences.ts    # User preferences as scoped memories
     rulesGen.ts       # Agent rules generation (GNOSYS:START/END blocks)
-    store.ts          # Core: read/write/update memory files (.md)
+    store.ts          # Bootstrap/import of external markdown files
     search.ts         # FTS5 search and discovery
     embeddings.ts     # Lazy semantic embeddings (all-MiniLM-L6-v2)
     hybridSearch.ts   # Hybrid search with RRF fusion
@@ -513,9 +521,20 @@ src/
     config.ts         # gnosys.json loader with Zod validation
     resolver.ts       # Layered multi-store resolution + MCP roots
     import.ts         # Bulk import engine (CSV, JSON, JSONL)
-    staticSearch.ts   # Zero-dep web search runtime (gnosys/web)
-    webIndex.ts       # Build-time inverted index generator
-    webIngest.ts      # Site crawler (sitemap -> markdown)
+    portfolio.ts      # Portfolio dashboard (single/global project status)
+    portfolioHtml.ts  # HTML dashboard renderer for gnosys status --web
+    # Multimodal ingestion
+    multimodalIngest.ts  # Orchestrator for multi-format file ingestion
+    attachments.ts       # Attachment storage and linking
+    pdfExtract.ts        # PDF text/structure extraction
+    imageExtract.ts      # Image description via vision models
+    audioExtract.ts      # Audio transcription
+    videoExtract.ts      # Video transcription and frame extraction
+    # Web Knowledge Base
+    staticSearch.ts      # Zero-dep web search runtime (gnosys/web)
+    structuredIngest.ts  # No-LLM fallback with TF-IDF keyword extraction
+    webIndex.ts          # Build-time inverted index generator
+    webIngest.ts         # Site crawler (sitemap -> markdown)
   sandbox/
     server.ts         # Unix socket server + Dream Mode scheduler
     client.ts         # Client for agent connections
@@ -537,9 +556,9 @@ Real numbers from a 120-memory test vault:
 | Reindex 120 embeddings | ~8s (first run downloads ~80 MB model) |
 | Maintenance dry-run (120 memories) | ~2s |
 | Graph reindex (120 memories) | <1s |
-| Storage per memory | ~1 KB `.md` file |
+| Storage per memory | ~1 KB (SQLite row) |
 | Embedding storage (120 memories) | ~0.3 MB |
-| Test suite | 558 tests, 0 errors |
+| Test suite | 718 tests, 0 errors |
 
 All benchmarks on Apple M-series hardware, Node.js 20+. Structured imports bypass LLM entirely.
 
@@ -565,7 +584,8 @@ Gnosys is open source (MIT) and actively developed. Here's how to get involved:
 - Graph visualization in the dashboard
 - Obsidian community plugin for native vault integration
 - Docker Hub published image for one-line deployment
-- Multimodal memory ingestion (PDFs, images, audio/video transcription)
+- Improved test coverage targets
+- Automated CHANGELOG generation
 
 ---
 
