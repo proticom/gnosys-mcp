@@ -3067,26 +3067,37 @@ program
     console.log("Gnosys Doctor");
     console.log("=============\n");
 
-    // Check gnosys.db (v2.0 agent-native store)
+    // Check local gnosys.db (legacy — should NOT exist in DB-only architecture)
     if (stores.length > 0) {
-      console.log("Agent-Native Store (gnosys.db):");
-      try {
-        const db = new GnosysDB(stores[0].path);
-        if (db.isAvailable() && db.isMigrated()) {
-          const counts = db.getMemoryCount();
-          console.log(`  Status: ✓ migrated (schema v${db.getSchemaVersion()})`);
-          console.log(`  Active: ${counts.active} | Archived: ${counts.archived} | Total: ${counts.total}`);
-        } else if (db.isAvailable()) {
-          console.log("  Status: ✗ not migrated (run gnosys migrate)");
-        } else {
-          console.log("  Status: — not available (better-sqlite3 not installed)");
-        }
-        db.close();
-      } catch {
-        console.log("  Status: — not initialized");
+      const localDbPath = path.join(stores[0].path, "gnosys.db");
+      const localDbExists = await fs.stat(localDbPath).then(() => true).catch(() => false);
+      if (localDbExists) {
+        console.log("Local Store (gnosys.db):");
+        console.log("  ⚠ Local gnosys.db found — this is a legacy artifact.");
+        console.log("  All memories should be in the central DB (~/.gnosys/gnosys.db).");
+        console.log(`  Safe to remove: rm "${localDbPath}"`);
+        console.log("");
       }
-      console.log("");
     }
+
+    // Check central DB
+    console.log("Central DB (~/.gnosys/gnosys.db):");
+    try {
+      const db = GnosysDB.openCentral();
+      if (db.isAvailable() && db.isMigrated()) {
+        const counts = db.getMemoryCount();
+        console.log(`  Status: ✓ migrated (schema v${db.getSchemaVersion()})`);
+        console.log(`  Active: ${counts.active} | Archived: ${counts.archived} | Total: ${counts.total}`);
+      } else if (db.isAvailable()) {
+        console.log("  Status: ✗ not migrated (run gnosys upgrade)");
+      } else {
+        console.log("  Status: — not available (better-sqlite3 not installed)");
+      }
+      db.close();
+    } catch {
+      console.log("  Status: — not initialized");
+    }
+    console.log("");
 
     // Check stores
     console.log("Stores:");

@@ -1832,14 +1832,8 @@ server.tool(
         await reindexAllStores();
       }
 
-      // v2.0: Sync imported memories to gnosys.db
+      // DB-only: audit the import (no local migrate — all writes go to central DB)
       if (!dryRun && result.imported.length > 0 && gnosysDb?.isAvailable()) {
-        try {
-          const { migrate: migrateDb } = await import("./lib/migrate.js");
-          await migrateDb(writeTarget.store.getStorePath());
-        } catch {
-          // Migration sync is best-effort
-        }
         auditToDb(gnosysDb, "ingest", undefined, { format, count: result.imported.length, mode: effectiveMode });
       }
 
