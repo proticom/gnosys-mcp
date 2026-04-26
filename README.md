@@ -12,6 +12,10 @@
   <a href="https://github.com/proticom/gnosys/blob/master/LICENSE"><img src="https://img.shields.io/npm/l/gnosys.svg" alt="license"></a>
 </p>
 
+<p align="center">
+  A <a href="https://proticom.com">Proticom</a> product.
+</p>
+
 ---
 
 ### Gnosys — One Brain. Zero Context Bloat.
@@ -355,7 +359,7 @@ Gnosys v5.3.0 supports running across multiple machines with a shared database o
 
 **How it works:**
 - Local DB at `~/.gnosys/gnosys.db` is your fast working cache
-- Remote DB on shared storage (e.g. `/Volumes/synology/gnosys/`) is the canonical source of truth
+- Remote DB on a network share (e.g. `/Volumes/nas/gnosys/`) is the canonical source of truth
 - Reads always hit local for speed
 - Writes go to local first, then sync to remote
 - Per-memory `modified` timestamps detect conflicts

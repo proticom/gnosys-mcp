@@ -17,7 +17,7 @@ import { GnosysDB, DbMemory } from "./db.js";
 // ─── Types ──────────────────────────────────────────────────────────────
 
 export interface RemoteConfig {
-  /** Path to remote .gnosys directory (e.g., /Volumes/synology/gnosys) */
+  /** Path to remote .gnosys directory (e.g., /Volumes/nas/gnosys) */
   path: string;
   /** Run sync automatically in background */
   autoSync?: boolean;

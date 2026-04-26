@@ -1,6 +1,6 @@
 {
   "name": "gnosys",
-  "version": "5.3.1",
+  "version": "5.3.2",
   "description": "Gnosys — Persistent Memory for AI Agents. Sandbox-first runtime, central SQLite brain, federated search, Dream Mode, Web Knowledge Base, Obsidian export.",
   "type": "module",
   "main": "dist/index.js",
@@ -84,9 +84,16 @@
   ],
   "license": "MIT",
   "author": {
-    "name": "Edward Tadros",
-    "url": "https://github.com/proticom"
+    "name": "Proticom",
+    "url": "https://proticom.com"
   },
+  "contributors": [
+    {
+      "name": "Edward Tadros",
+      "email": "etadros@proticom.com",
+      "url": "https://proticom.com"
+    }
+  ],
   "homepage": "https://gnosys.ai",
   "publishConfig": {
     "registry": "https://registry.npmjs.org",

@@ -157,7 +157,7 @@ async function setupRemoteFlow(rl: Interface, centralDb: GnosysDB, localActiveCo
 
     if (choice === String(candidates.length + 2)) return false;
     if (choice === String(candidates.length + 1)) {
-      remotePath = await ask(rl, "Custom path (e.g. /Volumes/synology/gnosys): ");
+      remotePath = await ask(rl, "Custom path (e.g. /Volumes/nas/gnosys): ");
     } else {
       const idx = parseInt(choice, 10) - 1;
       const volume = candidates[idx];
@@ -169,7 +169,7 @@ async function setupRemoteFlow(rl: Interface, centralDb: GnosysDB, localActiveCo
   } else {
     console.log("No mounted volumes detected at /Volumes/.");
     console.log("Common options: NAS via SMB/AFP, external drive, or Tailscale-mounted share.\n");
-    remotePath = await ask(rl, "Enter remote path (e.g. /Volumes/synology/gnosys): ");
+    remotePath = await ask(rl, "Enter remote path (e.g. /Volumes/nas/gnosys): ");
   }
 
   if (!remotePath) {
