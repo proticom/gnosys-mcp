@@ -2825,6 +2825,284 @@ program
 
 // NOTE: gnosys migrate is defined below (near the end) with --to-central support
 
+// ─── gnosys remote (multi-machine sync) ────────────────────────────────
+const remoteCmd = program
+  .command("remote")
+  .description("Multi-machine sync — share gnosys.db across machines via NAS or shared drive");
+
+remoteCmd
+  .command("status")
+  .description("Show remote sync status: pending changes, conflicts, last sync")
+  .option("--json", "Output as JSON")
+  .action(async (opts: { json: boolean }) => {
+    let centralDb: GnosysDB | null = null;
+    try {
+      centralDb = GnosysDB.openCentral();
+      if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
+
+      const remotePath = centralDb.getMeta("remote_path");
+      if (!remotePath) {
+        if (opts.json) {
+          console.log(JSON.stringify({ configured: false, message: "Remote not configured. Run 'gnosys remote configure'." }, null, 2));
+        } else {
+          console.log("Remote sync: not configured.");
+          console.log("Run 'gnosys remote configure' to set up multi-machine sync.");
+        }
+        return;
+      }
+
+      const { RemoteSync, formatStatus } = await import("./lib/remote.js");
+      const sync = new RemoteSync(centralDb, remotePath);
+      const status = await sync.getStatus();
+      sync.closeRemote();
+
+      if (opts.json) {
+        console.log(JSON.stringify(status, null, 2));
+      } else {
+        console.log(formatStatus(status));
+        if (status.conflicts.length > 0) {
+          console.log("\nConflicts:");
+          for (const c of status.conflicts) {
+            console.log(`  ${c.memoryId}: ${c.title}`);
+            console.log(`    local:  ${c.localModified}`);
+            console.log(`    remote: ${c.remoteModified}`);
+          }
+          console.log("\nResolve with: gnosys remote resolve <memory-id> --keep <local|remote>");
+        }
+      }
+    } catch (err) {
+      console.error(`Error: ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    } finally {
+      centralDb?.close();
+    }
+  });
+
+remoteCmd
+  .command("push")
+  .description("Push local changes to remote")
+  .option("--newer-wins", "Auto-resolve conflicts by taking the newer version")
+  .action(async (opts: { newerWins?: boolean }) => {
+    let centralDb: GnosysDB | null = null;
+    try {
+      centralDb = GnosysDB.openCentral();
+      if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
+
+      const remotePath = centralDb.getMeta("remote_path");
+      if (!remotePath) { console.error("Remote not configured."); process.exit(1); }
+
+      const { RemoteSync } = await import("./lib/remote.js");
+      const sync = new RemoteSync(centralDb, remotePath);
+      const result = await sync.push({ strategy: opts.newerWins ? "newer-wins" : "skip-and-flag" });
+      sync.closeRemote();
+
+      console.log(`Pushed: ${result.pushed} | Skipped: ${result.skipped} | Conflicts: ${result.conflicts.length}`);
+      if (result.errors.length > 0) {
+        console.log("\nErrors:");
+        for (const e of result.errors) console.log(`  ${e}`);
+      }
+      if (result.conflicts.length > 0) {
+        console.log("\nConflicts flagged (run 'gnosys remote status' for details):");
+        for (const c of result.conflicts) console.log(`  ${c.memoryId} — ${c.title}`);
+      }
+    } catch (err) {
+      console.error(`Error: ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    } finally {
+      centralDb?.close();
+    }
+  });
+
+remoteCmd
+  .command("pull")
+  .description("Pull remote changes to local")
+  .option("--newer-wins", "Auto-resolve conflicts by taking the newer version")
+  .action(async (opts: { newerWins?: boolean }) => {
+    let centralDb: GnosysDB | null = null;
+    try {
+      centralDb = GnosysDB.openCentral();
+      if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
+
+      const remotePath = centralDb.getMeta("remote_path");
+      if (!remotePath) { console.error("Remote not configured."); process.exit(1); }
+
+      const { RemoteSync } = await import("./lib/remote.js");
+      const sync = new RemoteSync(centralDb, remotePath);
+      const result = await sync.pull({ strategy: opts.newerWins ? "newer-wins" : "skip-and-flag" });
+      sync.closeRemote();
+
+      console.log(`Pulled: ${result.pulled} | Skipped: ${result.skipped} | Conflicts: ${result.conflicts.length}`);
+      if (result.errors.length > 0) {
+        console.log("\nErrors:");
+        for (const e of result.errors) console.log(`  ${e}`);
+      }
+    } catch (err) {
+      console.error(`Error: ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    } finally {
+      centralDb?.close();
+    }
+  });
+
+remoteCmd
+  .command("sync")
+  .description("Two-way sync: push local changes then pull remote changes")
+  .option("--auto", "Run silently for cron/LaunchAgent (skip-and-flag for conflicts)")
+  .option("--newer-wins", "Auto-resolve conflicts by taking the newer version")
+  .action(async (opts: { auto?: boolean; newerWins?: boolean }) => {
+    let centralDb: GnosysDB | null = null;
+    try {
+      centralDb = GnosysDB.openCentral();
+      if (!centralDb.isAvailable()) {
+        if (!opts.auto) console.error("Central DB not available.");
+        process.exit(1);
+      }
+
+      const remotePath = centralDb.getMeta("remote_path");
+      if (!remotePath) {
+        if (!opts.auto) console.error("Remote not configured.");
+        process.exit(opts.auto ? 0 : 1);
+      }
+
+      const { RemoteSync } = await import("./lib/remote.js");
+      const sync = new RemoteSync(centralDb, remotePath);
+      const result = await sync.sync({
+        auto: opts.auto,
+        strategy: opts.newerWins ? "newer-wins" : "skip-and-flag",
+      });
+      sync.closeRemote();
+
+      if (!opts.auto || result.conflicts.length > 0 || result.errors.length > 0) {
+        console.log(`Pushed: ${result.pushed} | Pulled: ${result.pulled} | Conflicts: ${result.conflicts.length}`);
+        if (result.errors.length > 0) {
+          console.log("\nErrors:");
+          for (const e of result.errors) console.log(`  ${e}`);
+        }
+        if (result.conflicts.length > 0) {
+          console.log("\nConflicts need resolution (run 'gnosys remote status' for details).");
+        }
+      }
+    } catch (err) {
+      if (!opts.auto) console.error(`Error: ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    } finally {
+      centralDb?.close();
+    }
+  });
+
+remoteCmd
+  .command("resolve <memoryId>")
+  .description("Resolve a sync conflict by choosing local, remote, or merged content")
+  .option("--keep <choice>", "Choice: local | remote", "local")
+  .action(async (memoryId: string, opts: { keep: string }) => {
+    let centralDb: GnosysDB | null = null;
+    try {
+      centralDb = GnosysDB.openCentral();
+      if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
+
+      const remotePath = centralDb.getMeta("remote_path");
+      if (!remotePath) { console.error("Remote not configured."); process.exit(1); }
+
+      if (opts.keep !== "local" && opts.keep !== "remote") {
+        console.error(`--keep must be 'local' or 'remote' (got: ${opts.keep})`);
+        process.exit(1);
+      }
+
+      const { RemoteSync } = await import("./lib/remote.js");
+      const sync = new RemoteSync(centralDb, remotePath);
+      const result = await sync.resolve(memoryId, opts.keep as "local" | "remote");
+      sync.closeRemote();
+
+      if (result.ok) {
+        console.log(`Resolved ${memoryId}: kept ${opts.keep} version.`);
+      } else {
+        console.error(`Failed to resolve: ${result.error}`);
+        process.exit(1);
+      }
+    } catch (err) {
+      console.error(`Error: ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    } finally {
+      centralDb?.close();
+    }
+  });
+
+remoteCmd
+  .command("configure")
+  .description("Configure or change the remote sync location (interactive)")
+  .option("--path <path>", "Set remote path non-interactively")
+  .option("--migrate", "Copy current local DB to remote on first setup")
+  .action(async (opts: { path?: string; migrate?: boolean }) => {
+    let centralDb: GnosysDB | null = null;
+    try {
+      centralDb = GnosysDB.openCentral();
+      if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
+
+      const { validateLocation, RemoteSync } = await import("./lib/remote.js");
+      let remotePath = opts.path;
+
+      if (!remotePath) {
+        const { createInterface } = await import("readline/promises");
+        const rl = createInterface({ input: process.stdin, output: process.stdout });
+        try {
+          const current = centralDb.getMeta("remote_path");
+          if (current) console.log(`Current remote: ${current}`);
+          remotePath = (await rl.question("Remote path (e.g. /Volumes/synology/gnosys): ")).trim();
+        } finally {
+          rl.close();
+        }
+      }
+
+      if (!remotePath) { console.error("No path provided."); process.exit(1); }
+
+      console.log(`\nValidating ${remotePath}...`);
+      const validation = await validateLocation(remotePath);
+
+      console.log(`  Path exists:        ${validation.checks.pathExists ? "✓" : "✗"}`);
+      console.log(`  Writable:           ${validation.checks.writable ? "✓" : "✗"}`);
+      console.log(`  SQLite compatible:  ${validation.checks.sqliteCompatible ? "✓" : "✗"}`);
+      if (validation.checks.latencyMs !== null) {
+        console.log(`  Latency:            ${validation.checks.latencyMs}ms`);
+      }
+      if (validation.checks.existingDb.found) {
+        const c = validation.checks.existingDb;
+        console.log(`  Existing DB found:  ${c.memoryCount ?? "unknown"} memories (last modified ${c.lastModified ?? "unknown"})`);
+      }
+      for (const w of validation.warnings) console.log(`  ⚠ ${w}`);
+      for (const e of validation.errors) console.log(`  ✗ ${e}`);
+
+      if (!validation.ok) {
+        console.error("\nValidation failed. Remote not configured.");
+        process.exit(1);
+      }
+
+      // Save config
+      centralDb.setMeta("remote_path", remotePath);
+      console.log(`\nRemote configured: ${remotePath}`);
+
+      // Optional initial migration
+      if (opts.migrate && !validation.checks.existingDb.found) {
+        console.log("\nMigrating local DB to remote...");
+        const sync = new RemoteSync(centralDb, remotePath);
+        const result = await sync.migrate();
+        sync.closeRemote();
+        if (result.ok) {
+          console.log(`  ✓ Copied ${result.copied} memories to remote.`);
+        } else {
+          console.error(`  ✗ Migration had errors:`);
+          for (const e of result.errors) console.error(`    ${e}`);
+        }
+      } else if (validation.checks.existingDb.found) {
+        console.log("\nExisting DB found at remote. Run 'gnosys remote sync' to merge.");
+      }
+    } catch (err) {
+      console.error(`Error: ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    } finally {
+      centralDb?.close();
+    }
+  });
+
 // ─── gnosys upgrade ─────────────────────────────────────────────────────
 program
   .command("upgrade")

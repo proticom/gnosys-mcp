@@ -213,6 +213,31 @@ CREATE TABLE IF NOT EXISTS gnosys_meta (
   value               TEXT NOT NULL,
   updated             TEXT NOT NULL
 );
+
+-- v5.3.0: remote sync support
+
+CREATE TABLE IF NOT EXISTS pending_sync (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  memory_id   TEXT NOT NULL,
+  operation   TEXT NOT NULL,
+  timestamp   TEXT NOT NULL,
+  status      TEXT NOT NULL DEFAULT 'pending'
+);
+
+CREATE INDEX IF NOT EXISTS idx_pending_sync_status ON pending_sync(status);
+CREATE INDEX IF NOT EXISTS idx_pending_sync_memory ON pending_sync(memory_id);
+
+CREATE TABLE IF NOT EXISTS sync_conflicts (
+  memory_id        TEXT PRIMARY KEY,
+  detected_at      TEXT NOT NULL,
+  local_modified   TEXT NOT NULL,
+  remote_modified  TEXT NOT NULL,
+  local_snapshot   TEXT,
+  remote_snapshot  TEXT,
+  status           TEXT NOT NULL DEFAULT 'unresolved'
+);
+
+CREATE INDEX IF NOT EXISTS idx_sync_conflicts_status ON sync_conflicts(status);
 `;
 
 // FTS5 sync triggers — created separately (can't use IF NOT EXISTS on triggers)
@@ -863,6 +888,58 @@ export class GnosysDB {
         // give up silently
       }
     }
+  }
+
+  // ─── Sync state (v5.3.0) ────────────────────────────────────────────
+
+  /** Queue a memory for remote sync when reconnected */
+  enqueuePendingSync(memoryId: string, operation: "add" | "update" | "archive"): void {
+    this.db.prepare(
+      "INSERT INTO pending_sync (memory_id, operation, timestamp) VALUES (?, ?, ?)"
+    ).run(memoryId, operation, new Date().toISOString());
+  }
+
+  getPendingSync(): Array<{ id: number; memory_id: string; operation: string; timestamp: string }> {
+    return this.db.prepare(
+      "SELECT id, memory_id, operation, timestamp FROM pending_sync WHERE status = 'pending' ORDER BY timestamp ASC"
+    ).all() as Array<{ id: number; memory_id: string; operation: string; timestamp: string }>;
+  }
+
+  markPendingSyncComplete(id: number): void {
+    this.db.prepare("UPDATE pending_sync SET status = 'pushed' WHERE id = ?").run(id);
+  }
+
+  clearOldPendingSync(daysOld: number = 30): number {
+    const cutoff = new Date(Date.now() - daysOld * 24 * 60 * 60 * 1000).toISOString();
+    const result = this.db.prepare(
+      "DELETE FROM pending_sync WHERE status = 'pushed' AND timestamp < ?"
+    ).run(cutoff);
+    return result.changes as number;
+  }
+
+  /** Track a conflict for AI-mediated resolution */
+  recordConflict(memoryId: string, localModified: string, remoteModified: string, localSnapshot?: string, remoteSnapshot?: string): void {
+    this.db.prepare(`
+      INSERT INTO sync_conflicts (memory_id, detected_at, local_modified, remote_modified, local_snapshot, remote_snapshot)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(memory_id) DO UPDATE SET
+        detected_at = excluded.detected_at,
+        local_modified = excluded.local_modified,
+        remote_modified = excluded.remote_modified,
+        local_snapshot = excluded.local_snapshot,
+        remote_snapshot = excluded.remote_snapshot,
+        status = 'unresolved'
+    `).run(memoryId, new Date().toISOString(), localModified, remoteModified, localSnapshot || null, remoteSnapshot || null);
+  }
+
+  getUnresolvedConflicts(): Array<{ memory_id: string; detected_at: string; local_modified: string; remote_modified: string; local_snapshot: string | null; remote_snapshot: string | null }> {
+    return this.db.prepare(
+      "SELECT memory_id, detected_at, local_modified, remote_modified, local_snapshot, remote_snapshot FROM sync_conflicts WHERE status = 'unresolved' ORDER BY detected_at DESC"
+    ).all() as Array<{ memory_id: string; detected_at: string; local_modified: string; remote_modified: string; local_snapshot: string | null; remote_snapshot: string | null }>;
+  }
+
+  resolveConflict(memoryId: string): void {
+    this.db.prepare("UPDATE sync_conflicts SET status = 'resolved' WHERE memory_id = ?").run(memoryId);
   }
 
   // ─── Lifecycle ──────────────────────────────────────────────────────

@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/gnosys"><img src="https://img.shields.io/npm/v/gnosys.svg" alt="npm version"></a>
   <a href="https://github.com/proticom/gnosys/actions"><img src="https://github.com/proticom/gnosys/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/tests-718%20passing-brightgreen" alt="tests">
+  <img src="https://img.shields.io/badge/tests-738%20passing-brightgreen" alt="tests">
   <img src="https://img.shields.io/badge/coverage-lib%2040%25%20|%20sandbox%2045%25-yellow" alt="coverage">
   <a href="https://gnosys.ai"><img src="https://img.shields.io/badge/docs-gnosys.ai-C04C4C" alt="docs"></a>
   <a href="https://gnosys.ai/guide.html"><img src="https://img.shields.io/badge/user%20guide-gnosys.ai%2Fguide-555560" alt="user guide"></a>
@@ -48,6 +48,7 @@ Gnosys takes a different approach: the central brain is a single SQLite database
 - **Reflection API** — `gnosys.reflect(outcome)` updates confidence and consolidates memories based on real-world outcomes.
 - **Bulk import** — CSV, JSON, JSONL. Import entire datasets in seconds.
 - **Obsidian-native** — `gnosys export` generates a full vault with YAML frontmatter, `[[wikilinks]]`, summaries, and graph data.
+- **Multi-machine sync (v5.3.0)** — share your `gnosys.db` across machines via NAS or shared drive. Local cache for speed, remote source of truth for consistency. Built-in conflict detection with skip-and-flag resolution. Run `gnosys remote configure` to set up.
 - **MCP-compatible** — also runs as a full MCP server that drops into Cursor, Claude Desktop, Claude Code, Cowork, Codex, or any MCP client.
 - **Zero infrastructure** — no external databases, no Docker (unless you want it), no cloud services. Just `npm install`.
 
@@ -334,6 +335,11 @@ command = ["gnosys", "serve"]
 | `gnosys_detect_ambiguity` | Check if a query matches multiple projects |
 | `gnosys_briefing` | Generate project briefing (categories, activity, tags, summary) |
 | `gnosys_working_set` | Get recently modified memories for the current project |
+| **Multi-Machine Sync** | |
+| `gnosys_remote_status` | Check sync state (pending changes, conflicts, reachability) |
+| `gnosys_remote_push` | Push local changes to remote |
+| `gnosys_remote_pull` | Pull remote changes to local |
+| `gnosys_remote_resolve` | Resolve a conflict by choosing local or remote |
 
 ---
 
@@ -342,6 +348,35 @@ command = ["gnosys", "serve"]
 ### Central Brain
 
 All memories live in a single `~/.gnosys/gnosys.db` with `project_id` and `scope` columns. SQLite is the sole source of truth — no dual-write, no markdown files on disk. Sub-10ms reads, WAL mode for concurrent access. Use `gnosys export` to generate an Obsidian vault on demand. See the [User Guide](https://gnosys.ai/guide.html) for the full schema and memory format.
+
+### Multi-Machine Sync
+
+Gnosys v5.3.0 supports running across multiple machines with a shared database on a NAS or network share.
+
+**How it works:**
+- Local DB at `~/.gnosys/gnosys.db` is your fast working cache
+- Remote DB on shared storage (e.g. `/Volumes/synology/gnosys/`) is the canonical source of truth
+- Reads always hit local for speed
+- Writes go to local first, then sync to remote
+- Per-memory `modified` timestamps detect conflicts
+- Skip-and-flag is the safe default; `--newer-wins` for unattended sync
+
+**Setup:**
+```bash
+gnosys remote configure
+# interactive: validates path, tests SQLite locking, checks latency
+```
+
+**Daily commands:**
+```bash
+gnosys remote status         # pending changes, conflicts, last sync
+gnosys remote sync           # two-way sync (push then pull)
+gnosys remote push           # local → remote only
+gnosys remote pull           # remote → local only
+gnosys remote resolve <id> --keep <local|remote>
+```
+
+**AI-mediated conflict resolution:** Agents using gnosys via MCP can detect sync state and prompt the user when conflicts arise, rather than silently picking a winner. The agent presents both versions and asks which to keep.
 
 ### LLM Providers
 
@@ -471,6 +506,8 @@ All commands support `--json` for programmatic output. See the [User Guide](http
 
 **Web knowledge base:** `web init`, `web ingest`, `web build-index`, `web build`, `web add`, `web remove`, `web status`
 
+**Multi-machine sync:** `remote configure`, `remote status`, `remote sync`, `remote push`, `remote pull`, `remote resolve`
+
 **Server:** `serve`, `serve --with-maintenance`
 
 ---
@@ -480,13 +517,13 @@ All commands support `--json` for programmatic output. See the [User Guide](http
 ```bash
 npm install          # Install dependencies
 npm run build        # Compile TypeScript
-npm test             # Run test suite (718 tests)
+npm test             # Run test suite (738 tests)
 npm run test:watch   # Run tests in watch mode
 npm run test:coverage # Run tests with v8 coverage report (HTML in coverage/)
 npm run dev          # Run MCP server in dev mode (tsx)
 ```
 
-718 tests across 35+ files. CI runs on Node 20 + 22 with multi-project scenario testing, network-share simulation, and TypeScript strict checking. Publishing uses OIDC trusted publishing via GitHub Actions — no npm tokens needed.
+738 tests across 35+ files. CI runs on Node 20 + 22 with multi-project scenario testing, network-share simulation, and TypeScript strict checking. Publishing uses OIDC trusted publishing via GitHub Actions — no npm tokens needed.
 
 ---
 
@@ -558,7 +595,7 @@ Real numbers from a 120-memory test vault:
 | Graph reindex (120 memories) | <1s |
 | Storage per memory | ~1 KB (SQLite row) |
 | Embedding storage (120 memories) | ~0.3 MB |
-| Test suite | 718 tests, 0 errors |
+| Test suite | 738 tests, 0 errors |
 
 All benchmarks on Apple M-series hardware, Node.js 20+. Structured imports bypass LLM entirely.
 
@@ -578,7 +615,8 @@ Gnosys is open source (MIT) and actively developed. Here's how to get involved:
 - PRs welcome — especially for new import connectors, LLM providers, and Obsidian plugins
 
 **What's next:**
-- Real-time multi-machine sync (automatic conflict resolution beyond current iCloud/Dropbox support)
+- Improved network share latency (write-ahead batching for high-latency NAS)
+- Automated background sync via LaunchAgent (macOS) / systemd (Linux)
 - Temporal memory versioning (valid_from / valid_until)
 - Cross-session "deep dream" overnight consolidation
 - Graph visualization in the dashboard

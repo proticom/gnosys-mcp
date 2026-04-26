@@ -2901,6 +2901,109 @@ server.tool(
   }
 );
 
+// ─── Remote sync tools (v5.3.0) ─────────────────────────────────────────
+
+server.tool(
+  "gnosys_remote_status",
+  "Check the status of remote sync (multi-machine). Returns pending pushes, pulls, conflicts, and reachability. Agents should surface this to the user when there are pending changes or conflicts.",
+  {},
+  async () => {
+    if (!centralDb?.isAvailable()) {
+      return { content: [{ type: "text" as const, text: "Central DB not available." }], isError: true };
+    }
+    const remotePath = centralDb.getMeta("remote_path");
+    if (!remotePath) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({ configured: false, message: "Remote sync not configured." }, null, 2),
+        }],
+      };
+    }
+    const { RemoteSync } = await import("./lib/remote.js");
+    const sync = new RemoteSync(centralDb, remotePath);
+    const status = await sync.getStatus();
+    sync.closeRemote();
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify(status, null, 2) }],
+    };
+  }
+);
+
+server.tool(
+  "gnosys_remote_push",
+  "Push local memory changes to the remote (NAS) database. Uses skip-and-flag for conflicts by default. Call this when the user has approved pushing local changes.",
+  {
+    newerWins: z.boolean().optional().describe("Auto-resolve conflicts by taking the newer version"),
+  },
+  async ({ newerWins }) => {
+    if (!centralDb?.isAvailable()) {
+      return { content: [{ type: "text" as const, text: "Central DB not available." }], isError: true };
+    }
+    const remotePath = centralDb.getMeta("remote_path");
+    if (!remotePath) {
+      return { content: [{ type: "text" as const, text: "Remote not configured. Run 'gnosys remote configure'." }], isError: true };
+    }
+    const { RemoteSync } = await import("./lib/remote.js");
+    const sync = new RemoteSync(centralDb, remotePath);
+    const result = await sync.push({ strategy: newerWins ? "newer-wins" : "skip-and-flag" });
+    sync.closeRemote();
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+    };
+  }
+);
+
+server.tool(
+  "gnosys_remote_pull",
+  "Pull remote memory changes to the local database. Uses skip-and-flag for conflicts by default. Call this when the user wants the latest from the remote.",
+  {
+    newerWins: z.boolean().optional().describe("Auto-resolve conflicts by taking the newer version"),
+  },
+  async ({ newerWins }) => {
+    if (!centralDb?.isAvailable()) {
+      return { content: [{ type: "text" as const, text: "Central DB not available." }], isError: true };
+    }
+    const remotePath = centralDb.getMeta("remote_path");
+    if (!remotePath) {
+      return { content: [{ type: "text" as const, text: "Remote not configured." }], isError: true };
+    }
+    const { RemoteSync } = await import("./lib/remote.js");
+    const sync = new RemoteSync(centralDb, remotePath);
+    const result = await sync.pull({ strategy: newerWins ? "newer-wins" : "skip-and-flag" });
+    sync.closeRemote();
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+    };
+  }
+);
+
+server.tool(
+  "gnosys_remote_resolve",
+  "Resolve a sync conflict by choosing which version to keep. Use after gnosys_remote_status reveals conflicts. The agent should present the local and remote versions to the user and call this with their choice.",
+  {
+    memoryId: z.string().describe("Memory ID with the conflict"),
+    choice: z.enum(["local", "remote"]).describe("Which version to keep"),
+  },
+  async ({ memoryId, choice }) => {
+    if (!centralDb?.isAvailable()) {
+      return { content: [{ type: "text" as const, text: "Central DB not available." }], isError: true };
+    }
+    const remotePath = centralDb.getMeta("remote_path");
+    if (!remotePath) {
+      return { content: [{ type: "text" as const, text: "Remote not configured." }], isError: true };
+    }
+    const { RemoteSync } = await import("./lib/remote.js");
+    const sync = new RemoteSync(centralDb, remotePath);
+    const result = await sync.resolve(memoryId, choice);
+    sync.closeRemote();
+    if (result.ok) {
+      return { content: [{ type: "text" as const, text: `Resolved ${memoryId}: kept ${choice} version.` }] };
+    }
+    return { content: [{ type: "text" as const, text: `Failed to resolve: ${result.error}` }], isError: true };
+  }
+);
+
 // ─── Tool: gnosys_update_status ─────────────────────────────────────────
 
 server.tool(
