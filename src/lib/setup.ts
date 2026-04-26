@@ -1684,13 +1684,55 @@ export async function runSetup(opts: {
       summaryRows.push(["IDEs:", ideNames]);
     }
 
+    // ─── Step: Multi-machine sync (optional) ──────────────────────────────
+    let remoteConfigured = false;
+    if (!isSkip) {
+      console.log();
+      console.log(`${BOLD}Multi-machine sync${RESET}`);
+      console.log("Share your gnosys.db across machines via NAS or shared drive.");
+      console.log(`Your local DB stays fast, the remote is the source of truth.`);
+      console.log();
+
+      const setUpRemote = (await rl.question(`Configure remote sync now? [y/N] `)).trim().toLowerCase();
+      if (setUpRemote === "y" || setUpRemote === "yes") {
+        console.log();
+        try {
+          const { GnosysDB } = await import("./db.js");
+          const { runConfigureWizard } = await import("./remoteWizard.js");
+          const centralDb = GnosysDB.openCentral();
+          if (centralDb.isAvailable()) {
+            // Close our readline so the wizard can manage stdin
+            rl.close();
+            remoteConfigured = await runConfigureWizard(centralDb);
+            centralDb.close();
+            // We can't reopen readline after the wizard closed stdin, so
+            // we need to skip any further prompts. Return early after the
+            // summary box.
+          } else {
+            console.log("Central DB not available — skipping remote sync.");
+          }
+        } catch (err) {
+          console.log(`Remote sync setup failed: ${err instanceof Error ? err.message : err}`);
+          console.log("You can run 'gnosys remote configure' later.");
+        }
+      } else {
+        console.log("Skipped. Run 'gnosys remote configure' anytime to set up.");
+      }
+    }
+
+    if (remoteConfigured) {
+      summaryRows.push(["", ""]);
+      summaryRows.push(["Remote sync:", "configured"]);
+    }
+
     printBox("Setup Complete", summaryRows);
 
     console.log(`Next: Run ${CYAN}gnosys init${RESET} in any project to start using memory.`);
     console.log();
 
     setupCompleted = true;
-    rl.close();
+    // rl may already be closed if the remote wizard ran
+    try { rl.close(); } catch { /* already closed */ }
 
     return {
       provider: isSkip ? "skip" : provider,

@@ -5,6 +5,33 @@ All notable changes to Gnosys are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.3.3] — 2026-04-25
+
+### Added
+- `gnosys setup` now offers an optional multi-machine sync step at the end. Picks up the same wizard as `gnosys remote configure` so first-time users only need to run one command.
+
+## [5.3.2] — 2026-04-25
+
+### Changed
+- `package.json` author block: now `Proticom`, with `Edward Tadros` as a contributor (positions Gnosys as a Proticom product)
+- README adds a "A Proticom product" tagline below the badges
+- Internal example paths updated from vendor-specific to generic (`/Volumes/nas/`)
+- Internal regex heuristics generalized (no personal names)
+
+## [5.3.1] — 2026-04-08
+
+### Added
+- Production-grade interactive wizard for `gnosys remote configure`
+- Auto-detects mounted volumes at `/Volumes/`, suggests a `gnosys` subdirectory
+- Validates path: writability, SQLite locking, latency check
+- Detects existing DB at remote and shows memory count + last modified
+- Handles all data scenarios: fresh setup, local-only migration, remote-only pull, both-have-data merge/replace/cancel
+- Reconfigure mode: change | revalidate | disconnect | cancel
+
+### Changed
+- `gnosys remote configure --path` still works for non-interactive scripted use
+- Wizard logic extracted into `src/lib/remoteWizard.ts`
+
 ## [5.3.0] — 2026-04-08
 
 ### Added
