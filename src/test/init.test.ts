@@ -6,6 +6,16 @@ import { execSync } from "child_process";
 
 let tmpDir: string;
 
+// Per-test isolated central DB path. Without this, every `gnosys init` call
+// would register the temp project in the user's real ~/.gnosys/gnosys.db.
+function gnosysInit(opts: { capture?: boolean } = {}): string {
+  return execSync(`node "${path.resolve("dist/cli.js")}" init --directory "${tmpDir}"`, {
+    encoding: "utf-8",
+    stdio: opts.capture ? "pipe" : ["pipe", "pipe", "pipe"],
+    env: { ...process.env, GNOSYS_HOME: path.join(tmpDir, ".test-central") },
+  });
+}
+
 beforeEach(async () => {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "gnosys-init-test-"));
 });
@@ -16,9 +26,7 @@ afterEach(async () => {
 
 describe("gnosys init", () => {
   it("creates .gnosys store directory", async () => {
-    execSync(`node "${path.resolve("dist/cli.js")}" init --directory "${tmpDir}"`, {
-      stdio: "pipe",
-    });
+    gnosysInit();
 
     const storePath = path.join(tmpDir, ".gnosys");
     const stat = await fs.stat(storePath);
@@ -26,9 +34,7 @@ describe("gnosys init", () => {
   });
 
   it("creates .gnosys/.config internal config directory", async () => {
-    execSync(`node "${path.resolve("dist/cli.js")}" init --directory "${tmpDir}"`, {
-      stdio: "pipe",
-    });
+    gnosysInit();
 
     const internalDir = path.join(tmpDir, ".gnosys", ".config");
     const stat = await fs.stat(internalDir);
@@ -36,18 +42,14 @@ describe("gnosys init", () => {
   });
 
   it("does NOT create a nested .gnosys/.gnosys", async () => {
-    execSync(`node "${path.resolve("dist/cli.js")}" init --directory "${tmpDir}"`, {
-      stdio: "pipe",
-    });
+    gnosysInit();
 
     const badNested = path.join(tmpDir, ".gnosys", ".gnosys");
     await expect(fs.stat(badNested)).rejects.toThrow();
   });
 
   it("places tags.json inside .gnosys/.config (internal config)", async () => {
-    execSync(`node "${path.resolve("dist/cli.js")}" init --directory "${tmpDir}"`, {
-      stdio: "pipe",
-    });
+    gnosysInit();
 
     const tagsPath = path.join(tmpDir, ".gnosys", ".config", "tags.json");
     const raw = await fs.readFile(tagsPath, "utf-8");
@@ -59,27 +61,21 @@ describe("gnosys init", () => {
   });
 
   it("does NOT place tags.json at .gnosys root", async () => {
-    execSync(`node "${path.resolve("dist/cli.js")}" init --directory "${tmpDir}"`, {
-      stdio: "pipe",
-    });
+    gnosysInit();
 
     const wrongPath = path.join(tmpDir, ".gnosys", "tags.json");
     await expect(fs.stat(wrongPath)).rejects.toThrow();
   });
 
   it("does NOT create CHANGELOG.md (removed in DB-only refactor)", async () => {
-    execSync(`node "${path.resolve("dist/cli.js")}" init --directory "${tmpDir}"`, {
-      stdio: "pipe",
-    });
+    gnosysInit();
 
     const changelogPath = path.join(tmpDir, ".gnosys", "CHANGELOG.md");
     await expect(fs.stat(changelogPath)).rejects.toThrow();
   });
 
   it("does NOT initialize a git repository (removed in DB-only refactor)", async () => {
-    execSync(`node "${path.resolve("dist/cli.js")}" init --directory "${tmpDir}"`, {
-      stdio: "pipe",
-    });
+    gnosysInit();
 
     const gitDir = path.join(tmpDir, ".gnosys", ".git");
     await expect(fs.stat(gitDir)).rejects.toThrow();
@@ -87,32 +83,22 @@ describe("gnosys init", () => {
 
   it("re-syncs if .gnosys already exists (no error)", () => {
     // First init
-    execSync(`node "${path.resolve("dist/cli.js")}" init --directory "${tmpDir}"`, {
-      stdio: "pipe",
-    });
+    gnosysInit();
 
     // Second init should succeed (re-sync, not fail)
-    const output = execSync(
-      `node "${path.resolve("dist/cli.js")}" init --directory "${tmpDir}"`,
-      { encoding: "utf-8" }
-    );
+    const output = gnosysInit({ capture: true });
     expect(output).toContain("re-synced");
   });
 
   it("outputs helpful instructions", () => {
-    const output = execSync(
-      `node "${path.resolve("dist/cli.js")}" init --directory "${tmpDir}"`,
-      { encoding: "utf-8" }
-    );
+    const output = gnosysInit({ capture: true });
 
     expect(output).toContain("Gnosys store");
     expect(output).toContain("gnosys add");
   });
 
   it("creates gnosys.json project identity file", async () => {
-    execSync(`node "${path.resolve("dist/cli.js")}" init --directory "${tmpDir}"`, {
-      stdio: "pipe",
-    });
+    gnosysInit();
 
     const identityPath = path.join(tmpDir, ".gnosys", "gnosys.json");
     const raw = await fs.readFile(identityPath, "utf-8");
@@ -124,18 +110,14 @@ describe("gnosys init", () => {
   });
 
   it("generates stable projectId on re-init", async () => {
-    execSync(`node "${path.resolve("dist/cli.js")}" init --directory "${tmpDir}"`, {
-      stdio: "pipe",
-    });
+    gnosysInit();
 
     const identityPath = path.join(tmpDir, ".gnosys", "gnosys.json");
     const raw1 = await fs.readFile(identityPath, "utf-8");
     const id1 = JSON.parse(raw1).projectId;
 
     // Re-init
-    execSync(`node "${path.resolve("dist/cli.js")}" init --directory "${tmpDir}"`, {
-      stdio: "pipe",
-    });
+    gnosysInit();
 
     const raw2 = await fs.readFile(identityPath, "utf-8");
     const id2 = JSON.parse(raw2).projectId;

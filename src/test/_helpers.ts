@@ -56,17 +56,32 @@ export async function cleanupTestEnv(env: TestEnv): Promise<void> {
 // ─── CLI Helpers ────────────────────────────────────────────────────────
 
 /**
+ * Compute the default isolated central-DB path for a test project directory.
+ * Tests use a `.test-central/` subdirectory inside the project tmpdir so the
+ * central DB gets cleaned up with the rest of the test fixture.
+ */
+function defaultCentralDir(projectDir: string): string {
+  return path.join(projectDir, ".test-central");
+}
+
+/**
  * Run a gnosys CLI command with project context. Returns stdout.
+ *
+ * Sets GNOSYS_HOME to an isolated tmpdir-based central DB so the test
+ * does NOT pollute the user's real ~/.gnosys/gnosys.db. Pass a shared
+ * `centralDir` via opts when multiple projects in the same test must
+ * share one central DB.
  */
 export function cli(
   command: string,
   projectDir: string,
-  opts: { json?: boolean } = {}
+  opts: { json?: boolean; centralDir?: string } = {}
 ): string {
   const cmd = opts.json ? `${CLI} ${command} --json` : `${CLI} ${command}`;
+  const centralDir = opts.centralDir || defaultCentralDir(projectDir);
   return execSync(cmd, {
     encoding: "utf-8",
-    env: { ...process.env, GNOSYS_PROJECT: projectDir },
+    env: { ...process.env, GNOSYS_PROJECT: projectDir, GNOSYS_HOME: centralDir },
     stdio: ["pipe", "pipe", "pipe"],
   });
 }
@@ -89,17 +104,31 @@ export function extractJson(output: string): string {
 /**
  * Run a gnosys CLI command and parse JSON output.
  */
-export function cliJson<T = unknown>(command: string, projectDir: string): T {
-  const output = cli(command, projectDir, { json: true });
+export function cliJson<T = unknown>(
+  command: string,
+  projectDir: string,
+  opts: { centralDir?: string } = {}
+): T {
+  const output = cli(command, projectDir, { json: true, centralDir: opts.centralDir });
   return JSON.parse(extractJson(output)) as T;
 }
 
 /**
  * Initialize a gnosys project in a directory via CLI.
+ *
+ * Sets GNOSYS_HOME to an isolated tmpdir-based central DB so the test
+ * does NOT pollute the user's real ~/.gnosys/gnosys.db. Pass a shared
+ * `centralDir` via opts when multiple cliInit calls in the same test
+ * must register their projects in the same central DB.
  */
-export function cliInit(dir: string): string {
+export function cliInit(
+  dir: string,
+  opts: { centralDir?: string } = {}
+): string {
+  const centralDir = opts.centralDir || defaultCentralDir(dir);
   return execSync(`${CLI} init --directory "${dir}"`, {
     encoding: "utf-8",
+    env: { ...process.env, GNOSYS_HOME: centralDir },
     stdio: ["pipe", "pipe", "pipe"],
   });
 }

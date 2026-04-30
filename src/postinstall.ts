@@ -10,6 +10,7 @@ import { join } from "path";
 import { createInterface } from "readline/promises";
 import { stdin, stdout } from "process";
 import { execSync } from "child_process";
+import { GnosysDB } from "./lib/db.js";
 
 async function main() {
   // Skip if GNOSYS_SKIP_POSTINSTALL is set (for testing or automation)
@@ -18,8 +19,7 @@ async function main() {
   }
 
   // Detect if this is an upgrade (central DB exists) or fresh install
-  const home = process.env.HOME || process.env.USERPROFILE || "/tmp";
-  const centralDbPath = join(home, ".gnosys", "gnosys.db");
+  const centralDbPath = GnosysDB.getCentralDbPath();
   const isUpgrade = existsSync(centralDbPath);
 
   // Read package version

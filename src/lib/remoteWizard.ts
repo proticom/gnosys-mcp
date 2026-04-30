@@ -96,8 +96,12 @@ function showValidationSummary(validation: Awaited<ReturnType<typeof validateLoc
 
 // ─── Main wizard ────────────────────────────────────────────────────────
 
-export async function runConfigureWizard(centralDb: GnosysDB): Promise<boolean> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
+export async function runConfigureWizard(
+  centralDb: GnosysDB,
+  externalRl?: Interface
+): Promise<boolean> {
+  const ownsRl = !externalRl;
+  const rl = externalRl ?? createInterface({ input: process.stdin, output: process.stdout });
   try {
     const localCount = centralDb.getMemoryCount();
     const currentRemote = centralDb.getMeta(REMOTE_PATH_KEY);
@@ -128,7 +132,9 @@ export async function runConfigureWizard(centralDb: GnosysDB): Promise<boolean> 
     // Setup flow (new or change)
     return await setupRemoteFlow(rl, centralDb, localCount.active);
   } finally {
-    rl.close();
+    if (ownsRl) {
+      rl.close();
+    }
   }
 }
 

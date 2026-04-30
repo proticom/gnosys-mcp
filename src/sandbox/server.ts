@@ -19,11 +19,12 @@ import { setPreference, getPreference, getAllPreferences, deletePreference, sear
 import { GnosysDreamEngine, DreamScheduler, DreamConfig, DreamReport, DEFAULT_DREAM_CONFIG } from "../lib/dream.js";
 import { DEFAULT_CONFIG, GnosysConfig } from "../lib/config.js";
 import { syncRules, generateRulesBlock, RulesGenResult } from "../lib/rulesGen.js";
+import { getSandboxDir as getSandboxDirImpl } from "../lib/paths.js";
 
 // ─── Socket + PID paths ─────────────────────────────────────────────────
 
 export function getSandboxDir(): string {
-  const dir = path.join(os.homedir(), ".gnosys", "sandbox");
+  const dir = getSandboxDirImpl();
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }

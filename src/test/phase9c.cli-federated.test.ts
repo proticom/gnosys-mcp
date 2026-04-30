@@ -341,7 +341,11 @@ describe("TC-9c.5: CLI --json output includes scope info", () => {
     try {
       execSync(
         `${CLI} add-structured --title "Test search target" --content "Searchable content about databases" --category general`,
-        { encoding: "utf-8", env: { ...process.env, GNOSYS_PROJECT: tmpDir }, stdio: ["pipe", "pipe", "pipe"] }
+        {
+          encoding: "utf-8",
+          env: { ...process.env, GNOSYS_PROJECT: tmpDir, GNOSYS_HOME: path.join(tmpDir, ".test-central") },
+          stdio: ["pipe", "pipe", "pipe"],
+        }
       );
     } catch { /* may fail without LLM, but add-structured should work */ }
 
@@ -448,7 +452,7 @@ describe("TC-9c.6: CLI parity — all major commands functional", () => {
   it("gnosys tags lists the tag registry without error", () => {
     const output = execSync(`${CLI} tags`, {
       encoding: "utf-8",
-      env: { ...process.env, GNOSYS_PROJECT: tmpDir },
+      env: { ...process.env, GNOSYS_PROJECT: tmpDir, GNOSYS_HOME: path.join(tmpDir, ".test-central") },
       stdio: ["pipe", "pipe", "pipe"],
     });
     // Tags command produces text output (no --json support)
@@ -458,7 +462,7 @@ describe("TC-9c.6: CLI parity — all major commands functional", () => {
   it("gnosys lens runs without error", () => {
     const output = execSync(`${CLI} lens`, {
       encoding: "utf-8",
-      env: { ...process.env, GNOSYS_PROJECT: tmpDir },
+      env: { ...process.env, GNOSYS_PROJECT: tmpDir, GNOSYS_HOME: path.join(tmpDir, ".test-central") },
       stdio: ["pipe", "pipe", "pipe"],
     });
     expect(typeof output).toBe("string");

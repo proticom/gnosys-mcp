@@ -12,6 +12,7 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import { readFileSync, existsSync, copyFileSync } from "fs";
 import { GnosysResolver } from "./lib/resolver.js";
+import { getGnosysHome } from "./lib/paths.js";
 import { GnosysSearch } from "./lib/search.js";
 import { GnosysTagRegistry } from "./lib/tags.js";
 import { GnosysIngestion } from "./lib/ingest.js";
@@ -517,10 +518,13 @@ program
     }
   );
 
-// ─── gnosys setup ───────────────────────────────────────────────────────
-program
+// ─── gnosys setup (parent command) ──────────────────────────────────────
+const setupCmd = program
   .command("setup")
-  .description("Interactive setup wizard — configure LLM provider, API key, model, and IDE integration in one step")
+  .description("Configure Gnosys — LLM provider, models, remote sync, and IDE integration");
+
+// Bare `gnosys setup` runs the full interactive wizard
+setupCmd
   .option("--non-interactive", "Skip prompts, use defaults (for CI/scripting)")
   .action(async (opts: { nonInteractive?: boolean }) => {
     const { runSetup } = await import("./lib/setup.js");
@@ -530,10 +534,65 @@ program
     });
   });
 
+// `gnosys setup models` — just configure LLM provider/model/key
+setupCmd
+  .command("models")
+  .description("Update LLM provider and model configuration")
+  .option("-p, --provider <name>", "Set provider directly (anthropic, openai, xai, groq, mistral, ollama, lmstudio, custom)")
+  .option("-m, --model <name>", "Set model name directly")
+  .option("--no-validate", "Skip the test API call")
+  .action(async (opts: { provider?: string; model?: string; validate?: boolean }) => {
+    const { runModelsSetup } = await import("./lib/setup.js");
+    await runModelsSetup({
+      directory: process.cwd(),
+      provider: opts.provider,
+      model: opts.model,
+      validate: opts.validate,
+    });
+  });
+
+// `gnosys setup remote` — configure remote sync (alias for `gnosys remote configure`)
+setupCmd
+  .command("remote")
+  .description("Configure multi-machine sync (alias for 'gnosys remote configure')")
+  .option("--path <path>", "Set remote path directly (non-interactive)")
+  .action(async (opts: { path?: string }) => {
+    const { GnosysDB } = await import("./lib/db.js");
+    const db = GnosysDB.openCentral();
+    if (!db.isAvailable()) {
+      console.error("Central DB not available.");
+      db.close();
+      process.exit(1);
+    }
+    try {
+      if (opts.path) {
+        const { configureFromPath } = await import("./lib/remoteWizard.js");
+        await configureFromPath(db, opts.path);
+      } else {
+        const { runConfigureWizard } = await import("./lib/remoteWizard.js");
+        await runConfigureWizard(db);
+      }
+    } finally {
+      db.close();
+    }
+  });
+
+// ─── gnosys models (top-level shortcut) ─────────────────────────────────
+program
+  .command("models")
+  .description("Quick model operations — list available, refresh cache, or set the default")
+  .option("--list", "List available models for the current provider")
+  .option("--refresh", "Refresh model list from OpenRouter (clears the cache)")
+  .option("--set <model>", "Set the default model for the current provider")
+  .action(async (opts: { list?: boolean; refresh?: boolean; set?: string }) => {
+    const { runModelsCommand } = await import("./lib/setup.js");
+    await runModelsCommand(opts);
+  });
+
 // ─── gnosys init ─────────────────────────────────────────────────────────
 program
   .command("init [ide]")
-  .description("Initialize Gnosys in the current directory. Optionally specify IDE: cursor, claude, or codex to force IDE setup.")
+  .description("Initialize Gnosys in the current directory. Optionally specify IDE: cursor, claude, claude-desktop, codex, gemini-cli, or antigravity to force IDE setup.")
   .option("-d, --directory <dir>", "Target directory (default: cwd)")
   .option("-n, --name <name>", "Project name (default: directory basename)")
   .action(async (ide: string | undefined, opts: { directory?: string; name?: string }) => {
@@ -664,13 +723,15 @@ program
 
     // If a specific IDE was requested, force-create its config
     if (ide) {
-      const validIdes = ["cursor", "claude", "codex"];
+      const validIdes = ["cursor", "claude", "claude-desktop", "codex", "gemini-cli", "antigravity"];
       const normalizedIde = ide.toLowerCase();
       if (!validIdes.includes(normalizedIde)) {
         console.log(`\nUnknown IDE: "${ide}". Valid options: ${validIdes.join(", ")}`);
       } else {
         const { configureCursor, configureClaudeCode, configureCodex } = await import("./lib/projectIdentity.js");
 
+        // Cursor/Claude/Codex have IDE-specific session hooks. Gemini CLI and
+        // Antigravity don't yet, so we skip the hook step for them.
         let result;
         switch (normalizedIde) {
           case "cursor":
@@ -690,28 +751,30 @@ program
           console.log(`  File: ${result.filePath}`);
         }
 
-        // Also set up MCP config for the IDE
+        // Set up MCP config for the IDE
         const { setupIDE } = await import("./lib/setup.js");
         const mcp = await setupIDE(normalizedIde, targetDir);
         if (mcp.success) {
           console.log(`  MCP: ${mcp.message}`);
         }
 
-        // Update agentRulesTarget in gnosys.json
-        const identityPath = path.join(storePath, "gnosys.json");
-        try {
-          const identityContent = await fs.readFile(identityPath, "utf-8");
-          const identity = JSON.parse(identityContent);
-          const targetMap: Record<string, string> = {
-            cursor: ".cursor/rules/gnosys.mdc",
-            claude: "CLAUDE.md",
-            codex: "CODEX.md",
-          };
-          identity.agentRulesTarget = targetMap[normalizedIde] || null;
-          await fs.writeFile(identityPath, JSON.stringify(identity, null, 2) + "\n", "utf-8");
-          console.log(`  Config: agentRulesTarget → ${identity.agentRulesTarget}`);
-        } catch {
-          // Non-critical
+        // Update agentRulesTarget in gnosys.json (only for IDEs with rules files)
+        const targetMap: Record<string, string> = {
+          cursor: ".cursor/rules/gnosys.mdc",
+          claude: "CLAUDE.md",
+          codex: "CODEX.md",
+        };
+        if (targetMap[normalizedIde]) {
+          const identityPath = path.join(storePath, "gnosys.json");
+          try {
+            const identityContent = await fs.readFile(identityPath, "utf-8");
+            const identity = JSON.parse(identityContent);
+            identity.agentRulesTarget = targetMap[normalizedIde];
+            await fs.writeFile(identityPath, JSON.stringify(identity, null, 2) + "\n", "utf-8");
+            console.log(`  Config: agentRulesTarget → ${identity.agentRulesTarget}`);
+          } catch {
+            // Non-critical
+          }
         }
       }
     }
@@ -3448,7 +3511,7 @@ program
   .action(async (opts: { directory?: string }) => {
     const projectDir = opts.directory ? path.resolve(opts.directory) : process.cwd();
     const storePath = path.join(projectDir, ".gnosys");
-    const globalStorePath = path.join(os.homedir(), ".gnosys");
+    const globalStorePath = getGnosysHome();
 
     // Load config: try project-level first, fall back to global ~/.gnosys/
     let cfg: GnosysConfig;
@@ -4075,11 +4138,24 @@ program
   });
 
 // ─── gnosys projects ────────────────────────────────────────────────────
+/**
+ * Returns true if a project's working directory no longer exists on disk.
+ * Used by `gnosys projects` to filter dead entries by default and by
+ * `gnosys projects --prune` to delete them. We deliberately do NOT pattern-
+ * match on tmp paths — active test fixtures live in /var/folders/ and
+ * /tmp/ and we want them visible while they're in use.
+ */
+function isDeadProjectDir(dir: string): boolean {
+  return !existsSync(dir);
+}
+
 program
   .command("projects")
-  .description("List all registered projects in the central DB")
+  .description("List registered projects from the central DB")
   .option("--json", "Output as JSON")
-  .action(async (opts: { json?: boolean }) => {
+  .option("--all", "Include dead projects (deleted directories, /tmp/ paths)")
+  .option("--prune", "Delete registry entries whose directory no longer exists or is a tmp path")
+  .action(async (opts: { json?: boolean; all?: boolean; prune?: boolean }) => {
     let centralDb: GnosysDB | null = null;
     try {
       centralDb = GnosysDB.openCentral();
@@ -4088,20 +4164,75 @@ program
         process.exit(1);
       }
 
-      const projects = centralDb.getAllProjects();
-      if (projects.length === 0) {
-        console.log("No projects registered. Run 'gnosys init' in a project directory.");
+      const allProjects = centralDb.getAllProjects();
+
+      if (opts.prune) {
+        // Find and delete dead projects
+        const deadProjects = allProjects.filter((p) => isDeadProjectDir(p.working_directory));
+        for (const p of deadProjects) {
+          centralDb.deleteProject(p.id);
+        }
+        outputResult(!!opts.json, {
+          deleted: deadProjects.length,
+          remaining: allProjects.length - deadProjects.length,
+          deletedProjects: deadProjects.map((p) => ({ id: p.id, name: p.name, directory: p.working_directory })),
+        }, () => {
+          if (deadProjects.length === 0) {
+            console.log("No dead projects to prune.");
+          } else {
+            const DIM = "\x1b[2m";
+            const RESET = "\x1b[0m";
+            console.log(`Pruned ${deadProjects.length} dead project(s):\n`);
+            for (const p of deadProjects) {
+              console.log(`  ${p.name}  ${DIM}${p.working_directory}${RESET}`);
+            }
+            console.log();
+            console.log(`${allProjects.length - deadProjects.length} project(s) remain.`);
+          }
+        });
+        return;
+      }
+
+      // Normal listing — filter dead projects by default
+      const visibleProjects = opts.all
+        ? allProjects
+        : allProjects.filter((p) => !isDeadProjectDir(p.working_directory));
+
+      if (visibleProjects.length === 0) {
+        const deadCount = allProjects.length;
+        outputResult(!!opts.json, {
+          count: 0,
+          totalRegistered: deadCount,
+          deadCount,
+          projects: [],
+        }, () => {
+          if (deadCount === 0) {
+            console.log("No projects registered. Run 'gnosys init' in a project directory.");
+          } else {
+            console.log(`No live projects (${deadCount} dead — run 'gnosys projects --all' to see them or 'gnosys projects --prune' to remove them).`);
+          }
+        });
         centralDb.close();
         return;
       }
 
-      const projectData = projects.map((p) => ({
+      const projectData = visibleProjects.map((p) => ({
         ...p,
         memoryCount: centralDb!.getMemoriesByProject(p.id).length,
       }));
 
-      outputResult(!!opts.json, { count: projects.length, projects: projectData }, () => {
-        console.log(`${projects.length} registered project(s):\n`);
+      const deadCount = allProjects.length - visibleProjects.length;
+
+      outputResult(!!opts.json, {
+        count: visibleProjects.length,
+        totalRegistered: allProjects.length,
+        deadCount,
+        projects: projectData,
+      }, () => {
+        const header = deadCount > 0 && !opts.all
+          ? `${visibleProjects.length} live project(s) (${deadCount} dead hidden — use --all or --prune):\n`
+          : `${visibleProjects.length} registered project(s):\n`;
+        console.log(header);
         for (const p of projectData) {
           console.log(`  ${p.name}`);
           console.log(`    ID:        ${p.id}`);

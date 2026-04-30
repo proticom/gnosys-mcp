@@ -178,7 +178,14 @@ describe("Setup Wizard", () => {
       expect(Array.isArray(ides)).toBe(true);
       for (const ide of ides) {
         expect(typeof ide).toBe("string");
-        expect(["claude", "cursor", "codex"]).toContain(ide);
+        expect([
+          "claude",
+          "claude-desktop",
+          "cursor",
+          "codex",
+          "gemini-cli",
+          "antigravity",
+        ]).toContain(ide);
       }
     });
 
@@ -186,7 +193,14 @@ describe("Setup Wizard", () => {
       const ides = await detectIDEs(tmpDir);
       // detectIDEs checks global installs (home dir, PATH, /Applications),
       // so filter out any globally-installed IDEs on the test machine
-      const globallyInstalled = ["claude", "cursor", "codex"];
+      const globallyInstalled = [
+        "claude",
+        "claude-desktop",
+        "cursor",
+        "codex",
+        "gemini-cli",
+        "antigravity",
+      ];
       const projectOnly = ides.filter((i) => !globallyInstalled.includes(i));
       expect(projectOnly).toHaveLength(0);
     });

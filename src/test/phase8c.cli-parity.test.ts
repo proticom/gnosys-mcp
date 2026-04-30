@@ -32,7 +32,11 @@ function run(command: string, opts: { json?: boolean } = {}): string {
     : `${CLI} ${command}`;
   return execSync(cmd, {
     encoding: "utf-8",
-    env: { ...process.env, GNOSYS_PROJECT: tmpDir },
+    env: {
+      ...process.env,
+      GNOSYS_PROJECT: tmpDir,
+      GNOSYS_HOME: path.join(tmpDir, ".test-central"),
+    },
     stdio: ["pipe", "pipe", "pipe"],
   });
 }
@@ -109,6 +113,7 @@ describe("Phase 8c: CLI Parity", () => {
     it("gnosys projects --json outputs valid JSON", () => {
       const output = execSync(`${CLI} projects --json`, {
         encoding: "utf-8",
+        env: { ...process.env, GNOSYS_HOME: path.join(tmpDir, ".test-central") },
         stdio: ["pipe", "pipe", "pipe"],
       });
       const parsed = JSON.parse(extractJson(output));

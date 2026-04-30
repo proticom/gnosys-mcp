@@ -69,10 +69,10 @@ describe("Final Acceptance Tests", () => {
 
   describe("TC-A.1: gnosys init in two separate projects", () => {
     it("initializes project A and B successfully", () => {
-      const outputA = cliInit(projADir);
+      const outputA = cliInit(projADir, { centralDir });
       expect(outputA).toContain("Gnosys store");
 
-      const outputB = cliInit(projBDir);
+      const outputB = cliInit(projBDir, { centralDir });
       expect(outputB).toContain("Gnosys store");
 
       // Both should have gnosys.json
@@ -85,8 +85,8 @@ describe("Final Acceptance Tests", () => {
     });
 
     it("both projects have unique projectIds", () => {
-      cliInit(projADir);
-      cliInit(projBDir);
+      cliInit(projADir, { centralDir });
+      cliInit(projBDir, { centralDir });
 
       const idA = JSON.parse(
         fs.readFileSync(
@@ -321,11 +321,11 @@ describe("Final Acceptance Tests", () => {
 
   describe("TC-A.9: CLI and library API both functional", () => {
     it("CLI list command works on initialized project", () => {
-      cliInit(projADir);
+      cliInit(projADir, { centralDir });
 
       const output = execSync(`${CLI} list --json`, {
         encoding: "utf-8",
-        env: { ...process.env, GNOSYS_PROJECT: projADir },
+        env: { ...process.env, GNOSYS_PROJECT: projADir, GNOSYS_HOME: centralDir },
         stdio: ["pipe", "pipe", "pipe"],
       });
 

@@ -46,9 +46,15 @@ import fs from "fs";
 
 const PROJECT_ID: string | null = ${projectId ? `"${projectId}"` : "null"};
 
+function getGnosysHome(): string {
+  if (process.env.GNOSYS_HOME) return process.env.GNOSYS_HOME;
+  const home = process.env.HOME || process.env.USERPROFILE || "/tmp";
+  return path.join(home, ".gnosys");
+}
+
 function getSocketPath(): string {
   if (process.platform === "win32") return "\\\\\\\\.\\\\pipe\\\\gnosys-sandbox";
-  const dir = path.join(os.homedir(), ".gnosys", "sandbox");
+  const dir = path.join(getGnosysHome(), "sandbox");
   return path.join(dir, "gnosys.sock");
 }
 
@@ -101,7 +107,7 @@ async function ensureRunning(): Promise<void> {
     execSync("npx gnosys sandbox start", { stdio: "ignore", timeout: 10_000 });
   } catch {
     // Try direct node invocation as fallback
-    const sandboxDir = path.join(os.homedir(), ".gnosys", "sandbox");
+    const sandboxDir = path.join(getGnosysHome(), "sandbox");
     fs.mkdirSync(sandboxDir, { recursive: true });
     const gnosysBin = execSync("which gnosys 2>/dev/null || echo ''", { encoding: "utf8" }).trim();
     if (gnosysBin) {

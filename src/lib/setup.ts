@@ -24,6 +24,8 @@ import {
   type GnosysConfig,
   type LLMProviderName,
 } from "./config.js";
+import { validateModel } from "./modelValidation.js";
+import { getGnosysHome } from "./paths.js";
 
 // ─── ANSI Colors ────────────────────────────────────────────────────────────
 
@@ -565,7 +567,70 @@ export async function detectIDEs(projectDir: string): Promise<string[]> {
     }
   }
 
+  // Check for Gemini CLI — CLI in PATH or global ~/.gemini/ directory
+  try {
+    execSync("which gemini", { stdio: "ignore" });
+    detected.push("gemini-cli");
+  } catch {
+    try {
+      const stat = await fs.stat(path.join(home, ".gemini"));
+      if (stat.isDirectory()) detected.push("gemini-cli");
+    } catch {
+      // Not installed
+    }
+  }
+
+  // Check for Antigravity — ~/.gemini/antigravity/ directory or app installed
+  // (Antigravity stores its MCP config at ~/.gemini/antigravity/mcp_config.json)
+  try {
+    const stat = await fs.stat(path.join(home, ".gemini", "antigravity"));
+    if (stat.isDirectory()) detected.push("antigravity");
+  } catch {
+    // Also check macOS Applications
+    try {
+      await fs.stat("/Applications/Antigravity.app");
+      detected.push("antigravity");
+    } catch {
+      // Not installed
+    }
+  }
+
+  // Check for Claude Desktop — distinct from Claude Code CLI. Detected via the
+  // app bundle on macOS or the platform-specific config dir.
+  try {
+    const cfg = claudeDesktopConfigPath();
+    const cfgDir = path.dirname(cfg);
+    const stat = await fs.stat(cfgDir);
+    if (stat.isDirectory()) detected.push("claude-desktop");
+  } catch {
+    // Also check macOS Applications
+    try {
+      await fs.stat("/Applications/Claude.app");
+      detected.push("claude-desktop");
+    } catch {
+      // Not installed
+    }
+  }
+
   return detected;
+}
+
+/**
+ * Resolve the platform-specific Claude Desktop config file path.
+ *   macOS:   ~/Library/Application Support/Claude/claude_desktop_config.json
+ *   Windows: %APPDATA%/Claude/claude_desktop_config.json
+ *   Linux:   ~/.config/Claude/claude_desktop_config.json (no official build yet)
+ */
+function claudeDesktopConfigPath(): string {
+  const home = os.homedir();
+  if (process.platform === "darwin") {
+    return path.join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json");
+  }
+  if (process.platform === "win32") {
+    const appData = process.env.APPDATA || path.join(home, "AppData", "Roaming");
+    return path.join(appData, "Claude", "claude_desktop_config.json");
+  }
+  return path.join(home, ".config", "Claude", "claude_desktop_config.json");
 }
 
 /**
@@ -635,6 +700,84 @@ export async function setupIDE(
           await fs.writeFile(configPath, content, "utf-8");
         }
         return { success: true, message: "Codex config updated (.codex/config.toml)" };
+      }
+
+      case "gemini-cli": {
+        // Gemini CLI reads MCP servers from ~/.gemini/settings.json (user-level)
+        const geminiDir = path.join(os.homedir(), ".gemini");
+        const settingsPath = path.join(geminiDir, "settings.json");
+        await fs.mkdir(geminiDir, { recursive: true });
+
+        let config: Record<string, unknown> = {};
+        try {
+          const existing = await fs.readFile(settingsPath, "utf-8");
+          config = JSON.parse(existing);
+        } catch {
+          // File doesn't exist or is invalid — start fresh
+        }
+
+        const servers = (config.mcpServers ?? {}) as Record<string, unknown>;
+        servers.gnosys = { command: "gnosys", args: ["serve"] };
+        config.mcpServers = servers;
+
+        await fs.writeFile(settingsPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+        return { success: true, message: "Gemini CLI MCP config updated (~/.gemini/settings.json)" };
+      }
+
+      case "antigravity": {
+        // Antigravity reads MCP servers from ~/.gemini/antigravity/mcp_config.json
+        // (separate file from Gemini CLI's settings.json, even though they share the parent dir)
+        const antigravityDir = path.join(os.homedir(), ".gemini", "antigravity");
+        const configPath = path.join(antigravityDir, "mcp_config.json");
+        await fs.mkdir(antigravityDir, { recursive: true });
+
+        let config: Record<string, unknown> = {};
+        try {
+          const existing = await fs.readFile(configPath, "utf-8");
+          config = JSON.parse(existing);
+        } catch {
+          // File doesn't exist or is invalid — start fresh
+        }
+
+        const servers = (config.mcpServers ?? {}) as Record<string, unknown>;
+        servers.gnosys = { command: "gnosys", args: ["serve"] };
+        config.mcpServers = servers;
+
+        await fs.writeFile(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+        return { success: true, message: "Antigravity MCP config updated (~/.gemini/antigravity/mcp_config.json)" };
+      }
+
+      case "claude-desktop": {
+        // Claude Desktop reads MCP servers from claude_desktop_config.json
+        // in a platform-specific app data directory. Distinct from Claude
+        // Code CLI which uses `claude mcp add`.
+        const configPath = claudeDesktopConfigPath();
+        const configDir = path.dirname(configPath);
+        await fs.mkdir(configDir, { recursive: true });
+
+        let config: Record<string, unknown> = {};
+        try {
+          const existing = await fs.readFile(configPath, "utf-8");
+          config = JSON.parse(existing);
+        } catch {
+          // File doesn't exist or is invalid — start fresh
+        }
+
+        const servers = (config.mcpServers ?? {}) as Record<string, unknown>;
+        servers.gnosys = { command: "gnosys", args: ["serve"] };
+        config.mcpServers = servers;
+
+        await fs.writeFile(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+
+        // Display path with ~ prefix when inside HOME for clarity
+        const home = os.homedir();
+        const displayPath = configPath.startsWith(home)
+          ? configPath.replace(home, "~")
+          : configPath;
+        return {
+          success: true,
+          message: `Claude Desktop MCP config updated (${displayPath}). Restart Claude Desktop for the change to take effect.`,
+        };
       }
 
       default:
@@ -793,7 +936,7 @@ async function loadExistingConfig(projectDir: string): Promise<GnosysConfig | nu
 
   // Try global config at ~/.gnosys
   try {
-    const globalStore = path.join(os.homedir(), ".gnosys");
+    const globalStore = getGnosysHome();
     const stat = await fs.stat(path.join(globalStore, "gnosys.json"));
     if (stat.isFile()) {
       return await loadConfig(globalStore);
@@ -838,7 +981,8 @@ async function pickProvider(
 
 /**
  * Let the user pick a model from a provider's tiers.
- * Returns the model string.
+ * Returns the model string. Includes a "Custom (enter model name)"
+ * option so users can type any model ID not in the curated list.
  */
 async function pickModel(
   rl: ReadlineInterface,
@@ -848,7 +992,10 @@ async function pickModel(
   currentModel?: string,
 ): Promise<string> {
   const tiers = dynamicModels[provider] ?? PROVIDER_TIERS[provider];
-  if (!tiers || tiers.length === 0) return "";
+  if (!tiers || tiers.length === 0) {
+    // No tiers available — fall back to direct entry
+    return await askInput(rl, "Model name");
+  }
 
   const isLocal = provider === "ollama" || provider === "lmstudio";
   const currentHint = currentModel ? ` ${DIM}(current: ${currentModel})${RESET}` : "";
@@ -860,12 +1007,19 @@ async function pickModel(
     }
     return `${t.name} (${t.model})  ${DIM}${formatPrice(t.input, t.output)}${RESET}${rec}`;
   });
+  tierOptions.push(`Custom ${DIM}(enter model name)${RESET}`);
 
   const tierIndex = await askChoice(
     rl,
     `${stepLabel}${currentHint}`,
     tierOptions
   );
+
+  // Custom option is the last entry
+  if (tierIndex === tiers.length) {
+    const custom = await askInput(rl, "Enter model name");
+    return custom;
+  }
 
   return tiers[tierIndex].model;
 }
@@ -942,7 +1096,8 @@ export async function runSetup(opts: {
       : undefined;
 
     // ─── Pre-check: Upgrade detection ─────────────────────────────────
-    const centralDbPath = path.join(os.homedir(), ".gnosys", "gnosys.db");
+    const { GnosysDB: GnosysDBForUpgrade } = await import("./db.js");
+    const centralDbPath = GnosysDBForUpgrade.getCentralDbPath();
     const centralDbExists = fsSync.existsSync(centralDbPath);
 
     if (centralDbExists) {
@@ -1052,13 +1207,19 @@ export async function runSetup(opts: {
           }
           return `${t.name} (${t.model})  ${DIM}${formatPrice(t.input, t.output)}${RESET}${rec}`;
         });
+        tierOptions.push(`Custom ${DIM}(enter model name)${RESET}`);
 
         const tierIndex = await askChoice(
           rl,
           `${BOLD}Step 2/5${RESET} ${DIM}\u2014${RESET} Choose model tier${currentModelHint}`,
           tierOptions
         );
-        model = tiers[tierIndex].model;
+
+        if (tierIndex === tiers.length) {
+          model = await askInput(rl, "Enter model name");
+        } else {
+          model = tiers[tierIndex].model;
+        }
       }
     } else if (provider === "custom") {
       // Custom: ask for base URL and model name
@@ -1107,6 +1268,9 @@ export async function runSetup(opts: {
     // ─── Step 3/5 — API key ───────────────────────────────────────────
     let apiKeyWritten = false;
     let apiKeySource = "";
+    // Captured key value (kept in memory for the validation step below).
+    // Not persisted beyond the wizard run.
+    let capturedApiKey = "";
     const needsKey =
       !isSkip &&
       provider !== "ollama" &&
@@ -1141,6 +1305,17 @@ export async function runSetup(opts: {
         console.log(`  ${CHECK} Found existing key (${source})`);
         if (existingKey) {
           console.log(`  ${DIM}  ${maskKey(existingKey)}${RESET}`);
+          capturedApiKey = existingKey;
+        } else if (existingKeySource === "macOS Keychain" && process.platform === "darwin") {
+          // Pull key out of keychain so we can validate
+          try {
+            capturedApiKey = execSync(
+              `security find-generic-password -a "$USER" -s "${envVarName}" -w`,
+              { stdio: "pipe", encoding: "utf-8" }
+            ).trim();
+          } catch {
+            // Couldn't read it — validation will be skipped
+          }
         }
         apiKeyWritten = true;
         apiKeySource = existingKeySource || "env";
@@ -1153,6 +1328,7 @@ export async function runSetup(opts: {
           // Fall through to key storage options below
           apiKeyWritten = false;
           apiKeySource = "";
+          capturedApiKey = "";
         }
       }
 
@@ -1205,12 +1381,14 @@ export async function runSetup(opts: {
               console.log(`  ${CHECK} Key ${existingKey ? "moved" : "saved"} to macOS Keychain (${maskKey(key)})`);
               apiKeyWritten = true;
               apiKeySource = "macOS Keychain";
+              capturedApiKey = key;
             } else {
               console.log(`  ${CROSS} Failed to write to Keychain. Falling back to .env file.`);
               await writeApiKey(provider, key);
               console.log(`  ${CHECK} Key saved to ~/.config/gnosys/.env (${maskKey(key)})`);
               apiKeyWritten = true;
               apiKeySource = "~/.config/gnosys/.env";
+              capturedApiKey = key;
             }
           }
         } else if (keyChoice === gnomeIdx) {
@@ -1223,12 +1401,14 @@ export async function runSetup(opts: {
               console.log(`  ${CHECK} Key ${existingKey ? "moved" : "saved"} to GNOME Keyring (${maskKey(key)})`);
               apiKeyWritten = true;
               apiKeySource = "GNOME Keyring";
+              capturedApiKey = key;
             } else {
               console.log(`  ${CROSS} Failed to write to GNOME Keyring. Falling back to .env file.`);
               await writeApiKey(provider, key);
               console.log(`  ${CHECK} Key saved to ~/.config/gnosys/.env (${maskKey(key)})`);
               apiKeyWritten = true;
               apiKeySource = "~/.config/gnosys/.env";
+              capturedApiKey = key;
             }
           }
         } else if (keyChoice === envIdx) {
@@ -1264,6 +1444,7 @@ export async function runSetup(opts: {
               console.log(`  ${CHECK} Key saved to ~/.config/gnosys/.env (${maskKey(key)})`);
               apiKeyWritten = true;
               apiKeySource = "~/.config/gnosys/.env";
+              capturedApiKey = key;
             }
           } else {
             console.log(`  ${DIM}Skipped. Choose a different method next time.${RESET}`);
@@ -1284,6 +1465,42 @@ export async function runSetup(opts: {
     } else {
       console.log();
       console.log(`${DIM}Step 3/5 \u2014 API key: not needed (local provider)${RESET}`);
+    }
+
+    // ─── Validate model with a quick test call ────────────────────────
+    // Only attempt validation when we have what we need: a chosen model,
+    // and either a captured key (for cloud providers) or a local provider
+    // (which doesn't need a key).
+    const isLocalProvider = provider === "ollama" || provider === "lmstudio";
+    const canValidate = !isSkip && model && (capturedApiKey || isLocalProvider);
+
+    if (canValidate) {
+      console.log();
+      console.log(`${DIM}Testing ${provider}/${model}...${RESET}`);
+      try {
+        const { validateModel } = await import("./modelValidation.js");
+        const customBaseUrl = provider === "custom"
+          ? process.env.GNOSYS_LLM_BASE_URL
+          : undefined;
+        const result = await validateModel(provider, model, capturedApiKey, { customBaseUrl });
+        if (result.ok) {
+          console.log(`  ${CHECK} Model validated (${result.latencyMs}ms)`);
+        } else {
+          console.log(`  ${WARN} Model test failed: ${result.error}`);
+          const proceed = await askYesNo(rl, "  Continue anyway?", true);
+          if (!proceed) {
+            console.log(`  ${DIM}Setup paused. Re-run when ready: gnosys setup${RESET}`);
+            setupCompleted = true;
+            rl.close();
+            return {
+              provider, model, structuringModel: "",
+              apiKeyWritten, ides: [], mode: "agent", upgraded,
+            };
+          }
+        }
+      } catch (err) {
+        console.log(`  ${DIM}Validation skipped: ${err instanceof Error ? err.message : err}${RESET}`);
+      }
     }
 
     // ─── Step 4/5 — Task Model Configuration ─────────────────────────
@@ -1473,12 +1690,19 @@ export async function runSetup(opts: {
 
     const ideLabels: Record<string, string> = {
       claude: "Claude Code",
+      "claude-desktop": "Claude Desktop",
       cursor: "Cursor",
       codex: "Codex",
+      "gemini-cli": "Gemini CLI",
+      antigravity: "Antigravity",
     };
 
+    // IDEs whose MCP config lives at the user level (~/...) rather than per-project.
+    // We don't try to create a project-level directory for these.
+    const userLevelIdes = new Set(["claude", "claude-desktop", "gemini-cli", "antigravity"]);
+
     // Build IDE options: show detected ones and offer to create missing ones
-    const allIdeKeys = ["claude", "cursor", "codex"];
+    const allIdeKeys = ["claude", "claude-desktop", "cursor", "codex", "gemini-cli", "antigravity"];
     const ideOptions: string[] = [];
     const ideKeyForOption: string[] = []; // parallel array mapping option index to IDE key
 
@@ -1487,11 +1711,12 @@ export async function runSetup(opts: {
       const label = ideLabels[ide] ?? ide;
       if (isDetected) {
         ideOptions.push(`${label} (detected)`);
-      } else if (ide === "claude") {
-        // Claude CLI needs to be installed, can't just create a directory
-        ideOptions.push(`${label} ${DIM}(not detected \u2014 install Claude CLI first)${RESET}`);
+      } else if (userLevelIdes.has(ide)) {
+        // User-level IDEs \u2014 config goes under ~/. We can still write the config
+        // even if the IDE isn't installed yet (it will be picked up later).
+        ideOptions.push(`${label} ${DIM}(not detected \u2014 will configure anyway)${RESET}`);
       } else {
-        // Offer to create the directory
+        // Project-level IDEs \u2014 offer to create the local directory
         ideOptions.push(`${label} ${DIM}(create .${ide}/ \u2014 not detected)${RESET}`);
       }
       ideKeyForOption.push(ide);
@@ -1520,8 +1745,10 @@ export async function runSetup(opts: {
     // Last option is "Skip"
 
     for (const ide of idesToSetup) {
-      // For non-detected IDEs (except claude), create the directory first
-      if (!detectedIdes.includes(ide) && ide !== "claude") {
+      // For non-detected project-level IDEs, create the directory first.
+      // User-level IDEs (claude, gemini-cli, antigravity) handle their own
+      // ~/-level config dirs inside setupIDE().
+      if (!detectedIdes.includes(ide) && !userLevelIdes.has(ide)) {
         const dirPath = path.join(projectDir, `.${ide}`);
         try {
           await fs.mkdir(dirPath, { recursive: true });
@@ -1565,7 +1792,7 @@ export async function runSetup(opts: {
       // Determine which store path to write to — prefer project, fall back to global
       let storePath: string;
       const projectStore = path.join(projectDir, ".gnosys");
-      const globalStore = path.join(os.homedir(), ".gnosys");
+      const globalStore = getGnosysHome();
 
       if (fsSync.existsSync(path.join(projectStore, "gnosys.json"))) {
         storePath = projectStore;
@@ -1701,13 +1928,9 @@ export async function runSetup(opts: {
           const { runConfigureWizard } = await import("./remoteWizard.js");
           const centralDb = GnosysDB.openCentral();
           if (centralDb.isAvailable()) {
-            // Close our readline so the wizard can manage stdin
-            rl.close();
-            remoteConfigured = await runConfigureWizard(centralDb);
+            // Pass our readline to the wizard — it will use ours and not close it
+            remoteConfigured = await runConfigureWizard(centralDb, rl);
             centralDb.close();
-            // We can't reopen readline after the wizard closed stdin, so
-            // we need to skip any further prompts. Return early after the
-            // summary box.
           } else {
             console.log("Central DB not available — skipping remote sync.");
           }
@@ -1731,8 +1954,7 @@ export async function runSetup(opts: {
     console.log();
 
     setupCompleted = true;
-    // rl may already be closed if the remote wizard ran
-    try { rl.close(); } catch { /* already closed */ }
+    rl.close();
 
     return {
       provider: isSkip ? "skip" : provider,
@@ -1749,4 +1971,263 @@ export async function runSetup(opts: {
     rl.close();
     throw err;
   }
+}
+
+// ─── Models-only setup (gnosys setup models / gnosys models) ─────────────────
+
+export interface ModelsSetupOpts {
+  provider?: string;
+  model?: string;
+  validate?: boolean;
+  directory?: string;
+}
+
+/**
+ * Models-only configuration — prompts for provider, model, and key (or accepts
+ * them via options for non-interactive use). Validates the model against the
+ * provider, then writes the result to gnosys.json. Skips IDE and remote setup.
+ */
+export async function runModelsSetup(opts: ModelsSetupOpts = {}): Promise<void> {
+  const projectDir = opts.directory ? path.resolve(opts.directory) : process.cwd();
+  const rl = createInterface({ input: stdin, output: stdout });
+
+  try {
+    console.log();
+    console.log(`${BOLD}${CYAN}Gnosys${RESET} ${DIM}— Model Configuration${RESET}`);
+    console.log();
+
+    const existingConfig = await loadExistingConfig(projectDir);
+    const currentProvider = existingConfig?.llm.defaultProvider;
+    const currentModel = existingConfig
+      ? getProviderModel(existingConfig, existingConfig.llm.defaultProvider)
+      : undefined;
+
+    // Step 1: provider (or use --provider flag)
+    console.log(`${DIM}Fetching latest model pricing...${RESET}`);
+    const dynamicModels = await fetchDynamicModels();
+    if (Object.keys(dynamicModels).length > 0) {
+      console.log(`${DIM}${CHECK} Live pricing loaded from OpenRouter${RESET}`);
+    }
+    console.log();
+
+    let provider: string;
+    if (opts.provider) {
+      if (!PROVIDER_ORDER.includes(opts.provider)) {
+        console.log(`${CROSS} Unknown provider: ${opts.provider}`);
+        console.log(`  Valid: ${PROVIDER_ORDER.join(", ")}`);
+        return;
+      }
+      provider = opts.provider;
+      console.log(`Provider: ${GREEN}${provider}${RESET}`);
+    } else {
+      provider = await pickProvider(rl, dynamicModels, "Choose your LLM provider", currentProvider);
+    }
+
+    // Step 2: model (or use --model flag)
+    let model: string;
+    if (opts.model) {
+      model = opts.model;
+      console.log(`Model: ${GREEN}${model}${RESET}`);
+    } else {
+      const tiers = dynamicModels[provider] ?? PROVIDER_TIERS[provider];
+      if (provider === "custom" || !tiers || tiers.length === 0) {
+        model = await askInput(rl, "Model name");
+      } else {
+        const showCurrent = currentProvider === provider ? currentModel : undefined;
+        model = await pickModel(rl, provider, dynamicModels, "Choose model", showCurrent);
+      }
+    }
+
+    if (!model) {
+      console.log(`${CROSS} No model selected. Aborting.`);
+      return;
+    }
+
+    // Step 3: load API key from existing storage (if available)
+    const envVarName = provider === "custom" ? "GNOSYS_CUSTOM_KEY" :
+      `GNOSYS_${provider.toUpperCase()}_KEY`;
+    const legacyEnvVars: Record<string, string> = {
+      anthropic: "ANTHROPIC_API_KEY",
+      openai: "OPENAI_API_KEY",
+      groq: "GROQ_API_KEY",
+      xai: "XAI_API_KEY",
+      mistral: "MISTRAL_API_KEY",
+    };
+    const legacyEnvVar = legacyEnvVars[provider] ?? "";
+
+    let apiKey = process.env[envVarName] || (legacyEnvVar ? process.env[legacyEnvVar] : "") || "";
+
+    if (!apiKey && process.platform === "darwin") {
+      try {
+        apiKey = execSync(
+          `security find-generic-password -a "$USER" -s "${envVarName}" -w`,
+          { stdio: "pipe", encoding: "utf-8" }
+        ).trim();
+      } catch {
+        // No key in keychain
+      }
+    }
+
+    if (!apiKey && provider !== "ollama" && provider !== "lmstudio") {
+      console.log(`${WARN} No API key found for ${provider}. Run 'gnosys setup' to configure one.`);
+      // Continue anyway — user might just want to update the model in config
+    }
+
+    // Step 4: validate (default: true)
+    const shouldValidate = opts.validate !== false;
+    const isLocalProvider = provider === "ollama" || provider === "lmstudio";
+    if (shouldValidate && (apiKey || isLocalProvider)) {
+      console.log();
+      console.log(`${DIM}Testing ${provider}/${model}...${RESET}`);
+      const customBaseUrl = provider === "custom"
+        ? process.env.GNOSYS_LLM_BASE_URL
+        : undefined;
+      const result = await validateModel(provider, model, apiKey, { customBaseUrl });
+      if (result.ok) {
+        console.log(`  ${CHECK} Model validated (${result.latencyMs}ms)`);
+      } else {
+        console.log(`  ${WARN} Model test failed: ${result.error}`);
+        const proceed = await askYesNo(rl, "  Save config anyway?", false);
+        if (!proceed) {
+          console.log(`  ${DIM}Cancelled.${RESET}`);
+          return;
+        }
+      }
+    }
+
+    // Step 5: write config
+    const projectStore = path.join(projectDir, ".gnosys");
+    const globalStore = getGnosysHome();
+    let storePath: string;
+    if (fsSync.existsSync(path.join(projectStore, "gnosys.json"))) {
+      storePath = projectStore;
+    } else if (fsSync.existsSync(path.join(globalStore, "gnosys.json"))) {
+      storePath = globalStore;
+    } else {
+      await fs.mkdir(globalStore, { recursive: true });
+      storePath = globalStore;
+    }
+
+    const existingLlm = existingConfig?.llm;
+    const existingProviderConfig = existingLlm
+      ? (existingLlm as Record<string, unknown>)[provider]
+      : undefined;
+    const providerConfigBase = (typeof existingProviderConfig === "object" && existingProviderConfig !== null)
+      ? existingProviderConfig as Record<string, unknown>
+      : {};
+
+    await updateConfig(storePath, {
+      llm: {
+        ...(existingLlm ?? {}),
+        defaultProvider: provider as LLMProviderName,
+        [provider]: {
+          ...providerConfigBase,
+          model,
+        },
+      },
+    });
+
+    console.log();
+    console.log(`  ${CHECK} Config saved: ${storePath}/gnosys.json`);
+    console.log(`  ${DIM}Provider: ${provider}${RESET}`);
+    console.log(`  ${DIM}Model:    ${model}${RESET}`);
+  } finally {
+    rl.close();
+  }
+}
+
+// ─── Quick `gnosys models` command ───────────────────────────────────────────
+
+export interface ModelsCommandOpts {
+  list?: boolean;
+  refresh?: boolean;
+  set?: string;
+  directory?: string;
+}
+
+/**
+ * Lightweight model-management command. Supports three operations:
+ *   --list:    print available models for the current provider
+ *   --refresh: clear the OpenRouter cache and re-fetch
+ *   --set X:   update the default model in gnosys.json (no prompts)
+ */
+export async function runModelsCommand(opts: ModelsCommandOpts = {}): Promise<void> {
+  const projectDir = opts.directory ? path.resolve(opts.directory) : process.cwd();
+  const existingConfig = await loadExistingConfig(projectDir);
+  const currentProvider = existingConfig?.llm.defaultProvider;
+
+  if (opts.refresh) {
+    const cacheFile = path.join(os.homedir(), ".config", "gnosys", "models-cache.json");
+    try {
+      await fs.unlink(cacheFile);
+      console.log(`${CHECK} Cache cleared.`);
+    } catch {
+      console.log(`${DIM}No cache to clear.${RESET}`);
+    }
+  }
+
+  if (opts.list) {
+    if (!currentProvider) {
+      console.log(`${WARN} No provider configured. Run 'gnosys setup' first.`);
+      return;
+    }
+    console.log();
+    console.log(`${BOLD}Available models for ${currentProvider}:${RESET}`);
+    console.log();
+    const dynamicModels = await fetchDynamicModels();
+    const tiers = dynamicModels[currentProvider] ?? PROVIDER_TIERS[currentProvider] ?? [];
+    if (tiers.length === 0) {
+      console.log(`  ${DIM}No models in catalog. Try '--refresh' or use a custom model name.${RESET}`);
+      return;
+    }
+    for (const t of tiers) {
+      const rec = t.recommended ? `  ${CYAN}<- recommended${RESET}` : "";
+      const price = t.input === 0 && t.output === 0
+        ? "free"
+        : `$${t.input.toFixed(2)}–$${t.output.toFixed(2)}/M`;
+      console.log(`  ${t.name.padEnd(24)} ${t.model.padEnd(40)} ${DIM}${price}${RESET}${rec}`);
+    }
+    return;
+  }
+
+  if (opts.set) {
+    if (!currentProvider) {
+      console.log(`${WARN} No provider configured. Run 'gnosys setup' first.`);
+      return;
+    }
+    const projectStore = path.join(projectDir, ".gnosys");
+    const globalStore = getGnosysHome();
+    const storePath = fsSync.existsSync(path.join(projectStore, "gnosys.json"))
+      ? projectStore
+      : globalStore;
+
+    const existingProviderConfig = (existingConfig?.llm as Record<string, unknown> | undefined)?.[currentProvider];
+    const providerConfigBase = (typeof existingProviderConfig === "object" && existingProviderConfig !== null)
+      ? existingProviderConfig as Record<string, unknown>
+      : {};
+
+    await updateConfig(storePath, {
+      llm: {
+        ...(existingConfig?.llm ?? {}),
+        defaultProvider: currentProvider,
+        [currentProvider]: { ...providerConfigBase, model: opts.set },
+      },
+    });
+    console.log(`${CHECK} Default model set to ${GREEN}${opts.set}${RESET} for ${currentProvider}.`);
+    return;
+  }
+
+  // No flags: show current config
+  if (!currentProvider) {
+    console.log(`${WARN} No provider configured. Run 'gnosys setup' first.`);
+    return;
+  }
+  const currentModel = existingConfig
+    ? getProviderModel(existingConfig, existingConfig.llm.defaultProvider)
+    : "";
+  console.log();
+  console.log(`Provider: ${GREEN}${currentProvider}${RESET}`);
+  console.log(`Model:    ${GREEN}${currentModel}${RESET}`);
+  console.log();
+  console.log(`${DIM}Use '--list' to see options, '--set <model>' to change, '--refresh' to update catalog.${RESET}`);
 }

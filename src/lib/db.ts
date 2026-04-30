@@ -20,6 +20,7 @@ try {
 import path from "path";
 import fs from "fs";
 import { enableWAL } from "./lock.js";
+import { getGnosysHome as getGnosysHomeImpl, getCentralDbPath as getCentralDbPathImpl } from "./paths.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -297,19 +298,24 @@ export class GnosysDB {
   private dbFilePath: string;
 
   /**
-   * Get the central DB directory (~/.gnosys/).
-   * Creates it if it doesn't exist.
+   * Get the gnosys home directory. Delegates to the canonical helper in
+   * paths.ts — kept here for callers that already have a GnosysDB import.
+   * See `getGnosysHome()` in `./paths.js` for the full contract.
    */
+  static getGnosysHome(): string {
+    return getGnosysHomeImpl();
+  }
+
+  /** @deprecated Use getGnosysHome() — kept temporarily for backward compat. */
   static getCentralDbDir(): string {
-    const home = process.env.HOME || process.env.USERPROFILE || "/tmp";
-    return path.join(home, ".gnosys");
+    return getGnosysHomeImpl();
   }
 
   /**
-   * Get the central DB file path (~/.gnosys/gnosys.db).
+   * Get the central DB file path. Delegates to paths.ts.
    */
   static getCentralDbPath(): string {
-    return path.join(GnosysDB.getCentralDbDir(), "gnosys.db");
+    return getCentralDbPathImpl();
   }
 
   /**
@@ -317,7 +323,7 @@ export class GnosysDB {
    * Creates ~/.gnosys/ directory if needed.
    */
   static openCentral(): GnosysDB {
-    const dir = GnosysDB.getCentralDbDir();
+    const dir = GnosysDB.getGnosysHome();
     fs.mkdirSync(dir, { recursive: true });
     return new GnosysDB(dir);
   }
@@ -372,7 +378,7 @@ export class GnosysDB {
    * Restore from a backup file. Closes current DB, copies backup over, re-opens.
    */
   static restore(backupPath: string, targetDir?: string): GnosysDB {
-    const dir = targetDir || GnosysDB.getCentralDbDir();
+    const dir = targetDir || GnosysDB.getGnosysHome();
     const targetPath = path.join(dir, "gnosys.db");
 
     // Validate backup file exists
