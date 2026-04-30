@@ -5,6 +5,35 @@ All notable changes to Gnosys are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.4.0] — 2026-04-30
+
+### Added — three new IDE integrations
+- **Claude Desktop** — `gnosys init claude-desktop` writes to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS), `%APPDATA%\Claude\claude_desktop_config.json` (Windows), or `~/.config/Claude/claude_desktop_config.json` (Linux). One config covers Chat, Cowork, and Code surfaces inside Claude Desktop.
+- **Gemini CLI** — `gnosys init gemini-cli` writes to `~/.gemini/settings.json`, preserving any existing user settings.
+- **Antigravity** — `gnosys init antigravity` writes to `~/.gemini/antigravity/mcp_config.json`. Antigravity hot-reloads MCP servers when the file changes.
+- All merges are idempotent — re-running is safe, and existing `mcpServers` entries from other tools are preserved.
+
+### Added — setup wizard polish
+- "Custom (enter model name)" option in the model picker. Lets users type any provider model ID (including the dated/reasoning variants OpenRouter doesn't list, like `grok-4.20-0309-reasoning`).
+- Post-setup model validation via a tiny test API call (`max_tokens=5`). Catches typos and bad keys before the wizard finishes. Supports anthropic, openai, xai, groq, mistral, ollama, lmstudio, and custom providers.
+- New subcommands: `gnosys setup models` (just LLM/model config), `gnosys setup remote` (multi-machine sync), `gnosys models --list|--refresh|--set <name>` (quick model ops).
+
+### Added — central DB hygiene
+- `GNOSYS_HOME` env var override — redirects every gnosys-owned path (DB, config, sandbox) to a custom directory. Used by tests for isolation; also lets advanced users move their `~/.gnosys/` elsewhere.
+- `gnosys projects --prune` — deletes registry entries whose `working_directory` no longer exists on disk. Useful for cleaning up after CI runs or removed projects.
+- `gnosys projects` (no flags) now hides projects whose directory is missing; `--all` shows everything for debugging.
+
+### Added — `src/lib/paths.ts`
+- New module is the **single source of truth** for `~/.gnosys/...` resolution. Exports `getGnosysHome()`, `getCentralDbPath()`, `getGlobalConfigPath()`, `getSandboxDir()`. All hardcoded `path.join(os.homedir(), ".gnosys")` sites in the codebase now go through this helper.
+
+### Fixed
+- Remote sync configuration from `gnosys setup` — readline lifecycle bug was firing "Setup cancelled" before the remote wizard could run. `runConfigureWizard()` now accepts an optional external readline so the parent wizard owns the lifecycle.
+- Test pollution — every test that spawns the gnosys CLI now passes an isolated `GNOSYS_HOME`. Stops tests from registering temporary projects in the user's real central DB.
+- `csv-parse/sync` types — bundled `src/types/csv-parse-sync.d.ts` ambient declaration silences the missing-types warning that comes from csv-parse v6.1's published package.
+
+### Verification
+- 735 / 738 tests pass (3 pre-existing `llm-providers.test.ts` failures unchanged — caused by xAI key in keychain on the test machine).
+
 ## [5.3.3] — 2026-04-25
 
 ### Added

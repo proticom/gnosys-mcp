@@ -24,7 +24,7 @@
 
 Gnosys is **sandbox-first**: a persistent background process holds the database connection while agents import a tiny helper library and call memory operations like normal code — no MCP schemas, no round-trips, near-zero context cost. The central brain at `~/.gnosys/gnosys.db` unifies all projects, user preferences, and global knowledge. Federated search ranks results across scopes with tier boosting and recency awareness. The **Web Knowledge Base** turns any website into a searchable knowledge base for serverless chatbots — pre-computed JSON index, zero runtime dependencies. **Multimodal ingestion** handles PDFs, images, audio, and video. **Portfolio Dashboard** gives a bird's-eye view of all projects. Process tracing builds call chains from source code. Dream Mode consolidates knowledge during idle time. One-command export regenerates a full Obsidian vault.
 
-It also runs as a CLI and a complete MCP server that drops straight into Cursor, Claude Desktop, Claude Code, Cowork, Codex, or any MCP client.
+It also runs as a CLI and a complete MCP server that drops straight into Cursor, Claude Desktop (Chat / Cowork / Code), Claude Code, Codex, Gemini CLI, Antigravity, or any MCP client.
 
 No vector DBs. No black boxes. No external services. Just SQLite and optional Obsidian export — the way knowledge should be.
 
@@ -53,7 +53,7 @@ Gnosys takes a different approach: the central brain is a single SQLite database
 - **Bulk import** — CSV, JSON, JSONL. Import entire datasets in seconds.
 - **Obsidian-native** — `gnosys export` generates a full vault with YAML frontmatter, `[[wikilinks]]`, summaries, and graph data.
 - **Multi-machine sync (v5.3.0)** — share your `gnosys.db` across machines via NAS or shared drive. Local cache for speed, remote source of truth for consistency. Built-in conflict detection with skip-and-flag resolution. Run `gnosys remote configure` to set up.
-- **MCP-compatible** — also runs as a full MCP server that drops into Cursor, Claude Desktop, Claude Code, Cowork, Codex, or any MCP client.
+- **MCP-compatible** — also runs as a full MCP server that drops into Cursor, Claude Desktop (Chat / Cowork / Code), Claude Code, Codex, Gemini CLI, Antigravity, or any MCP client.
 - **Zero infrastructure** — no external databases, no Docker (unless you want it), no cloud services. Just `npm install`.
 
 > For the complete CLI reference and detailed guides, see the **[User Guide](https://gnosys.ai/guide.html)**.
@@ -235,9 +235,47 @@ This improves your site's visibility in AI-powered search results and enables LL
 
 ## MCP Server Setup
 
-### Claude Desktop
+The fastest way to wire gnosys into any supported client is to run `gnosys init <ide>` from the project directory you want memory-enabled. Examples:
 
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+```bash
+gnosys init claude-desktop   # Claude Desktop (covers Chat, Cowork, and Code)
+gnosys init claude           # Claude Code CLI
+gnosys init cursor           # Cursor
+gnosys init codex            # Codex
+gnosys init gemini-cli       # Gemini CLI
+gnosys init antigravity      # Google Antigravity
+```
+
+This does two things at once:
+1. Wires gnosys into the IDE's MCP config (idempotent — safe to re-run).
+2. Initializes the current directory as a gnosys project (creates `.gnosys/gnosys.json`, registers it in the central DB) so your memories can be scoped to it.
+
+### One-time vs. per-project
+
+The IDE wiring writes to a **user-level** config file, so it only needs to happen **once**. Re-running it in another project just re-merges the same `mcpServers.gnosys` entry — harmless.
+
+The project registration is **per-directory**: every codebase you want to be memory-aware of needs its own `gnosys init`. From then on, agents pass `projectRoot: "/path/to/project"` to gnosys MCP tools to scope memory to that codebase.
+
+```bash
+# Once, anywhere — wires Claude Desktop's MCP config:
+gnosys init claude-desktop
+
+# Once per project — registers the codebase in the central DB:
+cd /path/to/project-a && gnosys init
+cd /path/to/project-b && gnosys init
+```
+
+> **Cowork users:** Cowork sessions don't have a working directory like a CLI does. The agent in Cowork uses whichever `projectRoot` it's told to use (typically auto-detected from open files or set via the system prompt). The "every working directory" question doesn't apply to Cowork itself — only to the projects you want memory-enabled. Run `gnosys init claude-desktop` once globally; run `gnosys init` per project.
+
+---
+
+### Manual config (if you prefer)
+
+If you'd rather edit configs by hand, here's where each client looks for MCP servers.
+
+#### Claude Desktop (Chat, Cowork, and Code share the same config)
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS), `%APPDATA%\Claude\claude_desktop_config.json` (Windows), or `~/.config/Claude/claude_desktop_config.json` (Linux):
 
 ```json
 {
@@ -250,9 +288,11 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 }
 ```
 
-### Cursor
+Restart Claude Desktop after editing.
 
-Add to `.cursor/mcp.json`:
+#### Cursor
+
+Add to `.cursor/mcp.json` in your project:
 
 ```json
 {
@@ -265,13 +305,13 @@ Add to `.cursor/mcp.json`:
 }
 ```
 
-### Claude Code
+#### Claude Code
 
 ```bash
 claude mcp add gnosys gnosys serve
 ```
 
-### Codex
+#### Codex
 
 Add to `.codex/config.toml`:
 
@@ -280,6 +320,38 @@ Add to `.codex/config.toml`:
 type = "local"
 command = ["gnosys", "serve"]
 ```
+
+#### Gemini CLI
+
+Add to `~/.gemini/settings.json` (preserves any existing settings):
+
+```json
+{
+  "mcpServers": {
+    "gnosys": {
+      "command": "gnosys",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+#### Antigravity
+
+Add to `~/.gemini/antigravity/mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "gnosys": {
+      "command": "gnosys",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+Antigravity reloads MCP servers automatically when you save the file.
 
 > **Note:** API keys are configured via `gnosys setup` (macOS Keychain, environment variable, or `~/.config/gnosys/.env`). See [LLM Provider Setup](https://gnosys.ai/guide.html#guide-llm-provider-setup) in the User Guide.
 
