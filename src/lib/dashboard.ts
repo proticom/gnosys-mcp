@@ -77,6 +77,30 @@ export interface DashboardData {
   version: string;
 }
 
+/**
+ * Probe a local LLM provider's HTTP endpoint with a short timeout.
+ * Returns true if the server responded within 500ms.
+ */
+async function probeLocalProvider(
+  provider: "ollama" | "lmstudio",
+  config: GnosysConfig
+): Promise<boolean> {
+  const probeUrl = provider === "ollama"
+    ? `${config.llm.ollama.baseUrl.replace(/\/$/, "")}/api/tags`
+    : `${config.llm.lmstudio.baseUrl.replace(/\/$/, "")}/v1/models`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 500);
+  try {
+    const res = await fetch(probeUrl, { signal: controller.signal });
+    clearTimeout(timeout);
+    return res.ok;
+  } catch {
+    clearTimeout(timeout);
+    return false;
+  }
+}
+
 // ─── Data Collection ────────────────────────────────────────────────────
 
 export async function collectDashboardData(
@@ -104,13 +128,32 @@ export async function collectDashboardData(
     };
   }
 
-  // Memory counts
+  // Memory counts — v5.4.1: prefer central DB. The legacy resolver path
+  // returns 0 in DB-only mode (memories aren't on the filesystem anymore).
+  // Show per-project breakdown from the central DB when available.
   const storeData: DashboardData["stores"] = [];
   let totalMemories = 0;
-  for (const s of stores) {
-    const memories = await s.store.getAllMemories();
-    storeData.push({ label: s.label, path: s.path, memoryCount: memories.length });
-    totalMemories += memories.length;
+  if (gnosysDb?.isAvailable() && gnosysDb?.isMigrated()) {
+    const projects = gnosysDb.getAllProjects();
+    for (const p of projects) {
+      const count = gnosysDb.getMemoriesByProject(p.id).length;
+      storeData.push({ label: p.name, path: p.working_directory, memoryCount: count });
+      totalMemories += count;
+    }
+    // Also count user/global-scoped memories that have no project_id
+    const orphanCount = gnosysDb
+      .getAllMemories()
+      .filter((m) => !m.project_id).length;
+    if (orphanCount > 0) {
+      storeData.push({ label: "user/global", path: "(no project)", memoryCount: orphanCount });
+      totalMemories += orphanCount;
+    }
+  } else {
+    for (const s of stores) {
+      const memories = await s.store.getAllMemories();
+      storeData.push({ label: s.label, path: s.path, memoryCount: memories.length });
+      totalMemories += memories.length;
+    }
   }
 
   // Archive stats
@@ -197,11 +240,17 @@ export async function collectDashboardData(
 
   for (const p of ALL_PROVIDERS) {
     const status = isProviderAvailable(config, p);
-    providerStatus.push({
-      name: p,
-      available: status.available,
-      note: status.available ? "ready" : (status.error || "not configured"),
-    });
+    let available = status.available;
+    let note = status.available ? "ready" : (status.error || "not configured");
+    // v5.4.1: For local providers, the sync isProviderAvailable check just
+    // confirms "no API key needed." Actually probe the local server with a
+    // short timeout so the dashboard reports truthful state.
+    if (status.available && (p === "ollama" || p === "lmstudio")) {
+      const reachable = await probeLocalProvider(p, config);
+      available = reachable;
+      note = reachable ? "ready" : "server not running";
+    }
+    providerStatus.push({ name: p, available, note });
   }
 
   // Performance benchmarks (quick probe of search/archive latency)
@@ -269,138 +318,138 @@ export async function collectDashboardData(
 
 // ─── Pretty Terminal Formatting ─────────────────────────────────────────
 
+// Box dimensions. Inner width = chars between ║ and ║. Top/bottom borders
+// use the same width so everything aligns. The +1 in `pad` ensures content
+// always has at least 1 char of trailing margin before the right border.
+const BOX_W = 54;
+const BOX_TOP = "╔" + "═".repeat(BOX_W) + "╗";
+const BOX_MID = "╠" + "═".repeat(BOX_W) + "╣";
+const BOX_DIV = "╟" + "─".repeat(BOX_W) + "╢";
+const BOX_BOT = "╚" + "═".repeat(BOX_W) + "╝";
+
+/** Wrap a content line in box borders, truncating with ellipsis if needed. */
+function row(content: string): string {
+  const max = BOX_W - 1; // leave at least 1 char of trailing margin
+  const trimmed = content.length > max
+    ? content.substring(0, max - 1) + "…"
+    : content;
+  return `║${trimmed.padEnd(BOX_W)}║`;
+}
+
+/** Section header — a centred-ish title with trailing margin. */
+function header(title: string): string {
+  return row(`  ${title}`);
+}
+
 export function formatDashboard(data: DashboardData): string {
   const lines: string[] = [];
 
-  lines.push("╔══════════════════════════════════════════════════════╗");
-  lines.push(`║          GNOSYS DASHBOARD  v${data.version.padEnd(24)}║`);
-  lines.push("╠══════════════════════════════════════════════════════╣");
+  lines.push(BOX_TOP);
+  lines.push(row(`          GNOSYS DASHBOARD  v${data.version}`));
+  lines.push(BOX_MID);
 
-  // v2.0 GnosysDB stats (show first when available)
+  // v5.x: Central Database stats (was "v2.0 AGENT-NATIVE CORE")
   if (data.gnosysDb) {
-    lines.push("║  GNOSYS DB (v2.0 AGENT-NATIVE CORE)                ║");
-    lines.push("╟──────────────────────────────────────────────────────╢");
-    const schema = `  Schema v${data.gnosysDb.schemaVersion} — migrated ✓`.padEnd(53);
-    lines.push(`║${schema}║`);
-    const counts = `  Active: ${data.gnosysDb.activeCount} | Archived: ${data.gnosysDb.archivedCount} | Total: ${data.gnosysDb.totalCount}`.padEnd(53);
-    lines.push(`║${counts}║`);
-    const emb = `  Embeddings: ${data.gnosysDb.embeddingCount} inline vectors`.padEnd(53);
-    lines.push(`║${emb}║`);
-    const cats = `  Categories: ${data.gnosysDb.categories.join(", ")}`.substring(0, 53).padEnd(53);
-    lines.push(`║${cats}║`);
-    lines.push("╟──────────────────────────────────────────────────────╢");
+    lines.push(header("CENTRAL DATABASE"));
+    lines.push(BOX_DIV);
+    lines.push(row(`  Schema v${data.gnosysDb.schemaVersion} — migrated ✓`));
+    lines.push(row(`  Active: ${data.gnosysDb.activeCount} | Archived: ${data.gnosysDb.archivedCount} | Total: ${data.gnosysDb.totalCount}`));
+    lines.push(row(`  Embeddings: ${data.gnosysDb.embeddingCount} inline vectors`));
+    lines.push(row(`  Categories: ${data.gnosysDb.categories.join(", ")}`));
+    lines.push(BOX_DIV);
   }
 
-  // Memory Stats
-  lines.push("║  MEMORY STORES                                      ║");
-  lines.push("╟──────────────────────────────────────────────────────╢");
+  // Memory by project (was "MEMORY STORES" — populated from central DB in v5.4.1)
+  lines.push(header("MEMORY BY PROJECT"));
+  lines.push(BOX_DIV);
   for (const s of data.stores) {
-    const label = `  ${s.label}: ${s.memoryCount} memories`.padEnd(53);
-    lines.push(`║${label}║`);
+    lines.push(row(`  ${s.label}: ${s.memoryCount} memories`));
   }
-  const total = `  Total: ${data.totalMemories} active memories`.padEnd(53);
-  lines.push(`║${total}║`);
+  lines.push(row(`  Total: ${data.totalMemories} active memories`));
 
-  // Archive (Two-Tier Memory)
+  // Archive (was "ARCHIVE (TWO-TIER MEMORY)" — two-tier was the pre-v5 model)
   if (data.archive) {
-    lines.push("╟──────────────────────────────────────────────────────╢");
-    lines.push("║  ARCHIVE (TWO-TIER MEMORY)                          ║");
-    lines.push("╟──────────────────────────────────────────────────────╢");
-    const archived = `  Archived: ${data.archive.totalArchived} memories (${data.archive.dbSizeMB.toFixed(1)} MB)`.padEnd(53);
-    lines.push(`║${archived}║`);
-    const eligible = `  Eligible for archiving: ${data.archive.archiveEligible}`.padEnd(53);
-    lines.push(`║${eligible}║`);
+    lines.push(BOX_DIV);
+    lines.push(header("ARCHIVE"));
+    lines.push(BOX_DIV);
+    lines.push(row(`  Archived: ${data.archive.totalArchived} memories (${data.archive.dbSizeMB.toFixed(1)} MB)`));
+    lines.push(row(`  Eligible for archiving: ${data.archive.archiveEligible}`));
   }
 
   // Maintenance Health
   if (data.maintenance) {
-    lines.push("╟──────────────────────────────────────────────────────╢");
-    lines.push("║  MAINTENANCE HEALTH                                 ║");
-    lines.push("╟──────────────────────────────────────────────────────╢");
+    lines.push(BOX_DIV);
+    lines.push(header("MAINTENANCE HEALTH"));
+    lines.push(BOX_DIV);
     const m = data.maintenance;
-    const conf = `  Confidence: ${m.avgConfidence.toFixed(3)} raw / ${m.avgDecayedConfidence.toFixed(3)} decayed`.padEnd(53);
-    lines.push(`║${conf}║`);
-    const stale = `  Stale: ${m.staleCount} | Never reinforced: ${m.neverReinforced}`.padEnd(53);
-    lines.push(`║${stale}║`);
-    const reinf = `  Total reinforcements: ${m.totalReinforcements}`.padEnd(53);
-    lines.push(`║${reinf}║`);
+    lines.push(row(`  Confidence: ${m.avgConfidence.toFixed(3)} raw / ${m.avgDecayedConfidence.toFixed(3)} decayed`));
+    lines.push(row(`  Stale: ${m.staleCount} | Never reinforced: ${m.neverReinforced}`));
+    lines.push(row(`  Total reinforcements: ${m.totalReinforcements}`));
   }
 
   // Embeddings
-  lines.push("╟──────────────────────────────────────────────────────╢");
-  lines.push("║  EMBEDDINGS                                         ║");
-  lines.push("╟──────────────────────────────────────────────────────╢");
+  lines.push(BOX_DIV);
+  lines.push(header("EMBEDDINGS"));
+  lines.push(BOX_DIV);
   if (data.embeddings) {
-    const emb = `  ${data.embeddings.count} vectors (${data.embeddings.dbSizeMB.toFixed(1)} MB)`.padEnd(53);
-    lines.push(`║${emb}║`);
+    lines.push(row(`  ${data.embeddings.count} vectors (${data.embeddings.dbSizeMB.toFixed(1)} MB)`));
   } else {
-    lines.push("║  Not initialized (run gnosys reindex)               ║");
+    lines.push(row("  Not initialized (run gnosys reindex)"));
   }
 
-  // Graph
-  lines.push("╟──────────────────────────────────────────────────────╢");
-  lines.push("║  WIKILINK GRAPH                                     ║");
-  lines.push("╟──────────────────────────────────────────────────────╢");
+  // Wikilink Graph
+  lines.push(BOX_DIV);
+  lines.push(header("WIKILINK GRAPH"));
+  lines.push(BOX_DIV);
   if (data.graph) {
     const g = data.graph;
-    const stats = `  ${g.nodes} nodes, ${g.edges} edges, ${g.orphans} orphans`.padEnd(53);
-    lines.push(`║${stats}║`);
+    lines.push(row(`  ${g.nodes} nodes, ${g.edges} edges, ${g.orphans} orphans`));
     if (g.mostConnected) {
-      const mc = `  Most connected: ${g.mostConnected}`.substring(0, 53).padEnd(53);
-      lines.push(`║${mc}║`);
+      lines.push(row(`  Most connected: ${g.mostConnected}`));
     }
   } else {
-    lines.push("║  Not built (run gnosys reindex-graph)               ║");
+    lines.push(row("  Not built (run gnosys reindex-graph)"));
   }
 
   // Recall
-  lines.push("╟──────────────────────────────────────────────────────╢");
-  lines.push("║  RECALL (AUTOMATIC MEMORY INJECTION)                ║");
-  lines.push("╟──────────────────────────────────────────────────────╢");
+  lines.push(BOX_DIV);
+  lines.push(header("RECALL (AUTOMATIC MEMORY INJECTION)"));
+  lines.push(BOX_DIV);
   const recallMode = data.recall.aggressive ? "aggressive" : "filtered";
-  const recallLine = `  Mode: ${recallMode} | Max: ${data.recall.maxMemories} | Min relevance: ${data.recall.minRelevance}`.padEnd(53);
-  lines.push(`║${recallLine}║`);
+  lines.push(row(`  Mode: ${recallMode} | Max: ${data.recall.maxMemories} | Min relevance: ${data.recall.minRelevance}`));
 
   // SOC
-  lines.push("╟──────────────────────────────────────────────────────╢");
-  lines.push("║  SYSTEM OF COGNITION (SOC)                          ║");
-  lines.push("╟──────────────────────────────────────────────────────╢");
-  const defP = `  Default: ${data.soc.defaultProvider}`.padEnd(53);
-  lines.push(`║${defP}║`);
-  const strLine = `  Structuring → ${data.soc.structuring.provider}/${data.soc.structuring.model}`.substring(0, 53).padEnd(53);
-  lines.push(`║${strLine}║`);
-  const synLine = `  Synthesis   → ${data.soc.synthesis.provider}/${data.soc.synthesis.model}`.substring(0, 53).padEnd(53);
-  lines.push(`║${synLine}║`);
-  lines.push("║                                                      ║");
+  lines.push(BOX_DIV);
+  lines.push(header("SYSTEM OF COGNITION (SOC)"));
+  lines.push(BOX_DIV);
+  lines.push(row(`  Default: ${data.soc.defaultProvider}`));
+  lines.push(row(`  Structuring → ${data.soc.structuring.provider}/${data.soc.structuring.model}`));
+  lines.push(row(`  Synthesis   → ${data.soc.synthesis.provider}/${data.soc.synthesis.model}`));
+  lines.push(row(""));
   for (const p of data.soc.providerStatus) {
     const icon = p.available ? "✓" : "—";
-    // Shorten common error messages to fit the box
     let note = p.note;
     if (note.includes("Add to environment or gnosys.json")) {
       note = "no API key";
     }
-    const pLine = `  ${icon} ${p.name}: ${note}`.substring(0, 53).padEnd(53);
-    lines.push(`║${pLine}║`);
+    lines.push(row(`  ${icon} ${p.name}: ${note}`));
   }
 
-  // Performance
+  // Performance (was "PERFORMANCE (ENTERPRISE)")
   if (data.performance) {
-    lines.push("╟──────────────────────────────────────────────────────╢");
-    lines.push("║  PERFORMANCE (ENTERPRISE)                           ║");
-    lines.push("╟──────────────────────────────────────────────────────╢");
+    lines.push(BOX_DIV);
+    lines.push(header("PERFORMANCE"));
+    lines.push(BOX_DIV);
     const perf = data.performance;
-    const recallLine = `  Recall: ${perf.recallMs}ms${perf.recallMs > 50 ? " ⚠ SLOW" : " ✓"}`.padEnd(53);
-    lines.push(`║${recallLine}║`);
-    const activeLine = `  Active search: ${perf.activeSearchMs}ms`.padEnd(53);
-    lines.push(`║${activeLine}║`);
-    const archiveLine = `  Archive search: ${perf.archiveSearchMs}ms`.padEnd(53);
-    lines.push(`║${archiveLine}║`);
+    lines.push(row(`  Recall: ${perf.recallMs}ms${perf.recallMs > 50 ? " ⚠ SLOW" : " ✓"}`));
+    lines.push(row(`  Active search: ${perf.activeSearchMs}ms`));
+    lines.push(row(`  Archive search: ${perf.archiveSearchMs}ms`));
     if (perf.recallMs > 50) {
-      lines.push("║  ⚠ Recall exceeds 50ms target for enterprise use   ║");
+      lines.push(row("  ⚠ Recall exceeds 50ms target"));
     }
   }
 
-  lines.push("╚══════════════════════════════════════════════════════╝");
+  lines.push(BOX_BOT);
 
   return lines.join("\n");
 }

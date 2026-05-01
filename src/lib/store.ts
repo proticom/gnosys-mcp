@@ -232,20 +232,13 @@ export class GnosysStore {
 
   /**
    * Generate a unique ID for a new memory.
+   * v5.4.1: Uses ULID for global uniqueness across machines/agents.
+   * Existing prefix-NNN IDs remain valid.
    */
   async generateId(category: string): Promise<string> {
+    const { ulid } = await import("ulidx");
     const prefix = category.substring(0, 4);
-    const memories = await this.getAllMemories();
-    const existingIds = memories
-      .map((m) => m.frontmatter.id)
-      .filter((id) => id.startsWith(prefix));
-
-    let maxNum = 0;
-    for (const id of existingIds) {
-      const match = id.match(/(\d+)$/);
-      if (match) maxNum = Math.max(maxNum, parseInt(match[1]));
-    }
-    return `${prefix}-${String(maxNum + 1).padStart(3, "0")}`;
+    return `${prefix}-${ulid()}`;
   }
 
   /**

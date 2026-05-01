@@ -148,12 +148,21 @@ function isLockStale(lock: LockInfo): boolean {
 /**
  * Enable WAL mode on a better-sqlite3 database instance.
  * WAL (Write-Ahead Logging) allows concurrent reads during writes.
+ *
+ * Also configures `wal_autocheckpoint` so the WAL file gets flushed to
+ * the main DB at a regular cadence. Without this, the WAL grows
+ * unboundedly until something triggers a manual checkpoint — we observed
+ * 4MB+ WAL files in the wild with no checkpoint cadence in v5.4.0.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function enableWAL(db: any): void {
   try {
     db.pragma("journal_mode = WAL");
     db.pragma("busy_timeout = 5000"); // Wait up to 5s if DB is busy
+    // Auto-checkpoint after every 1000 frames written to WAL. Default is
+    // 1000 anyway in newer SQLite, but set explicitly so behavior is
+    // predictable across SQLite versions.
+    db.pragma("wal_autocheckpoint = 1000");
   } catch {
     // WAL not supported or DB not available
   }

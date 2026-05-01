@@ -21,6 +21,7 @@ import path from "path";
 import fs from "fs";
 import { enableWAL } from "./lock.js";
 import { getGnosysHome as getGnosysHomeImpl, getCentralDbPath as getCentralDbPathImpl } from "./paths.js";
+import { ulid } from "ulidx";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -319,10 +320,77 @@ export class GnosysDB {
   }
 
   /**
-   * Open the central DB at ~/.gnosys/gnosys.db.
-   * Creates ~/.gnosys/ directory if needed.
+   * Open the central DB.
+   *
+   * v5.4.1 (per deci-037): If a remote NAS is configured AND reachable,
+   * this returns the REMOTE DB so reads see the latest state and writes
+   * go directly to the source of truth. Falls back to local cache when
+   * remote is unreachable (e.g. NAS offline, VPN/Tailscale down).
+   *
+   * For sync operations (push/pull/sync/migrate) and remote configuration,
+   * use `openLocal()` instead — those operations need explicit local DB
+   * access so they can move data between local and remote.
+   *
+   * Force local-only mode by setting `GNOSYS_LOCAL_ONLY=1` (used by tests
+   * and offline-first workflows).
    */
   static openCentral(): GnosysDB {
+    if (process.env.GNOSYS_LOCAL_ONLY === "1") {
+      return GnosysDB.openLocal();
+    }
+
+    const localDb = GnosysDB.openLocal();
+
+    // Check if remote is configured. If not, we're done — return local.
+    let remotePath: string | null = null;
+    try {
+      if (localDb.isAvailable()) {
+        remotePath = localDb.getMeta("remote_path");
+      }
+    } catch {
+      // Local DB unusable — return it anyway; caller will surface error
+      return localDb;
+    }
+    if (!remotePath) {
+      return localDb;
+    }
+
+    // Reachability probe — fast fs.access on the file. ~1ms when mounted,
+    // fails fast when not. Avoids hanging on unmounted SMB shares.
+    const remoteDbFile = path.join(remotePath, "gnosys.db");
+    let remoteReachable = false;
+    try {
+      fs.accessSync(remoteDbFile, fs.constants.R_OK);
+      remoteReachable = true;
+    } catch {
+      // Remote not reachable
+    }
+
+    if (!remoteReachable) {
+      // Quiet fallback notice on stderr — visible to humans, doesn't pollute
+      // stdout that scripts/agents are piping. Only emitted when remote is
+      // CONFIGURED but unreachable (the user expected it to work).
+      process.stderr.write(
+        `gnosys: remote unreachable (${remotePath}), using local cache\n`
+      );
+      return localDb;
+    }
+
+    // Remote is reachable — open it and return. Close local first since we
+    // don't need it during this operation.
+    try {
+      localDb.close();
+    } catch {
+      // ignore
+    }
+    return new GnosysDB(remotePath);
+  }
+
+  /**
+   * Open the local central DB explicitly (no remote routing). Used by sync
+   * operations, remote configuration, and offline-first commands.
+   */
+  static openLocal(): GnosysDB {
     const dir = GnosysDB.getGnosysHome();
     fs.mkdirSync(dir, { recursive: true });
     return new GnosysDB(dir);
@@ -372,6 +440,72 @@ export class GnosysDB {
     const backupPath = path.join(dir, `gnosys-backup-${timestamp}.db`);
     await this.db.backup(backupPath);
     return backupPath;
+  }
+
+  /**
+   * Detect SQLite corruption-related errors. Useful for distinguishing
+   * "the DB file is broken" from transient errors. Returns true for:
+   *   - SQLITE_CORRUPT (database disk image is malformed)
+   *   - SQLITE_NOTADB (file is not a database)
+   *   - "out of memory" during page read (often caused by truncated WAL)
+   */
+  static isCorruptionError(err: unknown): boolean {
+    if (!err) return false;
+    const msg = err instanceof Error ? err.message : String(err);
+    const code = (err as { code?: string }).code;
+    return (
+      code === "SQLITE_CORRUPT" ||
+      code === "SQLITE_NOTADB" ||
+      /database disk image is malformed/i.test(msg) ||
+      /file is not a database/i.test(msg)
+    );
+  }
+
+  /**
+   * Render user-facing recovery instructions for DB corruption.
+   * Used by both CLI error paths and MCP error responses.
+   */
+  static corruptionRecoveryInstructions(): string {
+    return [
+      "Database disk image is malformed.",
+      "",
+      "Quick recovery:",
+      "  1. Close any running gnosys processes (mcp servers, agents).",
+      "  2. Force a WAL checkpoint:",
+      "       sqlite3 ~/.gnosys/gnosys.db 'PRAGMA wal_checkpoint(TRUNCATE);'",
+      "  3. If the error persists, attempt SQLite recovery:",
+      "       cp ~/.gnosys/gnosys.db ~/.gnosys/gnosys.db.backup",
+      "       sqlite3 ~/.gnosys/gnosys.db '.recover' | sqlite3 ~/.gnosys/gnosys-repaired.db",
+      "       mv ~/.gnosys/gnosys.db ~/.gnosys/gnosys.db.broken",
+      "       mv ~/.gnosys/gnosys-repaired.db ~/.gnosys/gnosys.db",
+      "  4. If you have a healthy remote (NAS) sync, you can also restore from there:",
+      "       rm ~/.gnosys/gnosys.db",
+      "       gnosys remote pull",
+    ].join("\n");
+  }
+
+  /**
+   * Close the current connection and reopen. Used to recover from stale
+   * file handles after a WAL checkpoint or remount.
+   */
+  reopen(): void {
+    try {
+      this.db?.close();
+    } catch {
+      // ignore — was already in a bad state
+    }
+    this.db = null;
+    this.available = false;
+    if (!Database) return;
+    try {
+      this.db = new Database(this.dbFilePath);
+      enableWAL(this.db);
+      this.db.pragma("foreign_keys = ON");
+      this.db.pragma("busy_timeout = 10000");
+      this.available = true;
+    } catch {
+      // reopen failed — leave unavailable; caller surfaces error
+    }
   }
 
   /**
@@ -710,24 +844,23 @@ export class GnosysDB {
 
   /**
    * Generate the next sequential ID for a category.
-   * Format: first 4 chars of category + dash + zero-padded number (e.g., "arch-012").
+   * Format (v5.4.1+): first 4 chars of category + dash + ULID
+   * (e.g., "deci-01HZK3MQXYZABCDEFGHJKMNPQR").
+   *
+   * ULIDs are time-sortable (first 10 chars encode the timestamp), globally
+   * unique without coordination, and support concurrent writes from multiple
+   * machines and multiple agents on one machine without ID collisions.
+   *
+   * Existing memories with `prefix-NNN` IDs are unaffected — those IDs remain
+   * unchanged. Only new IDs use the ULID format.
+   *
+   * The `projectId` parameter is accepted for API compatibility but no longer
+   * used for ID generation (ULIDs don't need project scoping for uniqueness).
    */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   getNextId(category: string, projectId?: string): string {
     const prefix = category.substring(0, 4);
-    let query = "SELECT id FROM memories WHERE id LIKE ?";
-    const params: unknown[] = [`${prefix}-%`];
-    if (projectId) {
-      query += " AND project_id = ?";
-      params.push(projectId);
-    }
-    const rows = this.db.prepare(query).all(...params) as Array<{ id: string }>;
-
-    let maxNum = 0;
-    for (const row of rows) {
-      const match = row.id.match(/(\d+)$/);
-      if (match) maxNum = Math.max(maxNum, parseInt(match[1]));
-    }
-    return `${prefix}-${String(maxNum + 1).padStart(3, "0")}`;
+    return `${prefix}-${ulid()}`;
   }
 
   // ─── FTS5 Search ────────────────────────────────────────────────────

@@ -6,6 +6,8 @@
 import { z } from "zod";
 import fs from "fs/promises";
 import path from "path";
+import { execSync } from "child_process";
+import { getGnosysHome } from "./paths.js";
 
 // ─── LLM Provider Schemas ───────────────────────────────────────────────
 
@@ -345,7 +347,6 @@ function resolveApiKey(
   // 3. macOS Keychain
   if (process.platform === "darwin") {
     try {
-      const { execSync } = require("child_process");
       const result = execSync(
         `security find-generic-password -a "$USER" -s "${gnosysEnvVar}" -w 2>/dev/null`,
         { stdio: "pipe", encoding: "utf-8", timeout: 2000 }
@@ -356,7 +357,20 @@ function resolveApiKey(
     }
   }
 
-  // 4. Legacy env var
+  // 4. Linux GNOME Keyring (secret-tool)
+  if (process.platform === "linux") {
+    try {
+      const result = execSync(
+        `secret-tool lookup service gnosys account ${gnosysEnvVar} 2>/dev/null`,
+        { stdio: "pipe", encoding: "utf-8", timeout: 2000 }
+      ).trim();
+      if (result) return result;
+    } catch {
+      // secret-tool not installed or no entry — fall through
+    }
+  }
+
+  // 5. Legacy env var
   if (legacyEnvVar && process.env[legacyEnvVar]) return process.env[legacyEnvVar];
 
   return undefined;
@@ -465,26 +479,76 @@ function migrateConfig(raw: Record<string, unknown>): Record<string, unknown> {
  * Returns defaults if no config file exists.
  * Throws on invalid config with descriptive error messages.
  */
-export async function loadConfig(storePath: string): Promise<GnosysConfig> {
-  const configPath = path.join(storePath, "gnosys.json");
-
+/**
+ * Read a raw gnosys.json file as a plain object. Returns null if the file
+ * doesn't exist. Throws on JSON syntax errors with a descriptive message.
+ * Does NOT apply schema validation or defaults — that happens at the merge step.
+ */
+async function readRawConfig(configPath: string): Promise<Record<string, unknown> | null> {
   try {
     const raw = await fs.readFile(configPath, "utf-8");
-    const parsed = JSON.parse(raw);
-    const migrated = migrateConfig(parsed);
-    return GnosysConfigSchema.parse(migrated);
-  } catch (err: unknown) {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch (err) {
     if (err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT") {
-      // No config file — use defaults
+      return null;
+    }
+    if (err instanceof SyntaxError) {
+      throw new Error(`Invalid JSON in ${configPath}: ${err.message}`);
+    }
+    throw err;
+  }
+}
+
+/** Deep merge: `override` wins over `base` for any field both define. */
+function deepMergeConfig(
+  base: Record<string, unknown>,
+  override: Record<string, unknown>
+): Record<string, unknown> {
+  const result: Record<string, unknown> = { ...base };
+  for (const [key, value] of Object.entries(override)) {
+    const baseValue = base[key];
+    const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+      typeof v === "object" && v !== null && !Array.isArray(v);
+    if (isPlainObject(value) && isPlainObject(baseValue)) {
+      result[key] = deepMergeConfig(baseValue, value);
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
+export async function loadConfig(storePath: string): Promise<GnosysConfig> {
+  const configPath = path.join(storePath, "gnosys.json");
+  const globalPath = path.join(getGnosysHome(), "gnosys.json");
+  const isGlobalLoad = path.resolve(configPath) === path.resolve(globalPath);
+
+  try {
+    // v5.4.1: Project gnosys.json inherits from global gnosys.json. Project
+    // values override global values for keys both specify; missing keys fall
+    // through to global (and finally to schema defaults). Skip the inheritance
+    // step when we're already loading the global config (avoids double-load).
+    let raw: Record<string, unknown> | null;
+    if (isGlobalLoad) {
+      raw = await readRawConfig(configPath);
+    } else {
+      const globalRaw = (await readRawConfig(globalPath)) ?? {};
+      const projectRaw = await readRawConfig(configPath);
+      if (projectRaw === null && Object.keys(globalRaw).length === 0) {
+        // Neither exists — schema defaults
+        raw = null;
+      } else {
+        raw = deepMergeConfig(globalRaw, projectRaw ?? {});
+      }
+    }
+
+    if (raw === null) {
       return DEFAULT_CONFIG;
     }
 
-    if (err instanceof SyntaxError) {
-      throw new Error(
-        `Invalid JSON in ${configPath}: ${err.message}`
-      );
-    }
-
+    const migrated = migrateConfig(raw);
+    return GnosysConfigSchema.parse(migrated);
+  } catch (err: unknown) {
     if (err instanceof z.ZodError) {
       const issues = err.issues
         .map((i) => `  - ${i.path.join(".")}: ${i.message}`)
@@ -493,7 +557,6 @@ export async function loadConfig(storePath: string): Promise<GnosysConfig> {
         `Invalid gnosys.json at ${configPath}:\n${issues}`
       );
     }
-
     throw err;
   }
 }

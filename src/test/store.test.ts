@@ -191,9 +191,10 @@ describe("GnosysStore", () => {
   });
 
   describe("generateId", () => {
-    it("generates sequential IDs with category prefix", async () => {
+    it("generates ULID-based IDs with category prefix (v5.4.1+)", async () => {
       const id1 = await store.generateId("decisions");
-      expect(id1).toBe("deci-001");
+      // v5.4.1: IDs are now `${prefix}-${ULID}` (26-char Crockford base32)
+      expect(id1).toMatch(/^deci-[0-9A-HJKMNP-TV-Z]{26}$/);
 
       await store.writeMemory(
         "decisions",
@@ -203,7 +204,11 @@ describe("GnosysStore", () => {
       );
 
       const id2 = await store.generateId("decisions");
-      expect(id2).toBe("deci-002");
+      expect(id2).toMatch(/^deci-[0-9A-HJKMNP-TV-Z]{26}$/);
+      // ULIDs are time-sortable; id2 should sort >= id1
+      expect(id2 >= id1).toBe(true);
+      // And different from id1
+      expect(id2).not.toBe(id1);
     });
   });
 

@@ -55,12 +55,41 @@ export class GnosysIngestion {
   async ingest(rawInput: string): Promise<IngestResult> {
     if (!this.provider) {
       const providerName = this.config.llm.defaultProvider;
-      throw new Error(
-        providerName === "anthropic"
-          ? "No ANTHROPIC_API_KEY set. Smart ingestion requires an LLM. " +
-            "Set the ANTHROPIC_API_KEY environment variable, switch to Ollama (gnosys config set provider ollama), or use gnosys_add_structured."
-          : `LLM provider "${providerName}" is not available. Check your configuration or use gnosys_add_structured.`
-      );
+      const envVarMap: Record<string, string> = {
+        anthropic: "ANTHROPIC_API_KEY (or GNOSYS_ANTHROPIC_KEY)",
+        openai: "OPENAI_API_KEY (or GNOSYS_OPENAI_KEY)",
+        groq: "GROQ_API_KEY (or GNOSYS_GROQ_KEY)",
+        xai: "XAI_API_KEY (or GNOSYS_XAI_KEY)",
+        mistral: "MISTRAL_API_KEY (or GNOSYS_MISTRAL_KEY)",
+        custom: "GNOSYS_CUSTOM_KEY",
+      };
+      const envVar = envVarMap[providerName];
+      const isLocal = providerName === "ollama" || providerName === "lmstudio";
+      const lines = [
+        `Smart ingestion requires an LLM, but the configured default provider "${providerName}" is not available.`,
+        "",
+      ];
+      if (isLocal) {
+        lines.push(
+          `Make sure ${providerName} is running locally (gnosys dashboard will probe it).`,
+          `Or use gnosys_add_structured for direct memory writes (no LLM needed).`,
+        );
+      } else if (envVar) {
+        lines.push(
+          `Configure a key for ${providerName} via one of these methods:`,
+          `  • gnosys setup       — interactive (recommended; stores in macOS Keychain)`,
+          `  • Set ${envVar} in your shell profile`,
+          `  • Edit llm.${providerName}.apiKey in gnosys.json`,
+          "",
+          `Or use gnosys_add_structured for direct memory writes (no LLM needed).`,
+        );
+      } else {
+        lines.push(
+          `Switch to a different default provider with: gnosys config set provider <name>`,
+          `Or use gnosys_add_structured for direct memory writes (no LLM needed).`,
+        );
+      }
+      throw new Error(lines.join("\n"));
     }
 
     const registry = this.tagRegistry.getRegistry();

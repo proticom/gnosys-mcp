@@ -66,6 +66,18 @@ const server = new McpServer({
   version: "2.0.0",
 });
 
+/**
+ * v5.4.1: Format MCP errors. Detects DB corruption and replaces the raw
+ * "database disk image is malformed" with actionable recovery instructions.
+ * Use this in catch blocks instead of inlining error.message.
+ */
+function formatMcpError(action: string, err: unknown): string {
+  if (GnosysDB.isCorruptionError(err)) {
+    return `Error ${action}: ${err instanceof Error ? err.message : String(err)}\n\n${GnosysDB.corruptionRecoveryInstructions()}`;
+  }
+  return `Error ${action}: ${err instanceof Error ? err.message : String(err)}`;
+}
+
 // These are initialized in main() after resolver runs
 let search: GnosysSearch | null = null;
 let tagRegistry: GnosysTagRegistry | null = null;
@@ -589,12 +601,7 @@ server.tool(
       return { content: [{ type: "text", text: response }] };
     } catch (err) {
       return {
-        content: [
-          {
-            type: "text",
-            text: `Error adding memory: ${err instanceof Error ? err.message : String(err)}`,
-          },
-        ],
+        content: [{ type: "text", text: formatMcpError("adding memory", err) }],
         isError: true,
       };
     }
@@ -625,58 +632,65 @@ server.tool(
     projectRoot: projectRootParam,
   },
   async ({ title, category, tags, relevance, content, store: targetStore, author, authority, confidence, projectRoot }) => {
-    const ctx = await resolveToolContext(projectRoot);
-    const writeTarget = ctx.resolver.getWriteTarget(
-      (targetStore as "project" | "personal" | "global") || undefined
-    );
-    if (!writeTarget) {
+    try {
+      const ctx = await resolveToolContext(projectRoot);
+      const writeTarget = ctx.resolver.getWriteTarget(
+        (targetStore as "project" | "personal" | "global") || undefined
+      );
+      if (!writeTarget) {
+        return {
+          content: [{ type: "text", text: "No writable store found." }],
+          isError: true,
+        };
+      }
+
+      if (!ctx.centralDb?.isAvailable()) {
+        return {
+          content: [{ type: "text", text: "Database not available. Cannot write memory." }],
+          isError: true,
+        };
+      }
+      const id = ctx.centralDb.getNextId(category, ctx.projectId ?? undefined);
+
+      const today = new Date().toISOString().split("T")[0];
+      const frontmatter: MemoryFrontmatter = {
+        id,
+        title,
+        category,
+        tags: tags as Record<string, string[]>,
+        relevance: relevance || "",
+        author: author || "ai",
+        authority: authority || "observed",
+        confidence: confidence || 0.8,
+        created: today,
+        modified: today,
+        last_reviewed: today,
+        status: "active" as const,
+        supersedes: null,
+      };
+
+      const fullContent = `# ${title}\n\n${content}`;
+
+      // Write to DB only (SQLite is sole source of truth)
+      syncMemoryToDb(ctx.centralDb, frontmatter, fullContent, undefined, ctx.projectId, "project");
+      auditToDb(ctx.centralDb, "write", id, { tool: "gnosys_add_structured", category });
+
+      if (ctx.search) await reindexAllStores();
+
       return {
-        content: [{ type: "text", text: "No writable store found." }],
+        content: [
+          {
+            type: "text",
+            text: `Memory added to [${writeTarget.label}]: **${title}**\nID: ${id}`,
+          },
+        ],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: formatMcpError("adding structured memory", err) }],
         isError: true,
       };
     }
-
-    if (!ctx.centralDb?.isAvailable()) {
-      return {
-        content: [{ type: "text", text: "Database not available. Cannot write memory." }],
-        isError: true,
-      };
-    }
-    const id = ctx.centralDb.getNextId(category, ctx.projectId ?? undefined);
-
-    const today = new Date().toISOString().split("T")[0];
-    const frontmatter: MemoryFrontmatter = {
-      id,
-      title,
-      category,
-      tags: tags as Record<string, string[]>,
-      relevance: relevance || "",
-      author: author || "ai",
-      authority: authority || "observed",
-      confidence: confidence || 0.8,
-      created: today,
-      modified: today,
-      last_reviewed: today,
-      status: "active" as const,
-      supersedes: null,
-    };
-
-    const fullContent = `# ${title}\n\n${content}`;
-
-    // Write to DB only (SQLite is sole source of truth)
-    syncMemoryToDb(ctx.centralDb, frontmatter, fullContent, undefined, ctx.projectId, "project");
-    auditToDb(ctx.centralDb, "write", id, { tool: "gnosys_add_structured", category });
-
-    if (ctx.search) await reindexAllStores();
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Memory added to [${writeTarget.label}]: **${title}**\nID: ${id}`,
-        },
-      ],
-    };
   }
 );
 
@@ -2908,25 +2922,31 @@ server.tool(
   "Check the status of remote sync (multi-machine). Returns pending pushes, pulls, conflicts, and reachability. Agents should surface this to the user when there are pending changes or conflicts.",
   {},
   async () => {
-    if (!centralDb?.isAvailable()) {
-      return { content: [{ type: "text" as const, text: "Central DB not available." }], isError: true };
-    }
-    const remotePath = centralDb.getMeta("remote_path");
-    if (!remotePath) {
+    // Sync operations need explicit local DB access (not auto-routed remote).
+    const localDb = GnosysDB.openLocal();
+    try {
+      if (!localDb.isAvailable()) {
+        return { content: [{ type: "text" as const, text: "Local DB not available." }], isError: true };
+      }
+      const remotePath = localDb.getMeta("remote_path");
+      if (!remotePath) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: JSON.stringify({ configured: false, message: "Remote sync not configured." }, null, 2),
+          }],
+        };
+      }
+      const { RemoteSync } = await import("./lib/remote.js");
+      const sync = new RemoteSync(localDb, remotePath);
+      const status = await sync.getStatus();
+      sync.closeRemote();
       return {
-        content: [{
-          type: "text" as const,
-          text: JSON.stringify({ configured: false, message: "Remote sync not configured." }, null, 2),
-        }],
+        content: [{ type: "text" as const, text: JSON.stringify(status, null, 2) }],
       };
+    } finally {
+      localDb.close();
     }
-    const { RemoteSync } = await import("./lib/remote.js");
-    const sync = new RemoteSync(centralDb, remotePath);
-    const status = await sync.getStatus();
-    sync.closeRemote();
-    return {
-      content: [{ type: "text" as const, text: JSON.stringify(status, null, 2) }],
-    };
   }
 );
 
@@ -2937,20 +2957,25 @@ server.tool(
     newerWins: z.boolean().optional().describe("Auto-resolve conflicts by taking the newer version"),
   },
   async ({ newerWins }) => {
-    if (!centralDb?.isAvailable()) {
-      return { content: [{ type: "text" as const, text: "Central DB not available." }], isError: true };
+    const localDb = GnosysDB.openLocal();
+    try {
+      if (!localDb.isAvailable()) {
+        return { content: [{ type: "text" as const, text: "Local DB not available." }], isError: true };
+      }
+      const remotePath = localDb.getMeta("remote_path");
+      if (!remotePath) {
+        return { content: [{ type: "text" as const, text: "Remote not configured. Run 'gnosys remote configure'." }], isError: true };
+      }
+      const { RemoteSync } = await import("./lib/remote.js");
+      const sync = new RemoteSync(localDb, remotePath);
+      const result = await sync.push({ strategy: newerWins ? "newer-wins" : "skip-and-flag" });
+      sync.closeRemote();
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+      };
+    } finally {
+      localDb.close();
     }
-    const remotePath = centralDb.getMeta("remote_path");
-    if (!remotePath) {
-      return { content: [{ type: "text" as const, text: "Remote not configured. Run 'gnosys remote configure'." }], isError: true };
-    }
-    const { RemoteSync } = await import("./lib/remote.js");
-    const sync = new RemoteSync(centralDb, remotePath);
-    const result = await sync.push({ strategy: newerWins ? "newer-wins" : "skip-and-flag" });
-    sync.closeRemote();
-    return {
-      content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-    };
   }
 );
 
@@ -2961,20 +2986,25 @@ server.tool(
     newerWins: z.boolean().optional().describe("Auto-resolve conflicts by taking the newer version"),
   },
   async ({ newerWins }) => {
-    if (!centralDb?.isAvailable()) {
-      return { content: [{ type: "text" as const, text: "Central DB not available." }], isError: true };
+    const localDb = GnosysDB.openLocal();
+    try {
+      if (!localDb.isAvailable()) {
+        return { content: [{ type: "text" as const, text: "Local DB not available." }], isError: true };
+      }
+      const remotePath = localDb.getMeta("remote_path");
+      if (!remotePath) {
+        return { content: [{ type: "text" as const, text: "Remote not configured." }], isError: true };
+      }
+      const { RemoteSync } = await import("./lib/remote.js");
+      const sync = new RemoteSync(localDb, remotePath);
+      const result = await sync.pull({ strategy: newerWins ? "newer-wins" : "skip-and-flag" });
+      sync.closeRemote();
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+      };
+    } finally {
+      localDb.close();
     }
-    const remotePath = centralDb.getMeta("remote_path");
-    if (!remotePath) {
-      return { content: [{ type: "text" as const, text: "Remote not configured." }], isError: true };
-    }
-    const { RemoteSync } = await import("./lib/remote.js");
-    const sync = new RemoteSync(centralDb, remotePath);
-    const result = await sync.pull({ strategy: newerWins ? "newer-wins" : "skip-and-flag" });
-    sync.closeRemote();
-    return {
-      content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-    };
   }
 );
 
@@ -2986,21 +3016,26 @@ server.tool(
     choice: z.enum(["local", "remote"]).describe("Which version to keep"),
   },
   async ({ memoryId, choice }) => {
-    if (!centralDb?.isAvailable()) {
-      return { content: [{ type: "text" as const, text: "Central DB not available." }], isError: true };
+    const localDb = GnosysDB.openLocal();
+    try {
+      if (!localDb.isAvailable()) {
+        return { content: [{ type: "text" as const, text: "Local DB not available." }], isError: true };
+      }
+      const remotePath = localDb.getMeta("remote_path");
+      if (!remotePath) {
+        return { content: [{ type: "text" as const, text: "Remote not configured." }], isError: true };
+      }
+      const { RemoteSync } = await import("./lib/remote.js");
+      const sync = new RemoteSync(localDb, remotePath);
+      const result = await sync.resolve(memoryId, choice);
+      sync.closeRemote();
+      if (result.ok) {
+        return { content: [{ type: "text" as const, text: `Resolved ${memoryId}: kept ${choice} version.` }] };
+      }
+      return { content: [{ type: "text" as const, text: `Failed to resolve: ${result.error}` }], isError: true };
+    } finally {
+      localDb.close();
     }
-    const remotePath = centralDb.getMeta("remote_path");
-    if (!remotePath) {
-      return { content: [{ type: "text" as const, text: "Remote not configured." }], isError: true };
-    }
-    const { RemoteSync } = await import("./lib/remote.js");
-    const sync = new RemoteSync(centralDb, remotePath);
-    const result = await sync.resolve(memoryId, choice);
-    sync.closeRemote();
-    if (result.ok) {
-      return { content: [{ type: "text" as const, text: `Resolved ${memoryId}: kept ${choice} version.` }] };
-    }
-    return { content: [{ type: "text" as const, text: `Failed to resolve: ${result.error}` }], isError: true };
   }
 );
 

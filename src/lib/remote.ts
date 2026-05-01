@@ -54,6 +54,9 @@ export interface SyncResult {
   conflicts: ConflictInfo[];
   errors: string[];
   skipped: number;
+  /** Project rows pushed/pulled (separate counter from memories). */
+  projectsPushed?: number;
+  projectsPulled?: number;
 }
 
 export interface ValidationResult {
@@ -287,6 +290,71 @@ export class RemoteSync {
     };
   }
 
+  /**
+   * Sync the projects table from local → remote.
+   *
+   * Projects are simpler than memories — they rarely conflict in practice
+   * (one user's project metadata isn't typically edited from two machines
+   * simultaneously). We use newer-wins semantics for projects: if both
+   * sides have a project row, take the one with the later `modified`
+   * timestamp. `insertProject` already does INSERT OR REPLACE.
+   */
+  private pushProjectsToRemote(remoteDb: GnosysDB, _lastSync: string, result: SyncResult): void {
+    // Projects are few (typically <50 per user) and rarely conflict, so we
+    // iterate ALL local projects rather than filtering by lastSync. This
+    // also handles initial recovery: when remote has 0 projects but local
+    // has many, every project gets pushed regardless of when it was created.
+    const localProjects = this.localDb.getAllProjects();
+
+    for (const local of localProjects) {
+      const remote = remoteDb.getProject(local.id);
+      if (!remote) {
+        try {
+          remoteDb.insertProject(local);
+          result.projectsPushed = (result.projectsPushed || 0) + 1;
+        } catch (err) {
+          result.errors.push(`Failed to push project ${local.id}: ${(err as Error).message}`);
+        }
+        continue;
+      }
+      if (local.modified > remote.modified) {
+        try {
+          remoteDb.insertProject(local);
+          result.projectsPushed = (result.projectsPushed || 0) + 1;
+        } catch (err) {
+          result.errors.push(`Failed to push project ${local.id}: ${(err as Error).message}`);
+        }
+      }
+    }
+  }
+
+  /** Sync the projects table from remote → local. Newer-wins semantics. */
+  private pullProjectsFromRemote(remoteDb: GnosysDB, _lastSync: string, result: SyncResult): void {
+    // See pushProjectsToRemote — iterate all rather than filtering by lastSync.
+    const remoteProjects = remoteDb.getAllProjects();
+
+    for (const remote of remoteProjects) {
+      const local = this.localDb.getProject(remote.id);
+      if (!local) {
+        try {
+          this.localDb.insertProject(remote);
+          result.projectsPulled = (result.projectsPulled || 0) + 1;
+        } catch (err) {
+          result.errors.push(`Failed to pull project ${remote.id}: ${(err as Error).message}`);
+        }
+        continue;
+      }
+      if (remote.modified > local.modified) {
+        try {
+          this.localDb.insertProject(remote);
+          result.projectsPulled = (result.projectsPulled || 0) + 1;
+        } catch (err) {
+          result.errors.push(`Failed to pull project ${remote.id}: ${(err as Error).message}`);
+        }
+      }
+    }
+  }
+
   /** Push local changes to remote. Returns what was pushed/skipped. */
   async push(options: { strategy?: "skip-and-flag" | "newer-wins" } = {}): Promise<SyncResult> {
     const strategy = options.strategy || "skip-and-flag";
@@ -385,6 +453,11 @@ export class RemoteSync {
       }
     }
 
+    // Sync the projects table — historically this was skipped, leaving the
+    // remote with orphan memories (memories with no project rows). v5.4.1
+    // closes this gap.
+    this.pushProjectsToRemote(remoteDb, lastSync, result);
+
     return result;
   }
 
@@ -458,6 +531,9 @@ export class RemoteSync {
       }
     }
 
+    // Sync the projects table — see pushProjectsToRemote for context.
+    this.pullProjectsFromRemote(remoteDb, lastSync, result);
+
     return result;
   }
 
@@ -478,6 +554,8 @@ export class RemoteSync {
       conflicts: [...pushResult.conflicts, ...pullResult.conflicts],
       errors: [...pushResult.errors, ...pullResult.errors],
       skipped: pushResult.skipped + pullResult.skipped,
+      projectsPushed: (pushResult.projectsPushed || 0) + (pullResult.projectsPushed || 0),
+      projectsPulled: (pushResult.projectsPulled || 0) + (pullResult.projectsPulled || 0),
     };
   }
 
@@ -541,6 +619,18 @@ export class RemoteSync {
 
     const errors: string[] = [];
     let copied = 0;
+
+    // Copy all projects first — memories reference project_id, so projects
+    // need to land on the remote before any memories that reference them.
+    const projects = this.localDb.getAllProjects();
+    for (const proj of projects) {
+      try {
+        remoteDb.insertProject(proj);
+        copied++;
+      } catch (err) {
+        errors.push(`Failed to copy project ${proj.id}: ${(err as Error).message}`);
+      }
+    }
 
     // Copy all memories
     const memories = this.localDb.getAllMemories();

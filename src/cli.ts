@@ -558,7 +558,8 @@ setupCmd
   .option("--path <path>", "Set remote path directly (non-interactive)")
   .action(async (opts: { path?: string }) => {
     const { GnosysDB } = await import("./lib/db.js");
-    const db = GnosysDB.openCentral();
+    // Sync configuration needs explicit local DB access (not auto-routed remote).
+    const db = GnosysDB.openLocal();
     if (!db.isAvailable()) {
       console.error("Central DB not available.");
       db.close();
@@ -1929,16 +1930,61 @@ program
   .command("graph")
   .description("Show the full cross-reference graph across all memories")
   .action(async () => {
-    const resolver = await getResolver();
-    const allMemories = await resolver.getAllMemories();
+    // v5.4.1: Query the central DB directly. Previously this used the
+    // filesystem resolver, which returns nothing in v5.x DB-only mode
+    // because memories no longer live as markdown files.
+    let centralDb: GnosysDB | null = null;
+    try {
+      centralDb = GnosysDB.openCentral();
+      if (!centralDb.isAvailable()) {
+        console.error("Central DB not available.");
+        process.exit(1);
+      }
 
-    if (allMemories.length === 0) {
-      console.log("No memories found.");
-      return;
+      const dbMemories = centralDb.getAllMemories();
+      if (dbMemories.length === 0) {
+        console.log("No memories found.");
+        return;
+      }
+
+      // Adapt DbMemory → legacy Memory shape that buildLinkGraph expects.
+      // The graph builder only reads id, title, content, and synthesises
+      // a filesystem-style path for display.
+      const adapted = dbMemories.map((m) => {
+        let parsedTags: Record<string, string[]> | string[] = [];
+        try {
+          parsedTags = JSON.parse(m.tags);
+        } catch {
+          parsedTags = [];
+        }
+        const relativePath = `${m.category}/${m.id}.md`;
+        return {
+          frontmatter: {
+            id: m.id,
+            title: m.title,
+            category: m.category,
+            tags: parsedTags,
+            relevance: m.relevance,
+            author: m.author as "human" | "ai" | "human+ai",
+            authority: m.authority as "declared" | "observed" | "imported" | "inferred",
+            confidence: m.confidence,
+            created: m.created,
+            modified: m.modified,
+            last_reviewed: m.modified,
+            status: m.status as "active" | "archived" | "superseded",
+            supersedes: m.supersedes,
+          },
+          content: m.content,
+          filePath: relativePath,
+          relativePath,
+        };
+      });
+
+      const graph = buildLinkGraph(adapted);
+      console.log(formatGraphSummary(graph));
+    } finally {
+      centralDb?.close();
     }
-
-    const graph = buildLinkGraph(allMemories);
-    console.log(formatGraphSummary(graph));
   });
 
 // ─── gnosys bootstrap <sourceDir> ────────────────────────────────────────
@@ -2900,7 +2946,8 @@ remoteCmd
   .action(async (opts: { json: boolean }) => {
     let centralDb: GnosysDB | null = null;
     try {
-      centralDb = GnosysDB.openCentral();
+      // Sync operations need explicit local DB access (not auto-routed remote).
+      centralDb = GnosysDB.openLocal();
       if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
 
       const remotePath = centralDb.getMeta("remote_path");
@@ -2948,7 +2995,7 @@ remoteCmd
   .action(async (opts: { newerWins?: boolean }) => {
     let centralDb: GnosysDB | null = null;
     try {
-      centralDb = GnosysDB.openCentral();
+      centralDb = GnosysDB.openLocal();
       if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
 
       const remotePath = centralDb.getMeta("remote_path");
@@ -2959,7 +3006,8 @@ remoteCmd
       const result = await sync.push({ strategy: opts.newerWins ? "newer-wins" : "skip-and-flag" });
       sync.closeRemote();
 
-      console.log(`Pushed: ${result.pushed} | Skipped: ${result.skipped} | Conflicts: ${result.conflicts.length}`);
+      const projParts = (result.projectsPushed || 0) > 0 ? ` | Projects pushed: ${result.projectsPushed}` : "";
+      console.log(`Pushed: ${result.pushed} | Skipped: ${result.skipped} | Conflicts: ${result.conflicts.length}${projParts}`);
       if (result.errors.length > 0) {
         console.log("\nErrors:");
         for (const e of result.errors) console.log(`  ${e}`);
@@ -2983,7 +3031,7 @@ remoteCmd
   .action(async (opts: { newerWins?: boolean }) => {
     let centralDb: GnosysDB | null = null;
     try {
-      centralDb = GnosysDB.openCentral();
+      centralDb = GnosysDB.openLocal();
       if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
 
       const remotePath = centralDb.getMeta("remote_path");
@@ -2994,7 +3042,8 @@ remoteCmd
       const result = await sync.pull({ strategy: opts.newerWins ? "newer-wins" : "skip-and-flag" });
       sync.closeRemote();
 
-      console.log(`Pulled: ${result.pulled} | Skipped: ${result.skipped} | Conflicts: ${result.conflicts.length}`);
+      const projParts = (result.projectsPulled || 0) > 0 ? ` | Projects pulled: ${result.projectsPulled}` : "";
+      console.log(`Pulled: ${result.pulled} | Skipped: ${result.skipped} | Conflicts: ${result.conflicts.length}${projParts}`);
       if (result.errors.length > 0) {
         console.log("\nErrors:");
         for (const e of result.errors) console.log(`  ${e}`);
@@ -3015,7 +3064,7 @@ remoteCmd
   .action(async (opts: { auto?: boolean; newerWins?: boolean }) => {
     let centralDb: GnosysDB | null = null;
     try {
-      centralDb = GnosysDB.openCentral();
+      centralDb = GnosysDB.openLocal();
       if (!centralDb.isAvailable()) {
         if (!opts.auto) console.error("Central DB not available.");
         process.exit(1);
@@ -3036,7 +3085,10 @@ remoteCmd
       sync.closeRemote();
 
       if (!opts.auto || result.conflicts.length > 0 || result.errors.length > 0) {
-        console.log(`Pushed: ${result.pushed} | Pulled: ${result.pulled} | Conflicts: ${result.conflicts.length}`);
+        const pp = result.projectsPushed || 0;
+        const pl = result.projectsPulled || 0;
+        const projParts = (pp + pl) > 0 ? ` | Projects: ↑${pp}/↓${pl}` : "";
+        console.log(`Pushed: ${result.pushed} | Pulled: ${result.pulled} | Conflicts: ${result.conflicts.length}${projParts}`);
         if (result.errors.length > 0) {
           console.log("\nErrors:");
           for (const e of result.errors) console.log(`  ${e}`);
@@ -3060,7 +3112,7 @@ remoteCmd
   .action(async (memoryId: string, opts: { keep: string }) => {
     let centralDb: GnosysDB | null = null;
     try {
-      centralDb = GnosysDB.openCentral();
+      centralDb = GnosysDB.openLocal();
       if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
 
       const remotePath = centralDb.getMeta("remote_path");
@@ -3098,7 +3150,7 @@ remoteCmd
   .action(async (opts: { path?: string; migrate?: boolean }) => {
     let centralDb: GnosysDB | null = null;
     try {
-      centralDb = GnosysDB.openCentral();
+      centralDb = GnosysDB.openLocal();
       if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
 
       const { runConfigureWizard, configureFromPath } = await import("./lib/remoteWizard.js");
