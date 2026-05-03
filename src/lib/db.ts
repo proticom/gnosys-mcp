@@ -669,6 +669,24 @@ export class GnosysDB {
     return this.db.prepare("SELECT * FROM memories WHERE category = ? AND tier = 'active'").all(category) as DbMemory[];
   }
 
+  getRelationshipsForMemoryIds(ids: string[]): DbRelationship[] {
+    if (ids.length === 0) return [];
+    const placeholders = ids.map(() => "?").join(",");
+    return this.db
+      .prepare(
+        `SELECT * FROM relationships WHERE source_id IN (${placeholders}) OR target_id IN (${placeholders})`,
+      )
+      .all(...ids, ...ids) as DbRelationship[];
+  }
+
+  getAuditEntriesByProject(projectId: string): DbAuditEntry[] {
+    return this.db
+      .prepare(
+        "SELECT * FROM audit_log WHERE memory_id IN (SELECT id FROM memories WHERE project_id = ?) ORDER BY id",
+      )
+      .all(projectId) as DbAuditEntry[];
+  }
+
   updateMemory(id: string, updates: Partial<DbMemory>): void {
     const fields: string[] = [];
     const values: unknown[] = [];
@@ -772,10 +790,11 @@ export class GnosysDB {
   /**
    * Get active memories scoped to a specific project.
    */
-  getMemoriesByProject(projectId: string): DbMemory[] {
-    return this.db.prepare(
-      "SELECT * FROM memories WHERE project_id = ? AND tier = 'active' AND status = 'active'"
-    ).all(projectId) as DbMemory[];
+  getMemoriesByProject(projectId: string, includeArchived = false): DbMemory[] {
+    const sql = includeArchived
+      ? "SELECT * FROM memories WHERE project_id = ?"
+      : "SELECT * FROM memories WHERE project_id = ? AND tier = 'active' AND status = 'active'";
+    return this.db.prepare(sql).all(projectId) as DbMemory[];
   }
 
   /**

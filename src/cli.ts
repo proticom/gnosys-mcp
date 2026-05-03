@@ -111,6 +111,34 @@ function maybePrintUpgradeNudge(): void {
 
 maybePrintUpgradeNudge();
 
+/**
+ * v5.6.0 back-compat shim: rewrite `gnosys export --to <dir>` →
+ * `gnosys export vault --to <dir>` before commander parses argv. The v5.6.0
+ * restructure made `export` a parent command with `vault` and `project`
+ * subcommands; without this shim, the bare `--to` form prints usage instead
+ * of running the vault export.
+ *
+ * Pattern: argv[2]==="export" AND argv[3] is not a known subcommand AND any
+ * of the v5.5.x flags appear (`--to`, `--all`, `--overwrite`, etc.).
+ */
+function rewriteLegacyExport(): void {
+  if (process.argv[2] !== "export") return;
+  const next = process.argv[3];
+  if (next === "vault" || next === "project" || next === "--help" || next === "-h") return;
+  // Any v5.5.x-style flag → assume legacy vault invocation
+  const looksLegacy = process.argv.slice(3).some((a) =>
+    a === "--to" || a.startsWith("--to=") ||
+    a === "--all" || a === "--overwrite" ||
+    a === "--no-summaries" || a === "--no-reviews" || a === "--no-graph" ||
+    a === "--json"
+  );
+  if (looksLegacy) {
+    process.argv.splice(3, 0, "vault");
+  }
+}
+
+rewriteLegacyExport();
+
 async function getResolver(): Promise<GnosysResolver> {
   const resolver = new GnosysResolver();
   await resolver.resolve();
@@ -2122,17 +2150,18 @@ program
     }
   );
 
-// ─── gnosys import <file> ────────────────────────────────────────────────
-program
-  .command("import <fileOrUrl>")
+// ─── gnosys import (parent + subcommands) ───────────────────────────────
+const importCmd = program
+  .command("import [fileOrUrl]")
+  .enablePositionalOptions()
   .description(
-    "Bulk import structured data (CSV, JSON, JSONL) into Gnosys memories"
+    "Import data into Gnosys (bulk CSV/JSON/JSONL — see also: 'gnosys import project <bundle>')"
   )
-  .requiredOption(
+  .option(
     "--format <format>",
-    "Data format: csv, json, jsonl"
+    "Data format: csv, json, jsonl (required for bulk import)"
   )
-  .requiredOption(
+  .option(
     "--mapping <json>",
     'Field mapping as JSON: \'{"source_field":"gnosys_field"}\'. Valid targets: title, category, content, tags, relevance'
   )
@@ -2151,10 +2180,10 @@ program
   )
   .action(
     async (
-      fileOrUrl: string,
+      fileOrUrl: string | undefined,
       opts: {
-        format: string;
-        mapping: string;
+        format?: string;
+        mapping?: string;
         mode: string;
         limit?: number;
         offset?: number;
@@ -2165,6 +2194,17 @@ program
         store: string;
       }
     ) => {
+      if (!fileOrUrl) {
+        console.error("Usage:");
+        console.error("  gnosys import <file> --format csv|json|jsonl --mapping '{...}'   (bulk)");
+        console.error("  gnosys import project <bundle.json.gz>                            (project bundle)");
+        process.exit(1);
+      }
+      if (!opts.format || !opts.mapping) {
+        console.error("Error: --format and --mapping are required for bulk imports.");
+        console.error("       For project bundles, use 'gnosys import project <bundle>'.");
+        process.exit(1);
+      }
       // Parse mapping JSON
       let mapping: Record<string, string>;
       try {
@@ -2265,6 +2305,53 @@ program
       }
     }
   );
+
+// `gnosys import project <bundle>` — restore a portable .json.gz bundle
+importCmd
+  .command("project <bundlePath>")
+  .description("Import a project bundle (.json.gz) created by 'gnosys export project'")
+  .option("--strategy <strategy>", "Conflict handling: merge (default), replace, new-id", "merge")
+  .option("--working-directory <dir>", "Override the bundle's working_directory (e.g. when restoring on a different machine)")
+  .option("--json", "Output the result as JSON")
+  .action(async (bundlePath: string, opts: { strategy: string; workingDirectory?: string; json?: boolean }) => {
+    const validStrategies = ["merge", "replace", "new-id"] as const;
+    if (!validStrategies.includes(opts.strategy as typeof validStrategies[number])) {
+      console.error(`Invalid strategy: ${opts.strategy}. Use one of: ${validStrategies.join(", ")}`);
+      process.exit(1);
+    }
+
+    const { GnosysDB: DbClass } = await import("./lib/db.js");
+    const { importProject } = await import("./lib/importProject.js");
+
+    const centralDb = DbClass.openCentral();
+    if (!centralDb.isAvailable()) {
+      console.error("Central DB unavailable.");
+      process.exit(1);
+    }
+
+    try {
+      const result = importProject(centralDb, {
+        bundlePath: path.resolve(bundlePath),
+        strategy: opts.strategy as typeof validStrategies[number],
+        workingDirectoryOverride: opts.workingDirectory,
+      });
+
+      if (opts.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(`Imported project ${result.projectName} (${result.projectId})`);
+        console.log(`  Strategy:        ${result.strategy}`);
+        console.log(`  Memories:        ${result.memoriesInserted} inserted, ${result.memoriesSkipped} skipped, ${result.memoriesReplaced} replaced`);
+        console.log(`  Relationships:   ${result.relationshipsInserted}`);
+        console.log(`  Audit entries:   ${result.auditEntriesInserted}`);
+      }
+    } catch (err) {
+      console.error(`Import failed: ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    } finally {
+      centralDb.close();
+    }
+  });
 
 // ─── gnosys reindex ──────────────────────────────────────────────────────
 program
@@ -3886,10 +3973,74 @@ dreamCmd
     }
   });
 
-// ─── gnosys export ───────────────────────────────────────────────────────
-program
+// ─── gnosys export (parent + subcommands) ────────────────────────────────
+type VaultExportOpts = { to: string; all?: boolean; overwrite?: boolean; summaries?: boolean; reviews?: boolean; graph?: boolean; json?: boolean };
+
+async function runVaultExport(opts: VaultExportOpts): Promise<void> {
+  const resolver = new GnosysResolver();
+  await resolver.resolve();
+  const stores = resolver.getStores();
+  if (stores.length === 0) {
+    console.error("No Gnosys stores found. Run 'gnosys init' first.");
+    process.exit(1);
+  }
+
+  const { GnosysDB: DbClass } = await import("./lib/db.js");
+  const { GnosysExporter, formatExportReport } = await import("./lib/export.js");
+
+  const storePath = stores[0].path;
+  const db = new DbClass(storePath);
+
+  if (!db.isAvailable() || !db.isMigrated()) {
+    console.error("Export requires gnosys.db (v2.0). Run 'gnosys migrate' first.");
+    process.exit(1);
+  }
+
+  const targetDir = path.resolve(opts.to);
+  console.error(`Exporting to: ${targetDir}`);
+
+  const exporter = new GnosysExporter(db);
+  const report = await exporter.export({
+    targetDir,
+    activeOnly: !opts.all,
+    includeSummaries: opts.summaries !== false,
+    includeReviews: opts.reviews !== false,
+    includeGraph: opts.graph !== false,
+    overwrite: opts.overwrite || false,
+    onProgress: (current, total, file) => {
+      if (current % 10 === 0 || current === total) {
+        console.error(`  [${current}/${total}] ${file}`);
+      }
+    },
+  });
+
+  if (opts.json) {
+    console.log(JSON.stringify(report, null, 2));
+  } else {
+    console.log(formatExportReport(report));
+  }
+
+  db.close();
+}
+
+const exportCmd = program
   .command("export")
-  .description("Export gnosys.db to Obsidian-compatible vault (one-way)")
+  .description("Export memory to a vault (markdown) or a project bundle (.json.gz)")
+  .enablePositionalOptions();
+
+// Bare `gnosys export` shows the canonical subcommand forms. Back-compat for
+// the v5.5.x form `gnosys export --to <dir>` is handled in a pre-parse shim
+// at the top of the file (rewrites argv to insert "vault" before "--to").
+exportCmd.action(() => {
+  console.error("Usage: gnosys export vault --to <dir>             # Obsidian vault export");
+  console.error("       gnosys export project [id] --to <bundle>   # portable .json.gz bundle");
+  process.exit(1);
+});
+
+// `gnosys export vault` — explicit alias for the default behavior
+exportCmd
+  .command("vault")
+  .description("Export gnosys.db to an Obsidian-compatible vault (one-way)")
   .requiredOption("--to <dir>", "Target directory for export")
   .option("--all", "Export all memories (active + archived)")
   .option("--overwrite", "Overwrite existing files")
@@ -3897,51 +4048,60 @@ program
   .option("--no-reviews", "Skip review suggestions")
   .option("--no-graph", "Skip relationship graph")
   .option("--json", "Output raw JSON report")
-  .action(async (opts: { to: string; all?: boolean; overwrite?: boolean; summaries?: boolean; reviews?: boolean; graph?: boolean; json?: boolean }) => {
-    const resolver = new GnosysResolver();
-    await resolver.resolve();
-    const stores = resolver.getStores();
-    if (stores.length === 0) {
-      console.error("No Gnosys stores found. Run 'gnosys init' first.");
-      process.exit(1);
-    }
+  .action(runVaultExport);
 
+// `gnosys export project [id]` — bundle a single project for portability
+exportCmd
+  .command("project [projectId]")
+  .description("Export a single project to a portable .json.gz bundle (round-trips with 'gnosys import project')")
+  .requiredOption("--to <file>", "Output bundle file path (e.g. ./gnosys-public.gnosys.json.gz)")
+  .option("--include-archived", "Include archived and superseded memories (default: active only)")
+  .option("--no-audit", "Skip the audit log")
+  .option("--json", "Output the result as JSON")
+  .action(async (projectIdArg: string | undefined, opts: { to: string; includeArchived?: boolean; audit?: boolean; json?: boolean }) => {
     const { GnosysDB: DbClass } = await import("./lib/db.js");
-    const { GnosysExporter, formatExportReport } = await import("./lib/export.js");
+    const { exportProject } = await import("./lib/exportProject.js");
 
-    const storePath = stores[0].path;
-    const db = new DbClass(storePath);
-
-    if (!db.isAvailable() || !db.isMigrated()) {
-      console.error("Export requires gnosys.db (v2.0). Run 'gnosys migrate' first.");
+    const centralDb = DbClass.openCentral();
+    if (!centralDb.isAvailable()) {
+      console.error("Central DB unavailable.");
       process.exit(1);
     }
 
-    const targetDir = path.resolve(opts.to);
-    console.error(`Exporting to: ${targetDir}`);
-
-    const exporter = new GnosysExporter(db);
-    const report = await exporter.export({
-      targetDir,
-      activeOnly: !opts.all,
-      includeSummaries: opts.summaries !== false,
-      includeReviews: opts.reviews !== false,
-      includeGraph: opts.graph !== false,
-      overwrite: opts.overwrite || false,
-      onProgress: (current, total, file) => {
-        if (current % 10 === 0 || current === total) {
-          console.error(`  [${current}/${total}] ${file}`);
-        }
-      },
-    });
-
-    if (opts.json) {
-      console.log(JSON.stringify(report, null, 2));
-    } else {
-      console.log(formatExportReport(report));
+    let projectId = projectIdArg;
+    if (!projectId) {
+      // Auto-detect from cwd
+      const proj = centralDb.getProjectByDirectory(process.cwd());
+      if (!proj) {
+        console.error("No project ID given and current directory is not a registered project.");
+        console.error("Usage: gnosys export project <projectId> --to <file>");
+        process.exit(1);
+      }
+      projectId = proj.id;
     }
 
-    db.close();
+    try {
+      const result = exportProject(centralDb, {
+        projectId,
+        outputPath: path.resolve(opts.to),
+        includeArchived: !!opts.includeArchived,
+        includeAudit: opts.audit !== false,
+      });
+
+      if (opts.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        const ratio = (result.compressedBytes / result.uncompressedBytes * 100).toFixed(1);
+        console.log(`Exported project ${projectId}`);
+        console.log(`  Memories:      ${result.memoryCount}`);
+        console.log(`  Relationships: ${result.relationshipCount}`);
+        console.log(`  Audit entries: ${result.auditEntryCount}`);
+        console.log(`  Bundle:        ${result.outputPath}`);
+        console.log(`  Size:          ${(result.compressedBytes / 1024).toFixed(1)} KB compressed (${ratio}% of ${(result.uncompressedBytes / 1024).toFixed(1)} KB)`);
+      }
+    } finally {
+      centralDb.close();
+    }
   });
 
 // ─── gnosys serve ────────────────────────────────────────────────────────
