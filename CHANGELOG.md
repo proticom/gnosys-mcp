@@ -5,6 +5,25 @@ All notable changes to Gnosys are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.4.3] — 2026-05-02
+
+### Fixed
+
+- **Postinstall output now visible during `npm install -g`.** npm 7+ hides postinstall stdout for global installs but shows stderr — switched our messages to stderr so users actually see "Gnosys v5.4.3 installed / Run `gnosys upgrade`" after a global install.
+- **Postinstall version read fixed.** Previously printed "Gnosys vunknown" because `require("fs")` doesn't work in ESM modules. Replaced with proper top-level `import { readFileSync }` and `import.meta.url`-based path resolution.
+
+### Added
+
+- **Upgrade nudge on first CLI invocation.** Tracks `last_seen_version` in central DB meta. On every CLI command boot, if the installed version differs from what's stored, print a one-line stderr notice:
+  ```
+  gnosys: upgraded to v5.4.3 (from v5.4.2). Run 'gnosys upgrade' to sync registered projects.
+  ```
+  Fires once per upgrade, then updates the meta. Skipped when running `gnosys upgrade` itself, when `GNOSYS_SKIP_UPGRADE_NUDGE=1` is set, or when the central DB is unavailable. Belt-and-suspenders for cases where the postinstall hook silently fails (CI, Docker builds, `--ignore-scripts`).
+
+### Known issue (deferred to v5.5.0)
+
+- `npm install` still prints `npm warn deprecated prebuild-install@7.1.3: No longer maintained.` This is a transitive deprecation: `prebuild-install` is pulled in by `better-sqlite3` and (via `sharp`) by `@xenova/transformers`. The package still works correctly — the maintainer has just announced no future patches. Migrating `@xenova/transformers` (now a stale package) to `@huggingface/transformers@4.x` (the modern rebrand) is planned for v5.5.0 and will remove half of the dependency chain. The other half waits on `better-sqlite3` migrating to `node-gyp-build` upstream.
+
 ## [5.4.2] — 2026-05-01
 
 ### Added — Dream Mode setup, designation, and observability

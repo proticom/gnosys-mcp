@@ -66,6 +66,51 @@ const pkg = JSON.parse(await fs.readFile(pkgPath, "utf-8"));
 
 const program = new Command();
 
+/**
+ * v5.4.3 upgrade nudge — runs once per CLI invocation. If the installed
+ * version differs from the last-seen one stored in central DB meta, print
+ * a one-line stderr nudge so the user knows to run `gnosys upgrade`.
+ *
+ * Why stderr: doesn't pollute stdout consumers (agents parsing JSON, scripts
+ * piping the output). Visible to humans, invisible to most parsers.
+ *
+ * Why central DB meta: survives across CLI invocations and works whether
+ * gnosys is installed globally, locally, or via npx. Single source of truth
+ * for "what was the last version this user saw."
+ *
+ * Skipped when:
+ *   - GNOSYS_SKIP_UPGRADE_NUDGE=1
+ *   - Running `gnosys upgrade` itself (would be redundant)
+ *   - Central DB unavailable (graceful — never blocks the actual command)
+ */
+function maybePrintUpgradeNudge(): void {
+  if (process.env.GNOSYS_SKIP_UPGRADE_NUDGE === "1") return;
+  // Avoid printing the nudge when the user is already running upgrade.
+  if (process.argv[2] === "upgrade") return;
+
+  try {
+    const db = GnosysDB.openLocal();
+    if (!db.isAvailable() || !db.isMigrated()) {
+      db.close();
+      return;
+    }
+    const seen = db.getMeta("last_seen_version");
+    const current = pkg.version;
+    if (seen !== current) {
+      const prefix = seen ? `upgraded to v${current} (from v${seen})` : `installed v${current}`;
+      process.stderr.write(
+        `gnosys: ${prefix}. Run 'gnosys upgrade' to sync registered projects.\n`
+      );
+      db.setMeta("last_seen_version", current);
+    }
+    db.close();
+  } catch {
+    // Never block actual commands — silently skip on any error.
+  }
+}
+
+maybePrintUpgradeNudge();
+
 async function getResolver(): Promise<GnosysResolver> {
   const resolver = new GnosysResolver();
   await resolver.resolve();
