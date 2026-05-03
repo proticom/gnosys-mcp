@@ -136,9 +136,9 @@ async function transcribeWithOpenAI(
   return parseWhisperResponse(data);
 }
 
-// ─── Local Whisper via @xenova/transformers ──────────────────────────────
+// ─── Local Whisper via @huggingface/transformers ─────────────────────────
 
-interface XenovaTimestamp {
+interface WhisperTimestamp {
   text: string;
   timestamp: [number, number | null];
 }
@@ -150,13 +150,13 @@ async function transcribeWithLocal(
   let pipeline: (task: string, model: string) => Promise<unknown>;
 
   try {
-    // Dynamic import — @xenova/transformers is an optional dependency
-    const transformers = await import("@xenova/transformers");
+    // Dynamic import — @huggingface/transformers is an optional dependency
+    const transformers = await import("@huggingface/transformers");
     pipeline = transformers.pipeline as typeof pipeline;
   } catch {
     throw new Error(
-      "Local Whisper transcription requires @xenova/transformers. " +
-        'Install it with: npm install @xenova/transformers\n' +
+      "Local Whisper transcription requires @huggingface/transformers. " +
+        'Install it with: npm install @huggingface/transformers\n' +
         "Or set a Groq/OpenAI API key for cloud transcription."
     );
   }
@@ -165,7 +165,7 @@ async function transcribeWithLocal(
   const transcriber = await pipeline("automatic-speech-recognition", modelName) as (
     input: string,
     opts: Record<string, unknown>
-  ) => Promise<{ text: string; chunks?: XenovaTimestamp[] }>;
+  ) => Promise<{ text: string; chunks?: WhisperTimestamp[] }>;
 
   const result = await transcriber(filePath, {
     return_timestamps: true,
@@ -261,7 +261,7 @@ function resolveOpenAIKey(options?: TranscriptionOptions): string | undefined {
  * 1. If `options.provider` is specified, use that provider
  * 2. Try Groq (if GNOSYS_GROQ_KEY or GROQ_API_KEY is set)
  * 3. Try OpenAI (if GNOSYS_OPENAI_KEY or OPENAI_API_KEY is set)
- * 4. Try local Whisper (if @xenova/transformers is installed)
+ * 4. Try local Whisper (if @huggingface/transformers is installed)
  * 5. Throw an error with setup instructions
  */
 export async function transcribeAudio(
@@ -327,7 +327,7 @@ export async function transcribeAudio(
     "No transcription provider available. Set up one of:\n" +
       "  1. Groq API key: export GROQ_API_KEY=your-key  (cheapest, $0.02/hr)\n" +
       "  2. OpenAI API key: export OPENAI_API_KEY=your-key\n" +
-      "  3. Local Whisper: npm install @xenova/transformers\n" +
+      "  3. Local Whisper: npm install @huggingface/transformers\n" +
       "Or set multimodal.transcriptionProvider in gnosys.json."
   );
 }

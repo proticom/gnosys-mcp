@@ -1,6 +1,6 @@
 /**
  * Gnosys Embeddings — Lazy-loaded semantic embedding engine.
- * Uses @xenova/transformers (ONNX, pure Node) with all-MiniLM-L6-v2.
+ * Uses @huggingface/transformers (ONNX, pure Node) with all-MiniLM-L6-v2.
  * Model (~80 MB) is downloaded only on first use and cached.
  * Embeddings are stored in SQLite as regeneratable sidecar data.
  */
@@ -17,7 +17,7 @@ import path from "path";
 import fs from "fs/promises";
 import { enableWAL } from "./lock.js";
 
-// Type for the pipeline function from @xenova/transformers
+// Type for the pipeline function from @huggingface/transformers
 type Pipeline = (texts: string[], options?: Record<string, unknown>) => Promise<{ tolist(): number[][] }>;
 
 const MODEL_NAME = "Xenova/all-MiniLM-L6-v2";
@@ -50,12 +50,17 @@ export class GnosysEmbeddings {
         "gnosys"
       );
     await fs.mkdir(cacheDir, { recursive: true });
+    // HF_HOME is the canonical env var in @huggingface/transformers v3+;
+    // keep TRANSFORMERS_CACHE set too for any tooling that still reads it.
+    process.env.HF_HOME = cacheDir;
     process.env.TRANSFORMERS_CACHE = cacheDir;
 
-    // Dynamic import — keeps @xenova/transformers out of the main bundle
-    const { pipeline } = await import("@xenova/transformers");
+    // Dynamic import — keeps @huggingface/transformers out of the main bundle.
+    // dtype 'q8' replaces the v2-era `quantized: true` option (8-bit quantized,
+    // ~80 MB vs ~280 MB for fp32). Smaller is fine for sentence embeddings.
+    const { pipeline } = await import("@huggingface/transformers");
     this.pipeline = (await pipeline("feature-extraction", MODEL_NAME, {
-      quantized: true,
+      dtype: "q8",
     })) as unknown as Pipeline;
 
     this.modelReady = true;

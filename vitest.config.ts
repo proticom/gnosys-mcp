@@ -4,6 +4,12 @@ export default defineConfig({
   test: {
     include: ["src/**/*.test.ts"],
     exclude: ["dist/**", "node_modules/**"],
+    // CLI integration tests cold-start `tsx src/cli.ts` which can take 10–15s.
+    // The 5s default times out almost every CLI test. Keep tests serial too —
+    // SQLite write contention from parallel workers caused flaky failures.
+    testTimeout: 60_000,
+    hookTimeout: 60_000,
+    fileParallelism: false,
     coverage: {
       provider: "v8",
       reporter: ["text", "text-summary", "json-summary", "html"],

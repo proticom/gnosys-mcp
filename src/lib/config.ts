@@ -344,8 +344,13 @@ function resolveApiKey(
   // 2. New GNOSYS_*_KEY env var
   if (process.env[gnosysEnvVar]) return process.env[gnosysEnvVar];
 
+  // Skip keychain lookups inside vitest — test env can't differentiate
+  // a real keychain entry from a stubbed env var, so tests asserting "no
+  // key configured" leak the developer's actual keys.
+  const inTest = !!process.env.VITEST;
+
   // 3. macOS Keychain
-  if (process.platform === "darwin") {
+  if (!inTest && process.platform === "darwin") {
     try {
       const result = execSync(
         `security find-generic-password -a "$USER" -s "${gnosysEnvVar}" -w 2>/dev/null`,
@@ -358,7 +363,7 @@ function resolveApiKey(
   }
 
   // 4. Linux GNOME Keyring (secret-tool)
-  if (process.platform === "linux") {
+  if (!inTest && process.platform === "linux") {
     try {
       const result = execSync(
         `secret-tool lookup service gnosys account ${gnosysEnvVar} 2>/dev/null`,

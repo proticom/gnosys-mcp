@@ -52,7 +52,7 @@ Gnosys takes a different approach: the central brain is a single SQLite database
 - **Reflection API** — `gnosys.reflect(outcome)` updates confidence and consolidates memories based on real-world outcomes.
 - **Bulk import** — CSV, JSON, JSONL. Import entire datasets in seconds.
 - **Obsidian-native** — `gnosys export` generates a full vault with YAML frontmatter, `[[wikilinks]]`, summaries, and graph data.
-- **Multi-machine sync (v5.3.0)** — share your `gnosys.db` across machines via NAS or shared drive. Local cache for speed, remote source of truth for consistency. Built-in conflict detection with skip-and-flag resolution. Run `gnosys remote configure` to set up.
+- **Multi-machine sync** — share your `gnosys.db` across machines via NAS or shared drive. Remote NAS is the canonical source of truth; local DB is an offline-resilience cache. Built-in conflict detection with skip-and-flag resolution. Run `gnosys setup remote` to set up.
 - **MCP-compatible** — also runs as a full MCP server that drops into Cursor, Claude Desktop (Chat / Cowork / Code), Claude Code, Codex, Gemini CLI, Antigravity, or any MCP client.
 - **Zero infrastructure** — no external databases, no Docker (unless you want it), no cloud services. Just `npm install`.
 
@@ -461,19 +461,19 @@ All memories live in a single `~/.gnosys/gnosys.db` with `project_id` and `scope
 
 ### Multi-Machine Sync
 
-Gnosys v5.3.0 supports running across multiple machines with a shared database on a NAS or network share.
+Gnosys supports running across multiple machines with a shared database on a NAS or network share.
 
 **How it works:**
-- Local DB at `~/.gnosys/gnosys.db` is your fast working cache
 - Remote DB on a network share (e.g. `/Volumes/nas/gnosys/`) is the canonical source of truth
-- Reads always hit local for speed
-- Writes go to local first, then sync to remote
-- Per-memory `modified` timestamps detect conflicts
+- Local DB at `~/.gnosys/gnosys.db` is an offline-resilience cache, not a performance optimization
+- Reads hit remote when reachable; fall back to local cache when remote is offline
+- Writes go to remote first; queue locally and auto-flush when offline
+- Per-memory `modified` timestamps detect conflicts; ULID memory IDs prevent collisions across concurrent writers
 - Skip-and-flag is the safe default; `--newer-wins` for unattended sync
 
 **Setup:**
 ```bash
-gnosys remote configure
+gnosys setup remote
 # interactive: validates path, tests SQLite locking, checks latency
 ```
 
@@ -616,7 +616,7 @@ All commands support `--json` for programmatic output. See the [User Guide](http
 
 **Web knowledge base:** `web init`, `web ingest`, `web build-index`, `web build`, `web add`, `web remove`, `web status`
 
-**Multi-machine sync:** `remote configure`, `remote status`, `remote sync`, `remote push`, `remote pull`, `remote resolve`
+**Multi-machine sync:** `remote status`, `remote sync`, `remote push`, `remote pull`, `remote resolve` (configure via `gnosys setup remote`)
 
 **Server:** `serve`, `serve --with-maintenance`
 

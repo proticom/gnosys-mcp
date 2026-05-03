@@ -5,7 +5,21 @@ All notable changes to Gnosys are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [5.4.3] — 2026-05-02
+## [5.5.0] — 2026-05-03
+
+### Changed
+
+- **Migrated from `@xenova/transformers@2.17.2` to `@huggingface/transformers@4.x`** — `@xenova/transformers` was rebranded to `@huggingface/transformers` and has been the maintained home for transformers.js since v3. The v2-era `quantized: true` pipeline option became `dtype: "q8"`. Cache env var renamed from `TRANSFORMERS_CACHE` to `HF_HOME` (we set both for back-compat). This clears the `prebuild-install@7.1.3` deprecation warning that came in via `sharp` from the old package — the warning may still appear once if `better-sqlite3` is rebuilt, since it uses a separate `prebuild-install` chain that waits on upstream migration to `node-gyp-build`.
+
+### Fixed
+
+- **Test suite back to fully green (738/738).** The vitest config never set `testTimeout` or `fileParallelism` overrides, so CLI integration tests hit the 5s default and the parallel workers fought each other for SQLite write locks. Set `testTimeout: 60_000`, `hookTimeout: 60_000`, and `fileParallelism: false`. Net effect: tests run serially but reliably; a clean run completes in ~12 minutes vs. ~4 minutes parallel-but-flaky.
+
+### Added
+
+- **`gnosys dream run` — explicit manual trigger.** The bare `gnosys dream` already runs a cycle, but users naturally type `dream run` to match the `dream log` pattern. Added an alias subcommand. Both forms now check the central DB's `dream_machine_id` designation before running and refuse on non-designated machines unless `--force` is passed.
+
+
 
 ### Fixed
 
