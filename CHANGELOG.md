@@ -5,6 +5,38 @@ All notable changes to Gnosys are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.4.2] — 2026-05-01
+
+### Added — Dream Mode setup, designation, and observability
+
+- **`gnosys setup dream`** — new wizard configures Dream Mode: enable/disable, designate which machine hosts the scheduler, pick provider/model with live API validation, set idle threshold / max runtime / min memories, toggle sub-tasks (selfCritique / generateSummaries / discoverRelationships).
+- **Single-machine designation** — `dream_machine_id` stored in central DB meta. Only the designated machine arms its DreamScheduler; others no-op silently. Stops every machine on a shared NAS DB from racing on dream cycles.
+- **`gnosys dream log`** — view recent dream runs from `audit_log`. Flags: `--last N`, `--since YYYY-MM-DD`, `--failures-only`, `--json`.
+- **`DREAM HEALTH`** section in `gnosys dashboard` — designated machine, last run, last successful run (with LLM work), recent failure count, consecutive-failure counter.
+- **Layered alerts** when the dream provider is unreachable:
+  - **Layer 1 (setup time):** validateModel probe in `gnosys setup dream` prompts before saving config when the provider fails.
+  - **Layer 2 (audit log):** every `dream_start` records the configured provider/model; `dream_provider_unreachable` entries appear when the LLM can't be reached at run time. Reflected in `dream_complete.providerUnreachable`.
+  - **Layer 3 (MCP startup):** designated machine probes the dream provider at MCP server boot; stderr warning surfaces in agent sessions if unreachable.
+  - **Layer 4 (desktop notification):** after 3 consecutive provider failures, `notify-send` (Linux) / `osascript` (macOS) / stderr fallback (other) fires a notification. Counter resets on a successful LLM-driven dream run.
+
+### Changed
+
+- `gnosys setup remote` description updated (no longer says "alias for `gnosys remote configure`" since the latter was removed).
+- Dream config schema unchanged but is now actively used per the new setup flow.
+
+### Removed (Breaking)
+
+- **`gnosys models`** (top-level shortcut) — use `gnosys setup models` instead.
+- **`gnosys remote configure`** — use `gnosys setup remote` instead.
+
+The pattern is now consistent: `gnosys setup` runs the full wizard, and `gnosys setup <subsection>` skips to one section. `gnosys remote push|pull|sync|status|resolve` are unaffected — only `configure` moved.
+
+### Verification
+
+- 735+/738 main tests pass (3 pre-existing xAI keychain failures unchanged).
+- gnosys-tests regression suite extended with `dream-log.test.ts`, `setup-dream.test.ts`, `removed-commands.test.ts`, plus DREAM HEALTH assertion in `dashboard.test.ts`.
+- Manual smoke: dashboard surfaces DREAM HEALTH; designated machine probe runs at MCP boot; dream log filters work; removed commands return non-zero with "unknown command".
+
 ## [5.4.0] — 2026-04-30
 
 ### Added — three new IDE integrations

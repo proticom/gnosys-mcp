@@ -3419,16 +3419,83 @@ async function main() {
     );
 
     // v2.0: Initialize Dream Mode (idle-time consolidation)
+    // v5.4.2: Designation gate inside DreamScheduler.start() — only the
+    // machine designated via `gnosys setup dream` arms the timer. Other
+    // machines no-op silently. Layer 3 startup probe surfaces a stderr
+    // warning if this machine is designated but the dream provider is
+    // unreachable.
     if (gnosysDb && config.dream?.enabled) {
       const dreamEngine = new GnosysDreamEngine(gnosysDb, config, config.dream);
       dreamScheduler = new DreamScheduler(dreamEngine, config.dream);
+
+      // Layer 3: probe the dream provider if this machine is the dream node.
+      // Done before scheduler.start() so users see the warning immediately
+      // alongside other startup output.
+      try {
+        const designated = gnosysDb.getDreamMachineId();
+        const localId = gnosysDb.getMeta("machine_id");
+        if (designated && designated === localId) {
+          // Quick reachability probe — 5s timeout to avoid blocking startup.
+          const dreamProvider = config.dream.provider || "ollama";
+          const dreamModel = config.dream.model || "(default)";
+          const { validateModel } = await import("./lib/modelValidation.js");
+          // Resolve API key from env or keychain (mirroring resolveApiKey precedence).
+          const envVarName = `GNOSYS_${dreamProvider.toUpperCase()}_KEY`;
+          let apiKey = process.env[envVarName] || "";
+          if (!apiKey && process.platform === "darwin" && dreamProvider !== "ollama" && dreamProvider !== "lmstudio") {
+            try {
+              const { execSync } = await import("child_process");
+              apiKey = execSync(`security find-generic-password -a "$USER" -s "${envVarName}" -w 2>/dev/null`, {
+                stdio: "pipe", encoding: "utf-8", timeout: 2000,
+              }).trim();
+            } catch {
+              // No key in keychain
+            }
+          }
+          // Skip the network probe if there's clearly no key configured for a
+          // remote provider — surface the obvious config gap instead.
+          if (!apiKey && dreamProvider !== "ollama" && dreamProvider !== "lmstudio") {
+            process.stderr.write(
+              `gnosys: dream provider '${dreamProvider}/${dreamModel}' has no API key configured.\n` +
+              `  This machine is designated to dream, but the LLM cannot be called.\n` +
+              `  Run 'gnosys setup dream' to reconfigure.\n`
+            );
+          } else {
+            const result = await Promise.race([
+              validateModel(dreamProvider, dreamModel, apiKey),
+              new Promise<{ ok: false; error: string }>((resolve) =>
+                setTimeout(() => resolve({ ok: false, error: "probe timeout (5s)" }), 5000)
+              ),
+            ]);
+            if (!result.ok) {
+              process.stderr.write(
+                `gnosys: dream provider '${dreamProvider}/${dreamModel}' is unreachable at startup.\n` +
+                `  This machine is designated to dream, but the LLM cannot be called.\n` +
+                `  Error: ${("error" in result && result.error) || "unknown"}\n` +
+                `  Run 'gnosys setup dream' to reconfigure.\n`
+              );
+            }
+          }
+        }
+      } catch {
+        // Probe failed — non-fatal. Continue with scheduler start.
+      }
+
       dreamScheduler.start();
-      console.error(
-        `Dream Mode: enabled (idle ${config.dream.idleMinutes}min, max ${config.dream.maxRuntimeMinutes}min)`
-      );
+      const designated = gnosysDb.getDreamMachineId();
+      const localId = gnosysDb.getMeta("machine_id");
+      if (!designated) {
+        console.error(`Dream Mode: enabled but no machine designated. Run 'gnosys setup dream' on the machine you want to host dreams.`);
+      } else if (designated !== localId) {
+        console.error(`Dream Mode: enabled — designated to '${designated}'. This machine (${localId || "?"}) will not dream.`);
+      } else {
+        console.error(
+          `Dream Mode: enabled on this machine (idle ${config.dream.idleMinutes}min, max ${config.dream.maxRuntimeMinutes}min)`
+        );
+      }
     } else {
       console.error(
-        `Dream Mode: disabled (enable in gnosys.json: dream.enabled = true)`
+        `Dream Mode: disabled (run 'gnosys setup dream' to configure)`
       );
     }
   }

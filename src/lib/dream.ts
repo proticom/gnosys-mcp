@@ -23,6 +23,10 @@ import { GnosysConfig, DEFAULT_CONFIG, LLMProviderName } from "./config.js";
 import { LLMProvider, getLLMProvider } from "./llm.js";
 import { GnosysResolver } from "./resolver.js";
 import { GnosysMaintenanceEngine, MaintenanceReport } from "./maintenance.js";
+import { notifyDesktop } from "./desktopNotify.js";
+
+/** Layer 4 alert threshold: fire desktop notification at this many consecutive provider failures. */
+const DREAM_FAILURE_NOTIFY_THRESHOLD = 3;
 import { syncConfidenceToDb, auditToDb } from "./dbWrite.js";
 // ─── Config Schema ───────────────────────────────────────────────────────
 
@@ -108,12 +112,24 @@ export class GnosysDreamEngine {
     this.config = config;
     this.dreamConfig = { ...DEFAULT_DREAM_CONFIG, ...dreamConfig };
 
-    // Initialize LLM provider for dream operations
+    // Initialize LLM provider for dream operations.
+    // v5.4.2: Failure here is no longer silent — when dream tries to actually
+    // run (in dream()), we record the unavailability to audit_log so the
+    // user gets visibility (Layer 2 alert) and can react via the dashboard.
     try {
       this.provider = getLLMProvider(this.config, "structuring");
-    } catch {
+    } catch (err) {
       this.provider = null;
+      this.providerInitError = err instanceof Error ? err.message : String(err);
     }
+  }
+
+  /** Captured at construction if getLLMProvider throws. Used in dream() to write a Layer 2 audit entry. */
+  private providerInitError: string | null = null;
+
+  /** Expose the local DB so DreamScheduler can read designation meta. */
+  getDb(): GnosysDB {
+    return this.db;
   }
 
   /**
@@ -185,14 +201,39 @@ export class GnosysDreamEngine {
 
     // Audit: dream start
     auditToDb(this.db, "dream_start", undefined, {
+      startedAt: report.startedAt,
       config: {
         maxRuntime: this.dreamConfig.maxRuntimeMinutes,
         selfCritique: this.dreamConfig.selfCritique,
         generateSummaries: this.dreamConfig.generateSummaries,
         discoverRelationships: this.dreamConfig.discoverRelationships,
+        provider: this.dreamConfig.provider,
+        model: this.dreamConfig.model || null,
       },
       memoryCount: counts.active,
     });
+
+    // v5.4.2 Layer 2 alert: if the LLM provider couldn't be initialized at
+    // construction time, record this run as unable to do LLM-driven work.
+    // This makes the silent-skip behavior visible in audit_log and dashboard.
+    if (!this.provider) {
+      const errMsg = this.providerInitError || "LLM provider unavailable (no key, server unreachable, or misconfigured)";
+      auditToDb(this.db, "dream_provider_unreachable", undefined, {
+        provider: this.dreamConfig.provider,
+        model: this.dreamConfig.model || null,
+        error: errMsg,
+        phase: "init",
+      });
+      const failures = this.db.incrementDreamConsecutiveFailures();
+      report.errors.push(`Provider unavailable: ${errMsg}`);
+      // v5.4.2 Layer 4: fire desktop notification on threshold crossing.
+      if (failures === DREAM_FAILURE_NOTIFY_THRESHOLD) {
+        notifyDesktop(
+          `Dream provider has failed ${failures} times in a row. Run 'gnosys setup dream' to reconfigure.`,
+          { title: "Gnosys Dream", subtitle: `${this.dreamConfig.provider}/${this.dreamConfig.model || "default"}` }
+        ).catch(() => { /* never throws — best effort */ });
+      }
+    }
 
     // ─── Phase 1: Confidence Decay Sweep ─────────────────────────────────
     log("decay", "Phase 1: Confidence decay sweep...");
@@ -266,8 +307,18 @@ export class GnosysDreamEngine {
     report.finishedAt = new Date().toISOString();
     report.durationMs = Date.now() - this.startTime;
 
+    // v5.4.2: A run is considered "successful with LLM work" if any of the
+    // LLM-dependent counters moved. Resetting the consecutive-failure count
+    // here ensures Layer 4 doesn't keep firing once dream is healthy again.
+    const llmDidWork =
+      report.summariesGenerated > 0 || report.relationshipsDiscovered > 0;
+    if (llmDidWork) {
+      this.db.resetDreamConsecutiveFailures();
+    }
+
     // Audit: dream complete
     auditToDb(this.db, "dream_complete", undefined, {
+      startedAt: report.startedAt,
       durationMs: report.durationMs,
       decayUpdated: report.decayUpdated,
       summariesGenerated: report.summariesGenerated,
@@ -275,6 +326,9 @@ export class GnosysDreamEngine {
       relationshipsDiscovered: report.relationshipsDiscovered,
       errors: report.errors.length,
       aborted: report.aborted,
+      providerUnreachable: !this.provider,
+      provider: this.dreamConfig.provider,
+      model: this.dreamConfig.model || null,
     }, report.durationMs);
 
     return report;
@@ -738,10 +792,20 @@ export class DreamScheduler {
 
   /**
    * Start the scheduler — checks idle time periodically.
+   *
+   * v5.4.2: Designation gate — only the machine designated via
+   * `gnosys setup dream` arms the timer. All other machines on the same
+   * shared NAS DB no-op silently. Without this, every machine would run
+   * dream cycles, fighting for SQLite write locks and duplicating work.
    */
   start(): void {
     if (!this.config.enabled) return;
     if (this.checkInterval) return;
+    if (!this.isDesignatedMachine()) {
+      // Quiet — non-designated machines simply don't dream. The user can
+      // see designation status via `gnosys dashboard` if curious.
+      return;
+    }
 
     const CHECK_INTERVAL = 60_000; // Check every minute
     this.checkInterval = setInterval(() => this.checkIdle(), CHECK_INTERVAL);
@@ -750,6 +814,31 @@ export class DreamScheduler {
     if (this.checkInterval.unref) {
       this.checkInterval.unref();
     }
+  }
+
+  /** Returns true iff this machine is the dream node per central DB meta. */
+  private isDesignatedMachine(): boolean {
+    try {
+      const db = this.engine.getDb();
+      const designated = db.getDreamMachineId();
+      if (!designated) return false; // No machine designated → no dreams.
+      // Lazy-import to avoid circular dependency between dream.ts and remote.ts
+      // We can re-derive locally without remote's helper.
+      const localId = this.getLocalMachineId(db);
+      return designated === localId;
+    } catch {
+      return false;
+    }
+  }
+
+  private getLocalMachineId(db: GnosysDB): string {
+    let id = db.getMeta("machine_id");
+    if (!id) {
+      const hostname = process.env.HOSTNAME || process.env.COMPUTERNAME || "unknown";
+      id = `${hostname}-${Date.now().toString(36)}`;
+      db.setMeta("machine_id", id);
+    }
+    return id;
   }
 
   /**

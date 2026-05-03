@@ -554,7 +554,7 @@ setupCmd
 // `gnosys setup remote` — configure remote sync (alias for `gnosys remote configure`)
 setupCmd
   .command("remote")
-  .description("Configure multi-machine sync (alias for 'gnosys remote configure')")
+  .description("Configure multi-machine sync (NAS/shared drive)")
   .option("--path <path>", "Set remote path directly (non-interactive)")
   .action(async (opts: { path?: string }) => {
     const { GnosysDB } = await import("./lib/db.js");
@@ -578,17 +578,19 @@ setupCmd
     }
   });
 
-// ─── gnosys models (top-level shortcut) ─────────────────────────────────
-program
-  .command("models")
-  .description("Quick model operations — list available, refresh cache, or set the default")
-  .option("--list", "List available models for the current provider")
-  .option("--refresh", "Refresh model list from OpenRouter (clears the cache)")
-  .option("--set <model>", "Set the default model for the current provider")
-  .action(async (opts: { list?: boolean; refresh?: boolean; set?: string }) => {
-    const { runModelsCommand } = await import("./lib/setup.js");
-    await runModelsCommand(opts);
+// `gnosys setup dream` — configure dream mode (designation, provider, schedule)
+setupCmd
+  .command("dream")
+  .description("Configure Dream Mode — designate this machine, pick provider/model, set schedule")
+  .action(async () => {
+    const { runDreamSetup } = await import("./lib/setup.js");
+    await runDreamSetup({ directory: process.cwd() });
   });
+
+// v5.4.2 removal: `gnosys models` (top-level shortcut) was removed in favor
+// of the canonical `gnosys setup models` form. The implementation function
+// runModelsCommand() in setup.ts is no longer wired but kept for now in case
+// we need to revive a top-level shortcut later.
 
 // ─── gnosys init ─────────────────────────────────────────────────────────
 program
@@ -3142,35 +3144,10 @@ remoteCmd
     }
   });
 
-remoteCmd
-  .command("configure")
-  .description("Configure or change the remote sync location (interactive wizard)")
-  .option("--path <path>", "Set remote path non-interactively (skips wizard)")
-  .option("--migrate", "Copy current local DB to remote on first setup (with --path)")
-  .action(async (opts: { path?: string; migrate?: boolean }) => {
-    let centralDb: GnosysDB | null = null;
-    try {
-      centralDb = GnosysDB.openLocal();
-      if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
-
-      const { runConfigureWizard, configureFromPath } = await import("./lib/remoteWizard.js");
-
-      if (opts.path) {
-        // Non-interactive mode
-        const ok = await configureFromPath(centralDb, opts.path, { migrate: opts.migrate });
-        process.exit(ok ? 0 : 1);
-      } else {
-        // Interactive wizard
-        const ok = await runConfigureWizard(centralDb);
-        process.exit(ok ? 0 : 1);
-      }
-    } catch (err) {
-      console.error(`Error: ${err instanceof Error ? err.message : err}`);
-      process.exit(1);
-    } finally {
-      centralDb?.close();
-    }
-  });
+// v5.4.2 removal: `gnosys remote configure` was removed in favor of the
+// canonical `gnosys setup remote` form (which calls the same wizard
+// helpers from lib/remoteWizard.ts). Sync operations like push/pull/sync
+// remain under the `remote` parent.
 
 // ─── gnosys upgrade ─────────────────────────────────────────────────────
 program
@@ -3689,10 +3666,13 @@ program
     console.log();
   });
 
-// ─── gnosys dream ────────────────────────────────────────────────────────
-program
+// ─── gnosys dream (parent command) ───────────────────────────────────────
+const dreamCmd = program
   .command("dream")
-  .description("Run a Dream Mode cycle — idle-time consolidation (decay, summaries, self-critique, relationships)")
+  .description("Dream Mode — idle-time consolidation (run a cycle, view log)");
+
+// Bare `gnosys dream` runs a cycle now (preserves v5.4.1 behavior).
+dreamCmd
   .option("--max-runtime <minutes>", "Max runtime in minutes (default: 30)")
   .option("--no-critique", "Skip self-critique phase")
   .option("--no-summaries", "Skip summary generation")
@@ -3744,6 +3724,73 @@ program
     }
 
     db.close();
+  });
+
+// `gnosys dream log` — view recent dream runs from audit_log
+dreamCmd
+  .command("log")
+  .description("Show recent dream runs from the audit log (default: last 20)")
+  .option("--last <N>", "Number of most recent runs to show", "20")
+  .option("--since <YYYY-MM-DD>", "Only runs since this date")
+  .option("--failures-only", "Only runs with errors or unreachable provider")
+  .option("--json", "Output raw audit rows as JSON")
+  .action(async function (this: import("commander").Command, opts: { last: string; since?: string; failuresOnly?: boolean; json?: boolean }) {
+    let centralDb: GnosysDB | null = null;
+    try {
+      centralDb = GnosysDB.openCentral();
+      if (!centralDb.isAvailable()) {
+        console.error("Central DB not available.");
+        process.exit(1);
+      }
+      const limit = Math.max(1, parseInt(opts.last) || 20);
+      const sinceIso = opts.since ? `${opts.since}T00:00:00Z` : undefined;
+      const runs = centralDb.getRecentDreamRuns(limit, {
+        failuresOnly: !!opts.failuresOnly,
+        sinceIso,
+      });
+      // Commander v13 hoists `--json` to the parent when both parent and
+      // subcommand define it. Check the parent (dreamCmd) too so users can
+      // type `gnosys dream log --json` and get JSON output.
+      const wantJson = !!opts.json || !!(this.parent?.opts().json);
+      // JSON path always emits a structured response — including empty runs.
+      if (wantJson) {
+        console.log(JSON.stringify({ count: runs.length, runs }, null, 2));
+        return;
+      }
+      if (runs.length === 0) {
+        console.log("No dream runs recorded.");
+        return;
+      }
+      const DIM = "\x1b[2m";
+      const RESET = "\x1b[0m";
+      const RED = "\x1b[31m";
+      const GREEN = "\x1b[32m";
+      console.log(`${runs.length} dream run(s):\n`);
+      for (const r of runs) {
+        const d = r.details as Record<string, unknown>;
+        const dur = r.durationMs != null ? `${(r.durationMs / 1000).toFixed(1)}s` : "—";
+        const summaries = Number(d.summariesGenerated || 0);
+        const decays = Number(d.decayUpdated || 0);
+        const reviews = Number(d.reviewSuggestions || 0);
+        const rels = Number(d.relationshipsDiscovered || 0);
+        const errors = Number(d.errors || 0);
+        const unreachable = Boolean(d.providerUnreachable);
+        const status = unreachable
+          ? `${RED}provider unreachable${RESET}`
+          : errors > 0
+            ? `${RED}${errors} error(s)${RESET}`
+            : summaries + decays + rels > 0
+              ? `${GREEN}did work${RESET}`
+              : `${DIM}no LLM work${RESET}`;
+        console.log(`  ${r.completed} ${DIM}(${dur})${RESET} ${status}`);
+        console.log(`    decays=${decays} summaries=${summaries} reviews=${reviews} relations=${rels}`);
+        if (d.provider) {
+          console.log(`    ${DIM}provider=${d.provider}${d.model ? "/" + d.model : ""}${RESET}`);
+        }
+      }
+    } finally {
+      centralDb?.close();
+    }
   });
 
 // ─── gnosys export ───────────────────────────────────────────────────────

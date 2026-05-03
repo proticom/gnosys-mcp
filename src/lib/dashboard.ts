@@ -74,6 +74,20 @@ export interface DashboardData {
     archiveSearchMs: number;
     recallMs: number;
   } | null;
+  /** v5.4.2: Dream Mode health (designation + recent runs). */
+  dream: {
+    enabled: boolean;
+    designatedMachine: string | null;
+    isThisMachine: boolean;
+    localMachine: string | null;
+    lastRun: string | null;
+    lastSuccessfulRun: string | null;
+    consecutiveFailures: number;
+    recentTotal: number;
+    recentFailures: number;
+    provider: string;
+    model: string | null;
+  } | null;
   version: string;
 }
 
@@ -292,6 +306,38 @@ export async function collectDashboardData(
     }
   }
 
+  // v5.4.2: Dream health
+  let dreamData: DashboardData["dream"] = null;
+  if (gnosysDb?.isAvailable() && gnosysDb?.isMigrated()) {
+    try {
+      const designated = gnosysDb.getDreamMachineId();
+      const localMachine = gnosysDb.getMeta("machine_id");
+      const consecutiveFailures = gnosysDb.getDreamConsecutiveFailures();
+      const recentRuns = gnosysDb.getRecentDreamRuns(5);
+      const lastRun = recentRuns[0];
+      const lastSuccessful = gnosysDb.getLastSuccessfulDreamRun();
+      const recentFailures = recentRuns.filter((r) => {
+        const d = r.details as Record<string, unknown>;
+        return Number(d.errors || 0) > 0 || Boolean(d.providerUnreachable);
+      }).length;
+      dreamData = {
+        enabled: !!config.dream?.enabled,
+        designatedMachine: designated,
+        isThisMachine: !!designated && designated === localMachine,
+        localMachine,
+        lastRun: lastRun?.completed ?? null,
+        lastSuccessfulRun: lastSuccessful?.completed ?? null,
+        consecutiveFailures,
+        recentTotal: recentRuns.length,
+        recentFailures,
+        provider: config.dream?.provider ?? "ollama",
+        model: config.dream?.model ?? null,
+      };
+    } catch {
+      // Dream stats unavailable — leave null
+    }
+  }
+
   return {
     stores: storeData,
     totalMemories,
@@ -312,6 +358,7 @@ export async function collectDashboardData(
       minRelevance: config.recall?.minRelevance ?? 0.4,
     },
     performance,
+    dream: dreamData,
     version,
   };
 }
@@ -433,6 +480,35 @@ export function formatDashboard(data: DashboardData): string {
       note = "no API key";
     }
     lines.push(row(`  ${icon} ${p.name}: ${note}`));
+  }
+
+  // v5.4.2: Dream Mode health
+  if (data.dream) {
+    lines.push(BOX_DIV);
+    lines.push(header("DREAM HEALTH"));
+    lines.push(BOX_DIV);
+    const d = data.dream;
+    if (!d.enabled) {
+      lines.push(row(`  Status:        disabled (run 'gnosys setup dream')`));
+    } else if (!d.designatedMachine) {
+      lines.push(row(`  Status:        enabled, no machine designated`));
+      lines.push(row(`  This machine:  ${d.localMachine || "?"}`));
+      lines.push(row(`  Action:        run 'gnosys setup dream' on the machine that should host`));
+    } else {
+      const ownership = d.isThisMachine ? " (this machine)" : " (other machine)";
+      lines.push(row(`  Designated:    ${d.designatedMachine}${ownership}`));
+      lines.push(row(`  Provider:      ${d.provider}${d.model ? "/" + d.model : ""}`));
+      lines.push(row(`  Last run:      ${d.lastRun || "never"}`));
+      lines.push(row(`  Last success:  ${d.lastSuccessfulRun || "never (no LLM work)"}`));
+      const failureCount = d.recentFailures;
+      const totalRecent = d.recentTotal;
+      if (totalRecent > 0) {
+        lines.push(row(`  Recent runs:   ${failureCount} failure(s) of last ${totalRecent}`));
+      }
+      if (d.consecutiveFailures > 0) {
+        lines.push(row(`  ⚠ ${d.consecutiveFailures} consecutive provider failure(s)`));
+      }
+    }
   }
 
   // Performance (was "PERFORMANCE (ENTERPRISE)")

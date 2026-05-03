@@ -269,6 +269,40 @@ cd /path/to/project-b && gnosys init
 
 ---
 
+## Setup Wizards
+
+`gnosys setup` runs the full interactive wizard. To configure just one piece without walking the whole thing, use one of these subcommands:
+
+```bash
+gnosys setup           # full wizard (provider, models, IDE, remote sync, dream)
+gnosys setup models    # LLM provider + model only
+gnosys setup remote    # multi-machine sync (NAS/shared drive)
+gnosys setup dream     # Dream Mode designation, schedule, sub-tasks
+```
+
+### Dream Mode setup (v5.4.2+)
+
+Dream Mode is the idle-time consolidation engine — confidence decay, summary generation, self-critique, relationship discovery. With multi-machine sync (v5.3.0+), running dream cycles from every machine wastes work and fights for SQLite write locks. v5.4.2 introduces a **single designated machine** model:
+
+- Run `gnosys setup dream` on the machine you want to host dream cycles.
+- The wizard validates your provider/model with a live API probe before saving.
+- Other machines stay quiet — they see the designation in the central DB and skip the scheduler.
+- `gnosys dream log` shows recent runs; `gnosys dashboard` has a `DREAM HEALTH` section with last-run timestamp, designated machine, and consecutive-failure counter.
+- If the designated machine's LLM provider becomes unreachable, you'll see warnings at three layers: in audit log entries (`dream_provider_unreachable`), as stderr at MCP startup, and as a desktop notification after 3 consecutive failures.
+
+### Removed in v5.4.2
+
+The following commands were removed in favor of the canonical `gnosys setup <thing>` form:
+
+| Removed | Use instead |
+|---|---|
+| `gnosys models` | `gnosys setup models` |
+| `gnosys remote configure` | `gnosys setup remote` |
+
+`gnosys remote push|pull|sync|status` remain unchanged — only `configure` moved.
+
+---
+
 ### Manual config (if you prefer)
 
 If you'd rather edit configs by hand, here's where each client looks for MCP servers.

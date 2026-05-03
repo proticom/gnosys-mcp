@@ -1029,6 +1029,112 @@ export class GnosysDB {
     }
   }
 
+  // ─── Dream state (v5.4.2) ───────────────────────────────────────────
+
+  /**
+   * Get the machine ID designated to run dream cycles. Stored in gnosys_meta
+   * under `dream_machine_id`. Returns null if no machine is designated (dream
+   * is effectively disabled across the fleet).
+   */
+  getDreamMachineId(): string | null {
+    return this.getMeta("dream_machine_id");
+  }
+
+  /** Designate a machine for dream cycles. */
+  setDreamMachineId(machineId: string): void {
+    this.setMeta("dream_machine_id", machineId);
+  }
+
+  /** Clear dream designation. No machine will dream. */
+  clearDreamMachineId(): void {
+    try {
+      this.db.prepare("DELETE FROM gnosys_meta WHERE key = ?").run("dream_machine_id");
+    } catch {
+      // ignore
+    }
+  }
+
+  /**
+   * Get the count of consecutive dream provider failures. Reset to 0 after a
+   * successful LLM call. Used to drive Layer 4 desktop notifications when
+   * the threshold is crossed.
+   */
+  getDreamConsecutiveFailures(): number {
+    const v = this.getMeta("dream_consecutive_failures");
+    return v ? parseInt(v, 10) || 0 : 0;
+  }
+
+  /** Increment and return the new count. */
+  incrementDreamConsecutiveFailures(): number {
+    const next = this.getDreamConsecutiveFailures() + 1;
+    this.setMeta("dream_consecutive_failures", String(next));
+    return next;
+  }
+
+  /** Reset to 0 (call after a successful LLM round in a dream cycle). */
+  resetDreamConsecutiveFailures(): void {
+    this.setMeta("dream_consecutive_failures", "0");
+  }
+
+  /**
+   * Get the most recent dream runs for `gnosys dream log` and dashboard.
+   * Each row corresponds to a `dream_complete` audit entry. Includes the
+   * matching `dream_start` timestamp and counts of per-action sub-entries.
+   */
+  getRecentDreamRuns(limit: number = 20, opts: { failuresOnly?: boolean; sinceIso?: string } = {}): Array<{
+    started: string;
+    completed: string;
+    durationMs: number | null;
+    details: Record<string, unknown>;
+  }> {
+    const conds: string[] = ["operation = 'dream_complete'"];
+    const params: unknown[] = [];
+    if (opts.sinceIso) {
+      conds.push("timestamp >= ?");
+      params.push(opts.sinceIso);
+    }
+    const where = conds.join(" AND ");
+    const rows = this.db
+      .prepare(
+        `SELECT timestamp, details, duration_ms FROM audit_log WHERE ${where} ORDER BY timestamp DESC LIMIT ?`
+      )
+      .all(...params, limit) as Array<{ timestamp: string; details: string | null; duration_ms: number | null }>;
+
+    const out = rows.map((r) => {
+      let parsed: Record<string, unknown> = {};
+      try { parsed = r.details ? JSON.parse(r.details) : {}; } catch { /* leave empty */ }
+      return {
+        started: typeof parsed.startedAt === "string" ? parsed.startedAt : r.timestamp,
+        completed: r.timestamp,
+        durationMs: r.duration_ms,
+        details: parsed,
+      };
+    });
+
+    if (opts.failuresOnly) {
+      return out.filter((r) => {
+        const d = r.details as Record<string, unknown>;
+        return Number(d.errors || 0) > 0 || Boolean(d.providerUnreachable);
+      });
+    }
+    return out;
+  }
+
+  /** Convenience: most recent successful dream run (had > 0 LLM-driven outputs). */
+  getLastSuccessfulDreamRun(): { completed: string; details: Record<string, unknown> } | null {
+    const recent = this.getRecentDreamRuns(50);
+    for (const r of recent) {
+      const d = r.details;
+      const summaries = Number(d.summariesGenerated || 0);
+      const decays = Number(d.decayUpdated || 0);
+      const rels = Number(d.relationshipsDiscovered || 0);
+      if (summaries + decays + rels > 0) {
+        return { completed: r.completed, details: d };
+      }
+    }
+    return null;
+  }
+
   // ─── Sync state (v5.3.0) ────────────────────────────────────────────
 
   /** Queue a memory for remote sync when reconnected */

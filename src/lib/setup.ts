@@ -2231,3 +2231,260 @@ export async function runModelsCommand(opts: ModelsCommandOpts = {}): Promise<vo
   console.log();
   console.log(`${DIM}Use '--list' to see options, '--set <model>' to change, '--refresh' to update catalog.${RESET}`);
 }
+
+// ─── Dream Setup (gnosys setup dream) ────────────────────────────────────
+
+export interface DreamSetupOpts {
+  directory?: string;
+}
+
+/**
+ * Walks the user through configuring dream mode. Handles:
+ *   - enable/disable
+ *   - designating THIS machine as the dream node (writes central DB meta)
+ *   - provider/model picking + validation (Layer 1 alert)
+ *   - schedule (idle minutes, max runtime, min memories)
+ *   - sub-task toggles (selfCritique, generateSummaries, discoverRelationships)
+ *
+ * Writes dream config to global gnosys.json and `dream_machine_id` to the
+ * central DB meta table.
+ */
+export async function runDreamSetup(opts: DreamSetupOpts = {}): Promise<void> {
+  const projectDir = opts.directory ? path.resolve(opts.directory) : process.cwd();
+  const rl = createInterface({ input: stdin, output: stdout });
+
+  try {
+    console.log();
+    console.log(`${BOLD}${CYAN}Gnosys${RESET} ${DIM}— Dream Mode Setup${RESET}`);
+    console.log();
+
+    const existingConfig = await loadExistingConfig(projectDir);
+    const existingDream = existingConfig?.dream;
+
+    // Show current state via central DB
+    const { GnosysDB } = await import("./db.js");
+    const localDb = GnosysDB.openLocal();
+    const designatedMachine = localDb.getDreamMachineId();
+    const localMachine = (() => {
+      let id = localDb.getMeta("machine_id");
+      if (!id) {
+        const hostname = process.env.HOSTNAME || process.env.COMPUTERNAME || "unknown";
+        id = `${hostname}-${Date.now().toString(36)}`;
+        localDb.setMeta("machine_id", id);
+      }
+      return id;
+    })();
+    const recentRuns = localDb.getRecentDreamRuns(1);
+    const lastRun = recentRuns[0];
+
+    console.log(`${DIM}Current state${RESET}`);
+    console.log(`  Enabled:           ${existingDream?.enabled ? GREEN + "yes" + RESET : DIM + "no" + RESET}`);
+    console.log(`  Designated:        ${designatedMachine ? designatedMachine + (designatedMachine === localMachine ? ` ${GREEN}(this machine)${RESET}` : ` ${DIM}(other machine)${RESET}`) : DIM + "none" + RESET}`);
+    console.log(`  This machine ID:   ${DIM}${localMachine}${RESET}`);
+    if (existingDream) {
+      console.log(`  Provider:          ${existingDream.provider}${existingDream.model ? "/" + existingDream.model : ""}`);
+      console.log(`  Idle threshold:    ${existingDream.idleMinutes} min`);
+      console.log(`  Max runtime:       ${existingDream.maxRuntimeMinutes} min`);
+    }
+    if (lastRun) {
+      console.log(`  Last run:          ${DIM}${lastRun.completed}${RESET}`);
+    } else {
+      console.log(`  Last run:          ${DIM}never${RESET}`);
+    }
+    console.log();
+
+    // Step 1: Enable
+    const enabled = await askYesNo(rl, "Enable dream mode?", existingDream?.enabled ?? true);
+    if (!enabled) {
+      // Persist disabled state and clear designation
+      const storePath = pickStorePath(projectDir);
+      await updateConfig(storePath, {
+        dream: { ...(existingDream ?? {}), enabled: false },
+      });
+      localDb.clearDreamMachineId();
+      console.log(`${CHECK} Dream mode disabled. Designation cleared.`);
+      localDb.close();
+      return;
+    }
+
+    // Step 2: Designate this machine
+    const designate = await askYesNo(
+      rl,
+      designatedMachine === localMachine
+        ? "This machine is currently the dream node. Keep it that way?"
+        : `Designate THIS machine (${localMachine}) to run dream cycles?`,
+      true
+    );
+    if (designate) {
+      localDb.setDreamMachineId(localMachine);
+      console.log(`  ${CHECK} ${localMachine} is now the dream node.`);
+    } else if (designatedMachine === localMachine) {
+      localDb.clearDreamMachineId();
+      console.log(`  ${WARN} Designation cleared. No machine will dream until you re-run this on another machine.`);
+    } else {
+      console.log(`  ${DIM}Keeping current designation: ${designatedMachine || "none"}${RESET}`);
+    }
+
+    // Step 3: Provider
+    console.log();
+    console.log(`${DIM}Fetching latest model pricing...${RESET}`);
+    const dynamicModels = await fetchDynamicModels();
+    if (Object.keys(dynamicModels).length > 0) {
+      console.log(`${DIM}${CHECK} Live pricing loaded from OpenRouter${RESET}`);
+    }
+    console.log();
+
+    const defaultProvider = existingDream?.provider || existingConfig?.llm.defaultProvider || "ollama";
+    const dreamProvider = await pickProvider(
+      rl,
+      dynamicModels,
+      `${BOLD}Step 3${RESET} ${DIM}—${RESET} Choose dream LLM provider`,
+      defaultProvider
+    );
+
+    // Step 4: Model
+    let dreamModel = "";
+    if (dreamProvider === "custom" || dreamProvider === "skip") {
+      dreamModel = await askInput(rl, "Enter model name");
+    } else {
+      const tiers = dynamicModels[dreamProvider] ?? PROVIDER_TIERS[dreamProvider] ?? [];
+      if (tiers.length === 0) {
+        dreamModel = await askInput(rl, "Enter model name");
+      } else {
+        dreamModel = await pickModel(
+          rl,
+          dreamProvider,
+          dynamicModels,
+          `${BOLD}Step 4${RESET} ${DIM}—${RESET} Choose dream model`,
+          existingDream?.model
+        );
+      }
+    }
+
+    // Step 5: Validate (Layer 1 alert)
+    if (dreamProvider !== "skip") {
+      const apiKey = await getApiKeyForProvider(dreamProvider);
+      if (apiKey || dreamProvider === "ollama" || dreamProvider === "lmstudio") {
+        console.log();
+        console.log(`${DIM}Testing ${dreamProvider}/${dreamModel}...${RESET}`);
+        try {
+          const customBaseUrl = dreamProvider === "custom" ? process.env.GNOSYS_LLM_BASE_URL : undefined;
+          const result = await validateModel(dreamProvider, dreamModel, apiKey, { customBaseUrl });
+          if (result.ok) {
+            console.log(`  ${CHECK} Validated (${result.latencyMs}ms)`);
+          } else {
+            console.log(`  ${WARN} Could not reach ${dreamProvider}/${dreamModel}: ${result.error}`);
+            console.log(`  ${DIM}Dream is configured but won't run useful work until this is fixed.${RESET}`);
+            const proceed = await askYesNo(rl, "  Continue saving config anyway?", true);
+            if (!proceed) {
+              console.log(`  ${DIM}Setup cancelled. No changes saved.${RESET}`);
+              localDb.close();
+              return;
+            }
+          }
+        } catch (err) {
+          console.log(`  ${DIM}Validation skipped: ${err instanceof Error ? err.message : err}${RESET}`);
+        }
+      } else {
+        console.log(`  ${WARN} No API key configured for ${dreamProvider}. Set one via 'gnosys setup models'.`);
+      }
+    }
+
+    // Step 6-8: schedule
+    console.log();
+    console.log(`${BOLD}Step 6${RESET} ${DIM}—${RESET} Schedule`);
+    const idleAns = await askInput(rl, `Idle minutes before triggering`, {
+      default: String(existingDream?.idleMinutes ?? 10),
+    });
+    const idleMinutes = Math.max(1, parseInt(idleAns) || 10);
+
+    const runtimeAns = await askInput(rl, `Max runtime minutes`, {
+      default: String(existingDream?.maxRuntimeMinutes ?? 30),
+    });
+    const maxRuntimeMinutes = Math.max(1, parseInt(runtimeAns) || 30);
+
+    const minMemAns = await askInput(rl, `Minimum memories before activating`, {
+      default: String(existingDream?.minMemories ?? 10),
+    });
+    const minMemories = Math.max(1, parseInt(minMemAns) || 10);
+
+    // Step 9: sub-tasks
+    console.log();
+    console.log(`${BOLD}Step 9${RESET} ${DIM}—${RESET} Dream sub-tasks`);
+    const selfCritique = await askYesNo(rl, "Self-critique (rule + LLM-based review flagging)", existingDream?.selfCritique ?? true);
+    const generateSummaries = await askYesNo(rl, "Generate summaries (LLM)", existingDream?.generateSummaries ?? true);
+    const discoverRelationships = await askYesNo(rl, "Discover relationships (LLM)", existingDream?.discoverRelationships ?? true);
+
+    // Save
+    const storePath = pickStorePath(projectDir);
+    await updateConfig(storePath, {
+      dream: {
+        enabled: true,
+        idleMinutes,
+        maxRuntimeMinutes,
+        minMemories,
+        provider: dreamProvider as LLMProviderName,
+        model: dreamModel || undefined,
+        selfCritique,
+        generateSummaries,
+        discoverRelationships,
+      },
+    });
+
+    // Reset consecutive failure counter on a fresh setup so Layer 4
+    // doesn't fire immediately based on stale history.
+    localDb.resetDreamConsecutiveFailures();
+    localDb.close();
+
+    console.log();
+    console.log(`  ${CHECK} Dream config saved: ${storePath}/gnosys.json`);
+    console.log(`  ${DIM}Provider:    ${dreamProvider}${dreamModel ? "/" + dreamModel : ""}${RESET}`);
+    console.log(`  ${DIM}Schedule:    idle ${idleMinutes}m / max ${maxRuntimeMinutes}m / min ${minMemories} memories${RESET}`);
+    console.log(`  ${DIM}Designated:  ${designate ? localMachine + " (this machine)" : (designatedMachine || "none")}${RESET}`);
+    console.log();
+    console.log(`${DIM}Tip: 'gnosys dream log' shows recent runs once dream starts cycling.${RESET}`);
+  } finally {
+    rl.close();
+  }
+}
+
+/** Resolve where to write gnosys.json — project store if exists, else global store. */
+function pickStorePath(projectDir: string): string {
+  const projectStore = path.join(projectDir, ".gnosys");
+  const globalStore = getGnosysHome();
+  if (fsSync.existsSync(path.join(projectStore, "gnosys.json"))) {
+    return projectStore;
+  }
+  if (!fsSync.existsSync(globalStore)) {
+    fsSync.mkdirSync(globalStore, { recursive: true });
+  }
+  return globalStore;
+}
+
+/**
+ * Best-effort lookup of the API key for a provider. Used by the dream setup
+ * wizard to power the validation step. Mirrors the resolveApiKey precedence.
+ */
+async function getApiKeyForProvider(provider: string): Promise<string> {
+  if (provider === "ollama" || provider === "lmstudio" || provider === "skip") return "";
+  const envVarName = provider === "custom" ? "GNOSYS_CUSTOM_KEY" : `GNOSYS_${provider.toUpperCase()}_KEY`;
+  const legacyVars: Record<string, string> = {
+    anthropic: "ANTHROPIC_API_KEY",
+    openai: "OPENAI_API_KEY",
+    groq: "GROQ_API_KEY",
+    xai: "XAI_API_KEY",
+    mistral: "MISTRAL_API_KEY",
+  };
+  const fromEnv = process.env[envVarName] || (legacyVars[provider] && process.env[legacyVars[provider]]) || "";
+  if (fromEnv) return fromEnv;
+  if (process.platform === "darwin") {
+    try {
+      return execSync(`security find-generic-password -a "$USER" -s "${envVarName}" -w 2>/dev/null`, {
+        stdio: "pipe", encoding: "utf-8", timeout: 2000,
+      }).trim();
+    } catch {
+      // fall through
+    }
+  }
+  return "";
+}
