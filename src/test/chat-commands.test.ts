@@ -57,7 +57,11 @@ describe("chat command registry", () => {
     expect(names).toContain("/threshold");
     expect(names).toContain("/recall");
     expect(names).toContain("/reinforce");
-    expect(cmds.length).toBeGreaterThanOrEqual(15);
+    // Phase 4
+    expect(names).toContain("/remember");
+    expect(names).toContain("/save-turn");
+    expect(names).toContain("/attach");
+    expect(cmds.length).toBeGreaterThanOrEqual(18);
   });
 
   it("findCommand resolves aliases (case-insensitive)", () => {
@@ -210,5 +214,34 @@ describe("dispatchCommand", () => {
     const result = await dispatchCommand("/reinforce deci-037", baseCtx);
     expect(result?.kind).toBe("reinforce");
     if (result?.kind === "reinforce") expect(result.memoryId).toBe("deci-037");
+  });
+
+  // ─── Phase 4 commands ─────────────────────────────────────────────────
+
+  it("/remember with text returns remember result with joined text", async () => {
+    const result = await dispatchCommand("/remember the answer is 42", baseCtx);
+    expect(result?.kind).toBe("remember");
+    if (result?.kind === "remember") {
+      expect(result.text).toBe("the answer is 42");
+    }
+  });
+
+  it("/remember with no args returns error", async () => {
+    expect((await dispatchCommand("/remember", baseCtx))?.kind).toBe("error");
+  });
+
+  it("/save-turn returns save-turn result", async () => {
+    const result = await dispatchCommand("/save-turn", baseCtx);
+    expect(result?.kind).toBe("save-turn");
+  });
+
+  it("/attach with path returns attach result", async () => {
+    const result = await dispatchCommand("/attach ./report.pdf", baseCtx);
+    expect(result?.kind).toBe("attach");
+    if (result?.kind === "attach") expect(result.filePath).toBe("./report.pdf");
+  });
+
+  it("/attach with no args returns error", async () => {
+    expect((await dispatchCommand("/attach", baseCtx))?.kind).toBe("error");
   });
 });

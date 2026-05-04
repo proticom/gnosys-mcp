@@ -24,6 +24,17 @@ import { dispatchCommand, CommandContext } from "./commands.js";
 import { appendEvent } from "./session.js";
 import { runTurn, buildProvider } from "./llmTurn.js";
 import { runRecall, reinforceMemory, buildRecallQuery, RecallScope } from "./recall.js";
+import { promoteToMemory, lastExchange, formatExchange, detectAutoPromote } from "./write.js";
+import {
+  inferIntent,
+  describeIntent,
+  isDestructive,
+  shouldAutoAccept,
+  recordAcceptance,
+  newAcceptanceLog,
+  IntentAcceptanceLog,
+  InferredIntent,
+} from "./intent.js";
 import { GnosysConfig, LLMProviderName } from "../config.js";
 import { GnosysDB } from "../db.js";
 
@@ -51,6 +62,10 @@ export const ChatApp: React.FC<ChatAppProps> = ({ initialHeader, initialBuffer, 
   const [scope, setScope] = useState<RecallScope>("federated");
   const [threshold, setThreshold] = useState<number>(0);
 
+  // Intent detection — inferred-but-not-yet-confirmed action
+  const [pendingIntent, setPendingIntent] = useState<InferredIntent | null>(null);
+  const acceptanceLogRef = useRef<IntentAcceptanceLog>(newAcceptanceLog());
+
   function nowIso(): string {
     return new Date().toISOString();
   }
@@ -62,11 +77,71 @@ export const ChatApp: React.FC<ChatAppProps> = ({ initialHeader, initialBuffer, 
     setTimeout(() => setSystemNotice([]), 5000);
   }
 
+  /** Run an inferred intent as if the user had typed the equivalent slash command. */
+  async function executeIntent(intent: InferredIntent): Promise<void> {
+    const cmdText = describeIntent(intent);
+    appendEvent(header.sessionId, {
+      type: "intent_inferred",
+      ts: nowIso(),
+      pattern: intent.matchedPattern ?? "(llm)",
+      intent: intent.command,
+      accepted: true,
+    });
+    // Re-enter handleSubmit with the slash form — reuses the existing dispatch path
+    await handleSubmit(cmdText);
+  }
+
   async function handleSubmit(raw: string): Promise<void> {
     const text = raw.trim();
-    if (!text) return;
+    if (!text) {
+      // Empty submit while a pending intent is shown → accept
+      if (pendingIntent) {
+        const intent = pendingIntent;
+        recordAcceptance(acceptanceLogRef.current, intent.matchedPattern);
+        setPendingIntent(null);
+        setInput("");
+        await executeIntent(intent);
+        return;
+      }
+      return;
+    }
 
     setInput("");
+
+    // Pending-intent confirm step ──────────────────────────────────────
+    if (pendingIntent) {
+      const lower = text.toLowerCase();
+      if (lower === "y" || lower === "yes") {
+        const intent = pendingIntent;
+        recordAcceptance(acceptanceLogRef.current, intent.matchedPattern);
+        setPendingIntent(null);
+        await executeIntent(intent);
+        return;
+      }
+      if (lower === "n" || lower === "no") {
+        appendEvent(header.sessionId, {
+          type: "intent_inferred",
+          ts: nowIso(),
+          pattern: pendingIntent.matchedPattern ?? "(llm)",
+          intent: pendingIntent.command,
+          accepted: false,
+        });
+        setPendingIntent(null);
+        pushSystem("Intent declined. Type your message normally.");
+        return;
+      }
+      if (lower === "e" || lower === "edit") {
+        // Drop the intent into the input box for tweaking
+        const cmdText = describeIntent(pendingIntent);
+        setPendingIntent(null);
+        setInput(cmdText);
+        return;
+      }
+      // Anything else cancels the pending intent and is treated as the new input
+      setPendingIntent(null);
+      pushSystem("Intent declined.");
+      // Fall through to normal handling of `text`
+    }
 
     // Slash command path
     if (text.startsWith("/")) {
@@ -183,6 +258,103 @@ export const ChatApp: React.FC<ChatAppProps> = ({ initialHeader, initialBuffer, 
           }
           break;
         }
+        case "remember": {
+          const db = GnosysDB.openCentral();
+          if (!db.isAvailable()) {
+            pushSystem("Central DB unavailable");
+            db.close();
+            break;
+          }
+          try {
+            const promoted = await promoteToMemory(db, {
+              content: result.text,
+              source: "remember",
+              sessionId: header.sessionId,
+              projectId,
+              config: configRef.current,
+            });
+            appendEvent(header.sessionId, {
+              type: "memory_promoted",
+              ts: nowIso(),
+              memory_id: promoted.id,
+              source: "remember",
+            });
+            pushSystem(`Saved as ${promoted.id} — "${promoted.title}" [${promoted.category}]`);
+          } catch (err) {
+            pushSystem(`Failed to save: ${err instanceof Error ? err.message : String(err)}`);
+          } finally {
+            db.close();
+          }
+          break;
+        }
+        case "save-turn": {
+          const pair = lastExchange(buffer);
+          if (!pair) {
+            pushSystem("No recent user+assistant exchange to save.");
+            break;
+          }
+          const db = GnosysDB.openCentral();
+          if (!db.isAvailable()) {
+            pushSystem("Central DB unavailable");
+            db.close();
+            break;
+          }
+          try {
+            const promoted = await promoteToMemory(db, {
+              content: formatExchange(pair),
+              source: "save-turn",
+              sessionId: header.sessionId,
+              projectId,
+              config: configRef.current,
+            });
+            appendEvent(header.sessionId, {
+              type: "memory_promoted",
+              ts: nowIso(),
+              memory_id: promoted.id,
+              source: "save-turn",
+            });
+            pushSystem(`Saved exchange as ${promoted.id} — "${promoted.title}" [${promoted.category}]`);
+          } catch (err) {
+            pushSystem(`Failed to save: ${err instanceof Error ? err.message : String(err)}`);
+          } finally {
+            db.close();
+          }
+          break;
+        }
+        case "attach": {
+          // Ingest the file via the existing multimodal pipeline, then pin
+          // any resulting memories so they're injected into the next turn.
+          pushSystem(`Ingesting ${result.filePath}…`);
+          try {
+            const { ingestFile } = await import("../multimodalIngest.js");
+            const { GnosysResolver } = await import("../resolver.js");
+            const r = new GnosysResolver();
+            await r.resolve();
+            const stores = r.getStores();
+            if (stores.length === 0) {
+              pushSystem("No store found — run 'gnosys init' first.");
+              break;
+            }
+            const ingestResult = await ingestFile({
+              filePath: result.filePath,
+              storePath: stores[0].path,
+            });
+            const newIds = ingestResult.memories.map((m) => m.id).slice(0, 10);
+            for (const id of newIds) {
+              if (!pinnedIds.includes(id)) {
+                setPinnedIds((p) => [...p, id]);
+                appendEvent(header.sessionId, { type: "memory_promoted", ts: nowIso(), memory_id: id, source: "attach" });
+                appendEvent(header.sessionId, { type: "pin", ts: nowIso(), memory_id: id });
+              }
+            }
+            pushSystem(
+              `Ingested ${newIds.length} memor${newIds.length === 1 ? "y" : "ies"} from ${result.filePath} — pinned for this session.`,
+            );
+          } catch (err) {
+            pushSystem(`Attach failed: ${err instanceof Error ? err.message : String(err)}`);
+          }
+          break;
+        }
         case "error":
           pushSystem(`Error: ${result.message}`);
           break;
@@ -190,10 +362,41 @@ export const ChatApp: React.FC<ChatAppProps> = ({ initialHeader, initialBuffer, 
       return;
     }
 
+    // Free-text intent detection ──────────────────────────────────────
+    // Try to map the user's natural-language input to a slash command.
+    // If we find a match: auto-accept when the user has confirmed this
+    // pattern N times before, or render a [Y/n/edit] confirm prompt.
+    {
+      const intent = await inferIntent(text, configRef.current);
+      if (intent) {
+        const auto = shouldAutoAccept(acceptanceLogRef.current, intent.matchedPattern);
+        if (auto && !isDestructive(intent.command)) {
+          await executeIntent(intent);
+          return;
+        }
+        setPendingIntent(intent);
+        appendEvent(header.sessionId, {
+          type: "intent_inferred",
+          ts: nowIso(),
+          pattern: intent.matchedPattern ?? "(llm)",
+          intent: intent.command,
+          accepted: false, // not yet
+        });
+        return;
+      }
+    }
+
     // Chat turn path
     const userTurn: Turn = { role: "user", text, ts: nowIso() };
     setBuffer((b) => [...b, userTurn]);
     appendEvent(header.sessionId, { type: "user", ts: userTurn.ts, text });
+
+    // Auto-promote heuristic — non-blocking hint; user can /save-turn
+    // explicitly or ignore. We don't auto-write without consent.
+    const hint = detectAutoPromote(text);
+    if (hint) {
+      pushSystem(`hint: that looks like a ${hint.reason} — type /save-turn after the response to capture it.`);
+    }
 
     setStatus({ kind: "thinking" });
 
@@ -305,6 +508,15 @@ export const ChatApp: React.FC<ChatAppProps> = ({ initialHeader, initialBuffer, 
       <Box marginTop={1}>
         <StatusLine status={status} />
       </Box>
+
+      {pendingIntent && (
+        <Box marginTop={1} flexDirection="column">
+          <Text color="magenta">
+            inferred: {describeIntent(pendingIntent)}{isDestructive(pendingIntent.command) ? " (destructive)" : ""}
+          </Text>
+          <Text dimColor>[Y]es · [N]o · [E]dit · or type a new message</Text>
+        </Box>
+      )}
 
       <Box marginTop={1}>
         <Text>&gt; </Text>

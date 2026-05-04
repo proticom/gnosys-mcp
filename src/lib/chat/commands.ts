@@ -37,6 +37,9 @@ export type CommandResult =
   | { kind: "threshold"; value: number }                          // /threshold
   | { kind: "preview-recall"; query: string }                     // /recall
   | { kind: "reinforce"; memoryId: string }                       // /reinforce
+  | { kind: "remember"; text: string }                            // /remember
+  | { kind: "save-turn" }                                         // /save-turn
+  | { kind: "attach"; filePath: string }                          // /attach
   | { kind: "error"; message: string };
 
 export interface CommandSpec {
@@ -281,6 +284,34 @@ const reinforceCmd: CommandSpec = {
   },
 };
 
+// ─── Phase 4 commands: memory writing ────────────────────────────────────
+
+const rememberCmd: CommandSpec = {
+  name: "/remember",
+  usage: "/remember <text>",
+  summary: "Save text as a new memory in the current project",
+  handler: (_ctx, args) => {
+    if (args.length === 0) return { kind: "error", message: "Usage: /remember <text>" };
+    return { kind: "remember", text: args.join(" ") };
+  },
+};
+
+const saveTurnCmd: CommandSpec = {
+  name: "/save-turn",
+  summary: "Distill the most recent user+assistant exchange into a memory",
+  handler: () => ({ kind: "save-turn" }),
+};
+
+const attachCmd: CommandSpec = {
+  name: "/attach",
+  usage: "/attach <filePath>",
+  summary: "Ingest a file (PDF, image, audio, video, DOCX, MD) and pin it to this session",
+  handler: (_ctx, args) => {
+    if (args.length === 0) return { kind: "error", message: "Usage: /attach <filePath>" };
+    return { kind: "attach", filePath: args.join(" ") };
+  },
+};
+
 const REGISTRY: CommandSpec[] = [
   helpCmd,
   clearCmd,
@@ -297,6 +328,9 @@ const REGISTRY: CommandSpec[] = [
   thresholdCmd,
   recallCmd,
   reinforceCmd,
+  rememberCmd,
+  saveTurnCmd,
+  attachCmd,
 ];
 
 export function listCommands(): CommandSpec[] {
