@@ -125,6 +125,7 @@ export async function startChat(opts: StartChatOptions): Promise<void> {
       initialHeader,
       initialBuffer,
       config: opts.config,
+      projectId: project?.id ?? null,
     }),
   );
 

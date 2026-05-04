@@ -37,10 +37,10 @@ const baseCtx: CommandContext = {
 };
 
 describe("chat command registry", () => {
-  it("listCommands returns the 9 phase-2 commands", () => {
+  it("listCommands returns the phase 2+3 commands", () => {
     const cmds = listCommands();
-    expect(cmds.length).toBeGreaterThanOrEqual(9);
     const names = cmds.map((c) => c.name);
+    // Phase 2
     expect(names).toContain("/help");
     expect(names).toContain("/clear");
     expect(names).toContain("/quit");
@@ -50,6 +50,14 @@ describe("chat command registry", () => {
     expect(names).toContain("/tags");
     expect(names).toContain("/dashboard");
     expect(names).toContain("/provider");
+    // Phase 3
+    expect(names).toContain("/pin");
+    expect(names).toContain("/unpin");
+    expect(names).toContain("/scope");
+    expect(names).toContain("/threshold");
+    expect(names).toContain("/recall");
+    expect(names).toContain("/reinforce");
+    expect(cmds.length).toBeGreaterThanOrEqual(15);
   });
 
   it("findCommand resolves aliases (case-insensitive)", () => {
@@ -152,5 +160,55 @@ describe("dispatchCommand", () => {
   it("/read with no args returns usage error", async () => {
     const result = await dispatchCommand("/read", baseCtx);
     expect(result?.kind).toBe("error");
+  });
+
+  // ─── Phase 3 commands ─────────────────────────────────────────────────
+
+  it("/pin with id returns pin result", async () => {
+    const result = await dispatchCommand("/pin deci-037", baseCtx);
+    expect(result?.kind).toBe("pin");
+    if (result?.kind === "pin") expect(result.memoryId).toBe("deci-037");
+  });
+
+  it("/unpin returns unpin result", async () => {
+    const result = await dispatchCommand("/unpin deci-037", baseCtx);
+    expect(result?.kind).toBe("unpin");
+  });
+
+  it("/scope with valid value returns scope result", async () => {
+    const result = await dispatchCommand("/scope project", baseCtx);
+    expect(result?.kind).toBe("scope");
+    if (result?.kind === "scope") expect(result.scope).toBe("project");
+  });
+
+  it("/scope with invalid value returns error", async () => {
+    const result = await dispatchCommand("/scope nonsense", baseCtx);
+    expect(result?.kind).toBe("error");
+  });
+
+  it("/threshold accepts 0.0 to 1.0", async () => {
+    const result = await dispatchCommand("/threshold 0.7", baseCtx);
+    expect(result?.kind).toBe("threshold");
+    if (result?.kind === "threshold") expect(result.value).toBe(0.7);
+  });
+
+  it("/threshold rejects out-of-range", async () => {
+    expect((await dispatchCommand("/threshold 1.5", baseCtx))?.kind).toBe("error");
+    expect((await dispatchCommand("/threshold -0.1", baseCtx))?.kind).toBe("error");
+    expect((await dispatchCommand("/threshold abc", baseCtx))?.kind).toBe("error");
+  });
+
+  it("/recall returns preview-recall result with the joined query", async () => {
+    const result = await dispatchCommand("/recall how does ULID encoding work", baseCtx);
+    expect(result?.kind).toBe("preview-recall");
+    if (result?.kind === "preview-recall") {
+      expect(result.query).toBe("how does ULID encoding work");
+    }
+  });
+
+  it("/reinforce returns reinforce result", async () => {
+    const result = await dispatchCommand("/reinforce deci-037", baseCtx);
+    expect(result?.kind).toBe("reinforce");
+    if (result?.kind === "reinforce") expect(result.memoryId).toBe("deci-037");
   });
 });

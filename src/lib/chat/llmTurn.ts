@@ -10,6 +10,7 @@ import { GnosysConfig, getProviderModel } from "../config.js";
 import { LLMProvider, getLLMProvider, createProvider } from "../llm.js";
 import { LLMProviderName } from "../config.js";
 import { Turn } from "./types.js";
+import { RecalledMemory, formatRecallForPrompt } from "./recall.js";
 
 export interface LLMTurnOptions {
   /** Conversation buffer to send (will be formatted into a single prompt). */
@@ -18,15 +19,24 @@ export interface LLMTurnOptions {
   userInput: string;
   /** Token-level streaming callback. */
   onToken: (token: string) => void;
+  /** Recalled memories to inject into the system prompt. Empty disables recall. */
+  recalled?: RecalledMemory[];
 }
 
 export interface LLMTurnResult {
   text: string;
   provider: string;
   model: string;
+  /** Memory IDs surfaced in the system prompt for this turn (used for citations). */
+  recalledIds: string[];
 }
 
-const SYSTEM_PROMPT = `You are an assistant inside the Gnosys terminal chat. Be concise and direct. When the user explicitly asks a question, answer it; otherwise have a normal conversation. Markdown is rendered. Code blocks render with syntax highlighting.`;
+const BASE_SYSTEM_PROMPT = `You are an assistant inside the Gnosys terminal chat — a memory-aware REPL. The user has persistent memory across sessions; relevant memories are injected as <memory id="..."> blocks before their question. Cite memory IDs in square brackets like [deci-037] when you use them. Be concise and direct. Markdown renders.`;
+
+function composeSystemPrompt(recalled: RecalledMemory[] | undefined): string {
+  if (!recalled || recalled.length === 0) return BASE_SYSTEM_PROMPT;
+  return `${BASE_SYSTEM_PROMPT}\n\n${formatRecallForPrompt(recalled)}`;
+}
 
 /** Format the conversation buffer + new input into a single prompt string. */
 function buildPrompt(buffer: Turn[], userInput: string): string {
@@ -43,7 +53,7 @@ function buildPrompt(buffer: Turn[], userInput: string): string {
 
 /**
  * Run a single turn. Streams via opts.onToken. Returns the full assistant
- * response when done.
+ * response plus the IDs of any memories injected as context.
  */
 export async function runTurn(
   config: GnosysConfig,
@@ -54,11 +64,12 @@ export async function runTurn(
   const provider: LLMProvider = getLLMProvider(config, "synthesis");
 
   const prompt = buildPrompt(opts.buffer, opts.userInput);
+  const system = composeSystemPrompt(opts.recalled);
 
   let full = "";
   await provider.generate(
     prompt,
-    { system: SYSTEM_PROMPT, stream: true, maxTokens: 4096 },
+    { system, stream: true, maxTokens: 4096 },
     {
       onToken: (token) => {
         full += token;
@@ -67,7 +78,12 @@ export async function runTurn(
     },
   );
 
-  return { text: full, provider: provider.name, model: provider.model };
+  return {
+    text: full,
+    provider: provider.name,
+    model: provider.model,
+    recalledIds: (opts.recalled ?? []).map((m) => m.id),
+  };
 }
 
 /** Build a provider for /provider switching mid-session. */

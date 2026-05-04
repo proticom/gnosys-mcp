@@ -5,7 +5,7 @@
 
 export type Turn =
   | { role: "user"; text: string; ts: string }
-  | { role: "assistant"; text: string; ts: string; provider?: string; model?: string; tokensIn?: number; tokensOut?: number }
+  | { role: "assistant"; text: string; ts: string; provider?: string; model?: string; tokensIn?: number; tokensOut?: number; citedMemoryIds?: string[] }
   | { role: "system"; text: string; ts: string };
 
 export type ChatStatus =

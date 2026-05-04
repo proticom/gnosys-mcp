@@ -31,6 +31,12 @@ export type CommandResult =
   | { kind: "exit" }                                              // /quit
   | { kind: "switch-provider"; provider: string; model?: string } // /provider
   | { kind: "show"; lines: string[] }                             // /help, /history, /list, /tags, etc. — multi-line output
+  | { kind: "pin"; memoryId: string }                             // /pin
+  | { kind: "unpin"; memoryId: string }                           // /unpin
+  | { kind: "scope"; scope: "project" | "user" | "global" | "federated" } // /scope
+  | { kind: "threshold"; value: number }                          // /threshold
+  | { kind: "preview-recall"; query: string }                     // /recall
+  | { kind: "reinforce"; memoryId: string }                       // /reinforce
   | { kind: "error"; message: string };
 
 export interface CommandSpec {
@@ -205,6 +211,76 @@ const dashboardCmd: CommandSpec = {
   },
 };
 
+// ─── Phase 3 commands: recall, pinning, scope, threshold, reinforce ───
+
+const pinCmd: CommandSpec = {
+  name: "/pin",
+  usage: "/pin <memoryId>",
+  summary: "Pin a memory so it's included in every recall (until /unpin)",
+  handler: (_ctx, args) => {
+    if (args.length === 0) return { kind: "error", message: "Usage: /pin <memoryId>" };
+    return { kind: "pin", memoryId: args[0] };
+  },
+};
+
+const unpinCmd: CommandSpec = {
+  name: "/unpin",
+  usage: "/unpin <memoryId>",
+  summary: "Remove a pinned memory",
+  handler: (_ctx, args) => {
+    if (args.length === 0) return { kind: "error", message: "Usage: /unpin <memoryId>" };
+    return { kind: "unpin", memoryId: args[0] };
+  },
+};
+
+const scopeCmd: CommandSpec = {
+  name: "/scope",
+  usage: "/scope project|user|global|federated",
+  summary: "Change recall scope mid-session (default: federated)",
+  handler: (_ctx, args) => {
+    if (args.length === 0) return { kind: "error", message: "Usage: /scope project|user|global|federated" };
+    const valid = ["project", "user", "global", "federated"] as const;
+    if (!valid.includes(args[0] as typeof valid[number])) {
+      return { kind: "error", message: `Invalid scope. Use one of: ${valid.join(", ")}` };
+    }
+    return { kind: "scope", scope: args[0] as typeof valid[number] };
+  },
+};
+
+const thresholdCmd: CommandSpec = {
+  name: "/threshold",
+  usage: "/threshold <0.0-1.0>",
+  summary: "Drop recalled memories below this confidence (0 disables)",
+  handler: (_ctx, args) => {
+    if (args.length === 0) return { kind: "error", message: "Usage: /threshold <0.0-1.0>" };
+    const v = parseFloat(args[0]);
+    if (Number.isNaN(v) || v < 0 || v > 1) {
+      return { kind: "error", message: "Threshold must be between 0.0 and 1.0" };
+    }
+    return { kind: "threshold", value: v };
+  },
+};
+
+const recallCmd: CommandSpec = {
+  name: "/recall",
+  usage: "/recall <query>",
+  summary: "Preview what would be recalled for this query (metadata only, no LLM call)",
+  handler: (_ctx, args) => {
+    if (args.length === 0) return { kind: "error", message: "Usage: /recall <query>" };
+    return { kind: "preview-recall", query: args.join(" ") };
+  },
+};
+
+const reinforceCmd: CommandSpec = {
+  name: "/reinforce",
+  usage: "/reinforce <memoryId>",
+  summary: "Mark a memory as useful — boosts future ranking",
+  handler: (_ctx, args) => {
+    if (args.length === 0) return { kind: "error", message: "Usage: /reinforce <memoryId>" };
+    return { kind: "reinforce", memoryId: args[0] };
+  },
+};
+
 const REGISTRY: CommandSpec[] = [
   helpCmd,
   clearCmd,
@@ -215,6 +291,12 @@ const REGISTRY: CommandSpec[] = [
   listCmd,
   tagsCmd,
   dashboardCmd,
+  pinCmd,
+  unpinCmd,
+  scopeCmd,
+  thresholdCmd,
+  recallCmd,
+  reinforceCmd,
 ];
 
 export function listCommands(): CommandSpec[] {
