@@ -1402,6 +1402,48 @@ program
     }
   );
 
+// ─── gnosys chat (TUI) ───────────────────────────────────────────────────
+program
+  .command("chat")
+  .description("Interactive memory-aware terminal chat (TUI)")
+  .option("--resume <sessionId>", "Resume an existing chat session")
+  .option("--list", "List recent chat sessions and exit")
+  .option("--search <query>", "Full-text search across session logs")
+  .option("--provider <name>", "Override LLM provider (anthropic, openai, groq, ollama, …)")
+  .option("--model <name>", "Override LLM model name")
+  .option("--limit <n>", "Limit for --list / --search (default 20)", "20")
+  .action(async (opts: { resume?: string; list?: boolean; search?: string; provider?: string; model?: string; limit: string }) => {
+    const limit = parseInt(opts.limit, 10) || 20;
+    const chat = await import("./lib/chat/index.js");
+
+    if (opts.list) {
+      chat.printSessionList(limit);
+      return;
+    }
+    if (opts.search) {
+      chat.printSearchResults(opts.search, limit);
+      return;
+    }
+
+    // Interactive chat
+    const resolver = await getResolver();
+    const stores = resolver.getStores();
+    const storePath = stores[0]?.path ?? process.cwd();
+    let cliConfig: GnosysConfig;
+    try {
+      cliConfig = await loadConfig(storePath);
+    } catch {
+      cliConfig = (await import("./lib/config.js")).DEFAULT_CONFIG;
+    }
+
+    await chat.startChat({
+      config: cliConfig,
+      resume: opts.resume,
+      providerName: opts.provider,
+      modelName: opts.model,
+    });
+  });
+
 // ─── gnosys ingest <file> ─────────────────────────────────────────────────
 program
   .command("ingest <fileOrGlob>")
