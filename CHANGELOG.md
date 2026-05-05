@@ -38,6 +38,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - 877+ tests passing. New chat-related tests across 7 files: `chat-session`, `chat-commands`, `chat-orchestrator`, `chat-recall`, `chat-write`, `chat-intent`, `chat-choose`, `chat-focus`. Plus `export-import-project` for the bundle round-trip.
 
+### Known issues (deferred to a future patch)
+
+- `npm install` still emits two upstream-deprecation warnings — both transitive, both functional:
+  - `prebuild-install@7.1.3` — pulled in by `better-sqlite3`. Waits on better-sqlite3 migrating to `node-gyp-build` upstream (issue tracked in https://github.com/proticom/gnosys/issues/5).
+  - `boolean@3.2.0` — pulled in by `@huggingface/transformers → onnxruntime-node → global-agent → boolean`. Waits on `global-agent` removing the dependency (the package author has indicated `boolean` is no longer maintained but the package still works).
+
 ## [5.5.0] — 2026-05-03
 
 ### Changed
