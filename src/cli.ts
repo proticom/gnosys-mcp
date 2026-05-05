@@ -1894,28 +1894,42 @@ program
   .command("timeline")
   .description("Show when memories were created and modified over time")
   .option("-p, --period <period>", "Group by: day, week, month (default), year", "month")
-  .action(async (opts: { period: string }) => {
-    const resolver = await getResolver();
-    const allMemories = await resolver.getAllMemories();
-
-    if (allMemories.length === 0) {
-      console.log("No memories found.");
-      return;
+  .option("--project <id>", "Filter to a specific project ID (default: all projects)")
+  .option("--limit-titles <n>", "Show titles inline when an entry has <= N memories (default 5)", "5")
+  .action(async (opts: { period: string; project?: string; limitTitles: string }) => {
+    const { groupDbByPeriod } = await import("./lib/timeline.js");
+    const centralDb = GnosysDB.openCentral();
+    if (!centralDb.isAvailable()) {
+      console.error("Central DB unavailable.");
+      process.exit(1);
     }
+    try {
+      const memories = opts.project
+        ? centralDb.getMemoriesByProject(opts.project)
+        : centralDb.getActiveMemories();
 
-    const entries = groupByPeriod(allMemories, opts.period as TimePeriod);
+      if (memories.length === 0) {
+        console.log("No memories found.");
+        return;
+      }
 
-    console.log(`Knowledge Timeline (by ${opts.period}):\n`);
-    for (const entry of entries) {
-      const parts = [];
-      if (entry.created > 0) parts.push(`${entry.created} created`);
-      if (entry.modified > 0) parts.push(`${entry.modified} modified`);
-      console.log(`  ${entry.period}: ${parts.join(", ")}`);
-      if (entry.titles.length > 0 && entry.titles.length <= 5) {
-        for (const t of entry.titles) {
-          console.log(`    + ${t}`);
+      const entries = groupDbByPeriod(memories, opts.period as TimePeriod);
+      const titleLimit = Math.max(0, parseInt(opts.limitTitles, 10) || 5);
+
+      console.log(`Knowledge Timeline (by ${opts.period}, ${memories.length} memories):\n`);
+      for (const entry of entries) {
+        const parts = [];
+        if (entry.created > 0) parts.push(`${entry.created} created`);
+        if (entry.modified > 0) parts.push(`${entry.modified} modified`);
+        console.log(`  ${entry.period}: ${parts.join(", ")}`);
+        if (entry.titles.length > 0 && entry.titles.length <= titleLimit) {
+          for (const t of entry.titles) {
+            console.log(`    + ${t}`);
+          }
         }
       }
+    } finally {
+      centralDb.close();
     }
   });
 
@@ -3558,7 +3572,8 @@ program
 program
   .command("doctor")
   .description("Check system health: stores, LLM connectivity, embeddings, archive")
-  .action(async () => {
+  .option("--fix", "Offer interactive cleanup of legacy artifacts (e.g. per-store gnosys.db)")
+  .action(async (opts: { fix?: boolean }) => {
     const resolver = await getResolver();
     const stores = resolver.getStores();
 
@@ -3571,9 +3586,34 @@ program
       const localDbExists = await fs.stat(localDbPath).then(() => true).catch(() => false);
       if (localDbExists) {
         console.log("Local Store (gnosys.db):");
-        console.log("  ⚠ Local gnosys.db found — this is a legacy artifact.");
-        console.log("  All memories should be in the central DB (~/.gnosys/gnosys.db).");
-        console.log(`  Safe to remove: rm "${localDbPath}"`);
+        console.log("  ⚠ Local gnosys.db found — this is a legacy artifact (pre-v2.0 file-based store).");
+        console.log("  All memories live in the central DB now (~/.gnosys/gnosys.db).");
+        console.log(`  Path: ${localDbPath}`);
+
+        if (opts.fix) {
+          // Interactive cleanup — verify the local DB is safe to delete
+          // (no rows that aren't already in the central DB) before prompting.
+          const safe = await isLegacyStoreSafeToRemove(localDbPath);
+          if (!safe.ok) {
+            console.log(`  ✗ NOT safe to auto-remove: ${safe.reason}`);
+            console.log(`  Inspect manually with: sqlite3 ${localDbPath} "SELECT COUNT(*) FROM memories;"`);
+          } else {
+            const readline = await import("readline/promises");
+            const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+            const answer = await rl.question(`  Remove "${localDbPath}"? [y/N] `);
+            rl.close();
+            if (answer.trim().toLowerCase() === "y") {
+              await fs.unlink(localDbPath).catch(() => undefined);
+              await fs.unlink(localDbPath + "-wal").catch(() => undefined);
+              await fs.unlink(localDbPath + "-shm").catch(() => undefined);
+              console.log("  ✓ Removed.");
+            } else {
+              console.log("  Skipped.");
+            }
+          }
+        } else {
+          console.log("  Run 'gnosys doctor --fix' to remove safely (after verifying it's empty).");
+        }
         console.log("");
       }
     }
@@ -3688,23 +3728,98 @@ program
         console.log("  Index: not initialized (run gnosys reindex to build)");
       }
 
-      // Maintenance health
+      // Maintenance health — v5.7.0: queries the central DB directly
+      // (the prior version used GnosysMaintenanceEngine which only sees the
+      // legacy file-based stores, which are empty post-DB-only).
       console.log("");
       console.log("Maintenance Health:");
       try {
-        const { GnosysMaintenanceEngine } = await import("./lib/maintenance.js");
-        const engine = new GnosysMaintenanceEngine(resolver, cfg);
-        const health = await engine.getHealthReport();
-        console.log(`  Active memories: ${health.totalActive}`);
-        console.log(`  Stale (confidence < 0.3): ${health.staleCount}`);
-        console.log(`  Average confidence: ${health.avgConfidence.toFixed(3)} (decayed: ${health.avgDecayedConfidence.toFixed(3)})`);
-        console.log(`  Never reinforced: ${health.neverReinforced}`);
-        console.log(`  Total reinforcements: ${health.totalReinforcements}`);
+        const db2 = GnosysDB.openCentral();
+        if (db2.isAvailable() && db2.isMigrated()) {
+          const memories = db2.getActiveMemories();
+          const now = Date.now();
+          const DECAY_LAMBDA = 0.005;
+          const STALE_THRESHOLD = 0.3;
+          let sumConfidence = 0;
+          let sumDecayed = 0;
+          let staleCount = 0;
+          let neverReinforced = 0;
+          let totalReinforcements = 0;
+          for (const m of memories) {
+            const baseConfidence = m.confidence ?? 0.8;
+            const lastIso = m.last_reinforced || m.modified || m.created;
+            const lastTs = lastIso ? new Date(lastIso).getTime() : NaN;
+            // Some legacy memories have non-ISO dates that don't parse; treat
+            // them as "today" rather than NaN-corrupting the average.
+            const daysSince = Number.isFinite(lastTs)
+              ? Math.max(0, Math.floor((now - lastTs) / (1000 * 60 * 60 * 24)))
+              : 0;
+            const decayed = baseConfidence * Math.exp(-DECAY_LAMBDA * daysSince);
+            sumConfidence += baseConfidence;
+            sumDecayed += decayed;
+            if (decayed < STALE_THRESHOLD) staleCount++;
+            const rc = m.reinforcement_count ?? 0;
+            if (rc === 0) neverReinforced++;
+            totalReinforcements += rc;
+          }
+          const n = Math.max(1, memories.length);
+          console.log(`  Active memories: ${memories.length}`);
+          console.log(`  Stale (decayed confidence < ${STALE_THRESHOLD}): ${staleCount}`);
+          console.log(`  Average confidence: ${(sumConfidence / n).toFixed(3)} (decayed: ${(sumDecayed / n).toFixed(3)})`);
+          console.log(`  Never reinforced: ${neverReinforced}`);
+          console.log(`  Total reinforcements: ${totalReinforcements}`);
+        } else {
+          console.log("  — central DB not available");
+        }
+        db2.close();
       } catch (err) {
         console.log(`  Error: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   });
+
+/**
+ * Check whether a legacy per-store gnosys.db is safe to remove.
+ * Safe = the file is empty OR every memory in it is already represented
+ * in the central DB (matching ID present centrally). This is conservative:
+ * we don't compare hashes or content, just IDs. The legacy DB existed
+ * pre-v2.0; its memories should have all migrated to central DB long ago.
+ */
+async function isLegacyStoreSafeToRemove(localDbPath: string): Promise<{ ok: boolean; reason?: string }> {
+  try {
+    const Database = (await import("better-sqlite3")).default;
+    const localDb = new Database(localDbPath, { readonly: true });
+    let localIds: string[] = [];
+    try {
+      const rows = localDb.prepare("SELECT id FROM memories").all() as Array<{ id: string }>;
+      localIds = rows.map((r) => r.id);
+    } catch {
+      // Table doesn't exist — file is effectively empty
+      localDb.close();
+      return { ok: true };
+    }
+    localDb.close();
+
+    if (localIds.length === 0) return { ok: true };
+
+    const centralDb = GnosysDB.openCentral();
+    if (!centralDb.isAvailable()) {
+      centralDb.close();
+      return { ok: false, reason: "central DB unavailable — cannot verify migration" };
+    }
+    let missing = 0;
+    for (const id of localIds) {
+      if (!centralDb.getMemory(id)) missing++;
+    }
+    centralDb.close();
+    if (missing > 0) {
+      return { ok: false, reason: `${missing} of ${localIds.length} local memories not found in central DB` };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, reason: `inspection failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
 
 // ─── gnosys check ─────────────────────────────────────────────────────────
 program
@@ -4306,33 +4421,32 @@ program
 // ─── gnosys audit ────────────────────────────────────────────────────────
 program
   .command("audit")
-  .description("View the structured audit trail of memory operations")
+  .description("View the structured audit trail of memory operations from the central DB")
   .option("--days <n>", "Show entries from the last N days", "7")
-  .option("--operation <op>", "Filter by operation type (read, write, recall, etc.)")
+  .option("--operation <op>", "Filter by operation type (read, write, recall, dream_*, etc.)")
   .option("--limit <n>", "Max entries to show")
   .option("--json", "Output raw JSON instead of formatted timeline")
   .action(async (opts: { days: string; operation?: string; limit?: string; json?: boolean }) => {
-    const resolver = new GnosysResolver();
-    await resolver.resolve();
-    const stores = resolver.getStores();
-    if (stores.length === 0) {
-      console.error("No Gnosys stores found. Run 'gnosys init' first.");
+    const { readAuditFromDb, formatAuditTimeline } = await import("./lib/audit.js");
+    const centralDb = GnosysDB.openCentral();
+    if (!centralDb.isAvailable()) {
+      console.error("Central DB unavailable.");
       process.exit(1);
     }
+    try {
+      const entries = readAuditFromDb(centralDb, {
+        days: parseInt(opts.days, 10),
+        operation: opts.operation as import("./lib/audit.js").AuditOperation | undefined,
+        limit: opts.limit ? parseInt(opts.limit, 10) : undefined,
+      });
 
-    const { readAuditLog, formatAuditTimeline } = await import("./lib/audit.js");
-    const storePath = stores[0].path;
-
-    const entries = readAuditLog(storePath, {
-      days: parseInt(opts.days, 10),
-      operation: opts.operation as import("./lib/audit.js").AuditOperation | undefined,
-      limit: opts.limit ? parseInt(opts.limit, 10) : undefined,
-    });
-
-    if (opts.json) {
-      console.log(JSON.stringify(entries, null, 2));
-    } else {
-      console.log(formatAuditTimeline(entries));
+      if (opts.json) {
+        console.log(JSON.stringify(entries, null, 2));
+      } else {
+        console.log(formatAuditTimeline(entries));
+      }
+    } finally {
+      centralDb.close();
     }
   });
 

@@ -10,6 +10,7 @@
 
 import fs from "fs";
 import path from "path";
+import type { GnosysDB, DbAuditEntry } from "./db.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -127,6 +128,52 @@ export function readAuditLog(
   }
 
   return entries;
+}
+
+/**
+ * v5.7.0: read audit entries from the central DB's audit_log table.
+ *
+ * The legacy `readAuditLog(storePath)` reads `.gnosys/.config/audit.jsonl`
+ * which post-DB-only is empty for most users. This variant queries the
+ * central DB directly and returns entries in the same shape.
+ */
+export function readAuditFromDb(
+  db: GnosysDB,
+  options?: { days?: number; operation?: AuditOperation; limit?: number },
+): AuditEntry[] {
+  if (!db.isAvailable()) return [];
+
+  let sinceIso: string | undefined;
+  if (options?.days) {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - options.days);
+    sinceIso = cutoff.toISOString();
+  }
+
+  const rows: DbAuditEntry[] = db.queryAuditLog({
+    sinceIso,
+    operation: options?.operation,
+    limit: options?.limit,
+  });
+
+  return rows.map((row) => {
+    const detailsParsed = (() => {
+      if (!row.details) return undefined;
+      try {
+        return JSON.parse(row.details) as Record<string, unknown>;
+      } catch {
+        return { raw: row.details };
+      }
+    })();
+    return {
+      timestamp: row.timestamp,
+      operation: row.operation as AuditOperation,
+      memoryId: row.memory_id ?? undefined,
+      durationMs: row.duration_ms ?? undefined,
+      traceId: row.trace_id ?? undefined,
+      details: detailsParsed,
+    };
+  });
 }
 
 /**

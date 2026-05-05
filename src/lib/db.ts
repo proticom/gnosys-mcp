@@ -509,6 +509,46 @@ export class GnosysDB {
   }
 
   /**
+   * Execute a DB operation with automatic recovery from stale-handle errors.
+   *
+   * SQLITE_CORRUPT ("database disk image is malformed") can happen when a
+   * long-lived handle (e.g. an MCP server process) sees stale pages after
+   * concurrent writes from another process (`gnosys setup`, sync layer, etc.)
+   * truncated the WAL or rolled the schema. The DB file itself is fine —
+   * just our cached page view is out of date.
+   *
+   * Strategy: catch the error, close + reopen the handle, retry once. If it
+   * still fails after reopen, rethrow — that's a real corruption case.
+   *
+   * Used internally by write methods that the MCP server calls long-term.
+   * Read methods are also wrapped because reads against stale pages can
+   * surface the same error.
+   */
+  private withRecovery<T>(fn: () => T): T {
+    try {
+      return fn();
+    } catch (err) {
+      const errAny = err as { code?: string; message?: string };
+      const isCorrupt =
+        errAny?.code === "SQLITE_CORRUPT" ||
+        /database disk image is malformed/i.test(errAny?.message ?? "");
+      if (!isCorrupt) throw err;
+
+      // One-shot recovery: reopen and retry. If the reopen itself fails or
+      // the retry surfaces the same error, that's a real corruption case —
+      // surface it loudly.
+      this.reopen();
+      if (!this.available) {
+        throw new Error(
+          "Gnosys DB unrecoverable after reopen. The underlying file may be corrupted. " +
+          "Run 'gnosys doctor' for diagnostics; restore from a backup if needed.",
+        );
+      }
+      return fn();
+    }
+  }
+
+  /**
    * Restore from a backup file. Closes current DB, copies backup over, re-opens.
    */
   static restore(backupPath: string, targetDir?: string): GnosysDB {
@@ -627,38 +667,44 @@ export class GnosysDB {
   // ─── Memory CRUD ────────────────────────────────────────────────────
 
   insertMemory(mem: Omit<DbMemory, "embedding" | "source_file" | "source_page" | "source_timerange"> & { embedding?: Buffer | null; source_file?: string | null; source_page?: string | null; source_timerange?: string | null }): void {
-    const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO memories
-        (id, title, category, content, summary, tags, relevance, author, authority,
-         confidence, reinforcement_count, content_hash, status, tier, supersedes,
-         superseded_by, last_reinforced, created, modified, embedding, source_path,
-         source_file, source_page, source_timerange,
-         project_id, scope)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
+    return this.withRecovery(() => {
+      const stmt = this.db.prepare(`
+        INSERT OR REPLACE INTO memories
+          (id, title, category, content, summary, tags, relevance, author, authority,
+           confidence, reinforcement_count, content_hash, status, tier, supersedes,
+           superseded_by, last_reinforced, created, modified, embedding, source_path,
+           source_file, source_page, source_timerange,
+           project_id, scope)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
 
-    stmt.run(
-      mem.id, mem.title, mem.category, mem.content, mem.summary || null,
-      mem.tags, mem.relevance, mem.author, mem.authority,
-      mem.confidence, mem.reinforcement_count, mem.content_hash,
-      mem.status, mem.tier, mem.supersedes || null,
-      mem.superseded_by || null, mem.last_reinforced || null,
-      mem.created, mem.modified, mem.embedding || null, mem.source_path || null,
-      mem.source_file || null, mem.source_page || null, mem.source_timerange || null,
-      mem.project_id || null, mem.scope || "project"
-    );
+      stmt.run(
+        mem.id, mem.title, mem.category, mem.content, mem.summary || null,
+        mem.tags, mem.relevance, mem.author, mem.authority,
+        mem.confidence, mem.reinforcement_count, mem.content_hash,
+        mem.status, mem.tier, mem.supersedes || null,
+        mem.superseded_by || null, mem.last_reinforced || null,
+        mem.created, mem.modified, mem.embedding || null, mem.source_path || null,
+        mem.source_file || null, mem.source_page || null, mem.source_timerange || null,
+        mem.project_id || null, mem.scope || "project"
+      );
+    });
   }
 
   getMemory(id: string): DbMemory | null {
-    return (this.db.prepare("SELECT * FROM memories WHERE id = ?").get(id) as DbMemory) || null;
+    return this.withRecovery(() =>
+      (this.db.prepare("SELECT * FROM memories WHERE id = ?").get(id) as DbMemory) || null,
+    );
   }
 
   getActiveMemories(): DbMemory[] {
-    return this.db.prepare("SELECT * FROM memories WHERE tier = 'active' AND status = 'active'").all() as DbMemory[];
+    return this.withRecovery(() =>
+      this.db.prepare("SELECT * FROM memories WHERE tier = 'active' AND status = 'active'").all() as DbMemory[],
+    );
   }
 
   getAllMemories(): DbMemory[] {
-    return this.db.prepare("SELECT * FROM memories").all() as DbMemory[];
+    return this.withRecovery(() => this.db.prepare("SELECT * FROM memories").all() as DbMemory[]);
   }
 
   getMemoriesByTier(tier: string): DbMemory[] {
@@ -809,27 +855,35 @@ export class GnosysDB {
   // ─── Project Identity (v3.0) ──────────────────────────────────────
 
   insertProject(project: DbProject): void {
-    this.db.prepare(`
-      INSERT OR REPLACE INTO projects
-        (id, name, working_directory, user, agent_rules_target, obsidian_vault, created, modified)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      project.id, project.name, project.working_directory, project.user,
-      project.agent_rules_target || null, project.obsidian_vault || null,
-      project.created, project.modified
-    );
+    return this.withRecovery(() => {
+      this.db.prepare(`
+        INSERT OR REPLACE INTO projects
+          (id, name, working_directory, user, agent_rules_target, obsidian_vault, created, modified)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        project.id, project.name, project.working_directory, project.user,
+        project.agent_rules_target || null, project.obsidian_vault || null,
+        project.created, project.modified,
+      );
+    });
   }
 
   getProject(id: string): DbProject | null {
-    return (this.db.prepare("SELECT * FROM projects WHERE id = ?").get(id) as DbProject) || null;
+    return this.withRecovery(() =>
+      (this.db.prepare("SELECT * FROM projects WHERE id = ?").get(id) as DbProject) || null,
+    );
   }
 
   getProjectByDirectory(dir: string): DbProject | null {
-    return (this.db.prepare("SELECT * FROM projects WHERE working_directory = ?").get(dir) as DbProject) || null;
+    return this.withRecovery(() =>
+      (this.db.prepare("SELECT * FROM projects WHERE working_directory = ?").get(dir) as DbProject) || null,
+    );
   }
 
   getAllProjects(): DbProject[] {
-    return this.db.prepare("SELECT * FROM projects ORDER BY name").all() as DbProject[];
+    return this.withRecovery(() =>
+      this.db.prepare("SELECT * FROM projects ORDER BY name").all() as DbProject[],
+    );
   }
 
   updateProject(id: string, updates: Partial<DbProject>): void {
@@ -978,16 +1032,72 @@ export class GnosysDB {
   // ─── Audit ──────────────────────────────────────────────────────────
 
   logAudit(entry: Omit<DbAuditEntry, "id">): void {
-    this.db.prepare(`
-      INSERT INTO audit_log (timestamp, operation, memory_id, details, duration_ms, trace_id)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(entry.timestamp, entry.operation, entry.memory_id, entry.details, entry.duration_ms, entry.trace_id);
+    return this.withRecovery(() => {
+      this.db.prepare(`
+        INSERT INTO audit_log (timestamp, operation, memory_id, details, duration_ms, trace_id)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(entry.timestamp, entry.operation, entry.memory_id, entry.details, entry.duration_ms, entry.trace_id);
+    });
   }
 
   getAuditLog(memoryId: string, limit: number = 20): DbAuditEntry[] {
-    return this.db.prepare(
-      "SELECT * FROM audit_log WHERE memory_id = ? ORDER BY timestamp DESC LIMIT ?"
-    ).all(memoryId, limit) as DbAuditEntry[];
+    return this.withRecovery(() =>
+      this.db.prepare(
+        "SELECT * FROM audit_log WHERE memory_id = ? ORDER BY timestamp DESC LIMIT ?",
+      ).all(memoryId, limit) as DbAuditEntry[],
+    );
+  }
+
+  /**
+   * Get audit entries newer than a given timestamp. Used by remote sync to
+   * push/pull audit_log incrementally. Returns oldest-first so order is
+   * preserved across machines.
+   */
+  getAuditEntriesAfter(sinceIso: string, limit?: number): DbAuditEntry[] {
+    return this.withRecovery(() => {
+      const cap = limit ? ` LIMIT ${Math.max(1, Math.floor(limit))}` : "";
+      return this.db
+        .prepare(`SELECT * FROM audit_log WHERE timestamp > ? ORDER BY timestamp ASC${cap}`)
+        .all(sinceIso) as DbAuditEntry[];
+    });
+  }
+
+  /**
+   * Get the most recent audit timestamp seen in this DB. Used as a high-water
+   * mark for sync: "push entries newer than the most recent timestamp the
+   * remote has already seen". Returns null when the table is empty.
+   */
+  getLatestAuditTimestamp(): string | null {
+    return this.withRecovery(() => {
+      const row = this.db
+        .prepare("SELECT timestamp FROM audit_log ORDER BY timestamp DESC LIMIT 1")
+        .get() as { timestamp: string } | undefined;
+      return row?.timestamp ?? null;
+    });
+  }
+
+  /**
+   * Query audit entries with optional filters. Returns newest first.
+   * Used by `gnosys audit` and `gnosys doctor` reports.
+   */
+  queryAuditLog(opts: { sinceIso?: string; operation?: string; limit?: number } = {}): DbAuditEntry[] {
+    return this.withRecovery(() => {
+      const conditions: string[] = [];
+      const params: Array<string | number> = [];
+      if (opts.sinceIso) {
+        conditions.push("timestamp >= ?");
+        params.push(opts.sinceIso);
+      }
+      if (opts.operation) {
+        conditions.push("operation = ?");
+        params.push(opts.operation);
+      }
+      const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+      const limit = opts.limit ? ` LIMIT ${Math.max(1, Math.floor(opts.limit))}` : "";
+      return this.db
+        .prepare(`SELECT * FROM audit_log ${where} ORDER BY timestamp DESC${limit}`)
+        .all(...params) as DbAuditEntry[];
+    });
   }
 
   // ─── Embeddings ─────────────────────────────────────────────────────

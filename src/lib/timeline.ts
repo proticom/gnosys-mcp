@@ -6,6 +6,7 @@
  */
 
 import { Memory } from "./store.js";
+import { DbMemory } from "./db.js";
 
 export type TimePeriod = "day" | "week" | "month" | "year";
 
@@ -32,25 +33,53 @@ export interface MemoryStats {
  * Group memories by time period based on their created/modified dates.
  */
 export function groupByPeriod(memories: Memory[], period: TimePeriod): TimelineEntry[] {
+  return groupRowsByPeriod(
+    memories.map((m) => ({
+      title: m.frontmatter.title,
+      created: m.frontmatter.created,
+      modified: m.frontmatter.modified,
+    })),
+    period,
+  );
+}
+
+/**
+ * v5.7.0: same logic, runs against DbMemory rows from the central DB.
+ * The legacy file-based path (above) reads from `Memory` objects which
+ * are mostly empty post-DB-only — most callers should use this variant.
+ */
+export function groupDbByPeriod(memories: DbMemory[], period: TimePeriod): TimelineEntry[] {
+  return groupRowsByPeriod(
+    memories.map((m) => ({ title: m.title, created: m.created, modified: m.modified })),
+    period,
+  );
+}
+
+interface PeriodRow {
+  title: string;
+  created: string | null | undefined;
+  modified: string | null | undefined;
+}
+
+function groupRowsByPeriod(rows: PeriodRow[], period: TimePeriod): TimelineEntry[] {
   const createdMap = new Map<string, { count: number; titles: string[] }>();
   const modifiedMap = new Map<string, number>();
 
-  for (const m of memories) {
-    const createdKey = toPeriodKey(m.frontmatter.created, period);
+  for (const m of rows) {
+    const createdKey = toPeriodKey(m.created, period);
     if (createdKey) {
       const entry = createdMap.get(createdKey) || { count: 0, titles: [] };
       entry.count++;
-      entry.titles.push(m.frontmatter.title);
+      entry.titles.push(m.title);
       createdMap.set(createdKey, entry);
     }
 
-    const modifiedKey = toPeriodKey(m.frontmatter.modified, period);
+    const modifiedKey = toPeriodKey(m.modified, period);
     if (modifiedKey && modifiedKey !== createdKey) {
       modifiedMap.set(modifiedKey, (modifiedMap.get(modifiedKey) || 0) + 1);
     }
   }
 
-  // Merge all period keys
   const allKeys = new Set([...createdMap.keys(), ...modifiedMap.keys()]);
   const entries: TimelineEntry[] = [];
 

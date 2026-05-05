@@ -57,6 +57,9 @@ export interface SyncResult {
   /** Project rows pushed/pulled (separate counter from memories). */
   projectsPushed?: number;
   projectsPulled?: number;
+  /** Audit log entries pushed/pulled (separate counter from memories). */
+  auditPushed?: number;
+  auditPulled?: number;
 }
 
 export interface ValidationResult {
@@ -183,6 +186,8 @@ export async function validateLocation(remotePath: string): Promise<ValidationRe
 // ─── Sync engine ────────────────────────────────────────────────────────
 
 const META_LAST_SYNC = "remote_last_synced_at";
+const META_AUDIT_PUSH = "audit_last_pushed_at";
+const META_AUDIT_PULL = "audit_last_pulled_at";
 const META_MACHINE_ID = "machine_id";
 
 export class RemoteSync {
@@ -328,6 +333,80 @@ export class RemoteSync {
     }
   }
 
+  /**
+   * Sync the audit_log table local → remote.
+   *
+   * Audit is append-only: entries never update or delete, so there are no
+   * conflicts. Each row's `id` is local-only (autoincrement) — we ignore it
+   * on insert so the remote assigns its own.
+   *
+   * High-water marks are per-DIRECTION (not "the latest timestamp seen
+   * anywhere"), tracked in gnosys_meta:
+   *   - audit_last_pushed_at  — last local timestamp we've pushed
+   *   - audit_last_pulled_at  — last remote timestamp we've pulled
+   * This avoids losing entries that are older than the other side's max.
+   */
+  private pushAuditToRemote(remoteDb: GnosysDB, result: SyncResult): void {
+    const cursor = this.localDb.getMeta(META_AUDIT_PUSH) ?? "1970-01-01T00:00:00Z";
+    const localChanges = this.localDb.getAuditEntriesAfter(cursor);
+    if (localChanges.length === 0) return;
+    let lastPushed = cursor;
+    for (const entry of localChanges) {
+      try {
+        remoteDb.logAudit({
+          timestamp: entry.timestamp,
+          operation: entry.operation,
+          memory_id: entry.memory_id,
+          details: entry.details,
+          duration_ms: entry.duration_ms,
+          trace_id: entry.trace_id,
+        });
+        result.auditPushed = (result.auditPushed || 0) + 1;
+        if (entry.timestamp > lastPushed) lastPushed = entry.timestamp;
+      } catch (err) {
+        result.errors.push(`Failed to push audit ${entry.timestamp}: ${(err as Error).message}`);
+      }
+    }
+    if (lastPushed !== cursor) this.localDb.setMeta(META_AUDIT_PUSH, lastPushed);
+  }
+
+  /**
+   * Sync the audit_log table remote → local. Skips entries we just pushed
+   * (recognized via the push high-water mark) so a push-then-pull cycle
+   * doesn't duplicate them locally.
+   */
+  private pullAuditFromRemote(remoteDb: GnosysDB, result: SyncResult): void {
+    const pullCursor = this.localDb.getMeta(META_AUDIT_PULL) ?? "1970-01-01T00:00:00Z";
+    const pushCursor = this.localDb.getMeta(META_AUDIT_PUSH) ?? "1970-01-01T00:00:00Z";
+    const remoteChanges = remoteDb.getAuditEntriesAfter(pullCursor);
+    if (remoteChanges.length === 0) return;
+    let lastPulled = pullCursor;
+    for (const entry of remoteChanges) {
+      // Skip entries we authored ourselves (already at home in our local DB).
+      // pushCursor is the most recent timestamp we pushed; entries up to and
+      // including it on the remote are either ours or already local.
+      if (entry.timestamp <= pushCursor) {
+        if (entry.timestamp > lastPulled) lastPulled = entry.timestamp;
+        continue;
+      }
+      try {
+        this.localDb.logAudit({
+          timestamp: entry.timestamp,
+          operation: entry.operation,
+          memory_id: entry.memory_id,
+          details: entry.details,
+          duration_ms: entry.duration_ms,
+          trace_id: entry.trace_id,
+        });
+        result.auditPulled = (result.auditPulled || 0) + 1;
+        if (entry.timestamp > lastPulled) lastPulled = entry.timestamp;
+      } catch (err) {
+        result.errors.push(`Failed to pull audit ${entry.timestamp}: ${(err as Error).message}`);
+      }
+    }
+    if (lastPulled !== pullCursor) this.localDb.setMeta(META_AUDIT_PULL, lastPulled);
+  }
+
   /** Sync the projects table from remote → local. Newer-wins semantics. */
   private pullProjectsFromRemote(remoteDb: GnosysDB, _lastSync: string, result: SyncResult): void {
     // See pushProjectsToRemote — iterate all rather than filtering by lastSync.
@@ -458,6 +537,10 @@ export class RemoteSync {
     // closes this gap.
     this.pushProjectsToRemote(remoteDb, lastSync, result);
 
+    // v5.7.0: also sync audit_log so `gnosys audit` works against the
+    // remote DB (which would otherwise be empty for this table).
+    this.pushAuditToRemote(remoteDb, result);
+
     return result;
   }
 
@@ -533,6 +616,9 @@ export class RemoteSync {
 
     // Sync the projects table — see pushProjectsToRemote for context.
     this.pullProjectsFromRemote(remoteDb, lastSync, result);
+
+    // v5.7.0: pull audit_log too.
+    this.pullAuditFromRemote(remoteDb, result);
 
     return result;
   }
