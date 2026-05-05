@@ -596,13 +596,29 @@ const setupCmd = program
   .command("setup")
   .description("Configure Gnosys — LLM provider, models, remote sync, and IDE integration");
 
-// Bare `gnosys setup` runs the full interactive wizard
+// Bare `gnosys setup` — when config exists, opens the summary-first menu
+// so the user can edit one section without re-running the whole wizard.
+// First-time setup or `--full` runs the linear 5-step flow.
 setupCmd
   .option("--non-interactive", "Skip prompts, use defaults (for CI/scripting)")
-  .action(async (opts: { nonInteractive?: boolean }) => {
+  .option("--full", "Run the linear 5-step wizard even when a config exists")
+  .action(async (opts: { nonInteractive?: boolean; full?: boolean }) => {
     const { runSetup } = await import("./lib/setup.js");
+    const projectDir = process.cwd();
+
+    // Detect existing config — if present and the user didn't pass --full,
+    // route to the summary-first menu.
+    const configPath = path.join(os.homedir(), ".gnosys", "gnosys.json");
+    const hasConfig = existsSync(configPath);
+
+    if (hasConfig && !opts.full && !opts.nonInteractive) {
+      const { runSummaryWizard } = await import("./lib/setup/summary.js");
+      await runSummaryWizard({ directory: projectDir });
+      return;
+    }
+
     await runSetup({
-      directory: process.cwd(),
+      directory: projectDir,
       nonInteractive: opts.nonInteractive,
     });
   });
@@ -658,6 +674,51 @@ setupCmd
   .action(async () => {
     const { runDreamSetup } = await import("./lib/setup.js");
     await runDreamSetup({ directory: process.cwd() });
+  });
+
+// `gnosys setup ides` — configure IDE / MCP integrations standalone
+setupCmd
+  .command("ides")
+  .description("Configure IDE integrations (Claude Code/Desktop, Cursor, Codex, Gemini CLI, Antigravity)")
+  .action(async () => {
+    const readline = await import("readline/promises");
+    const { runIdesSetup } = await import("./lib/setup/sections/ides.js");
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    try {
+      await runIdesSetup({ rl, directory: process.cwd() });
+    } finally {
+      rl.close();
+    }
+  });
+
+// `gnosys setup routing` — task-routing wizard standalone
+setupCmd
+  .command("routing")
+  .description("Configure per-task LLM routing (structuring, synthesis, vision, transcription, dream)")
+  .action(async () => {
+    const readline = await import("readline/promises");
+    const { runRoutingSetup } = await import("./lib/setup/sections/routing.js");
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    try {
+      await runRoutingSetup({ rl, directory: process.cwd() });
+    } finally {
+      rl.close();
+    }
+  });
+
+// `gnosys setup preferences` — review user-scope preferences
+setupCmd
+  .command("preferences")
+  .description("Review and clean up user-scope preferences (incl. legacy imports)")
+  .action(async () => {
+    const readline = await import("readline/promises");
+    const { runPreferencesReview } = await import("./lib/setup/sections/preferences.js");
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    try {
+      await runPreferencesReview(rl);
+    } finally {
+      rl.close();
+    }
   });
 
 // v5.4.2 removal: `gnosys models` (top-level shortcut) was removed in favor

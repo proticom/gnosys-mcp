@@ -149,17 +149,13 @@ async function setupRemoteFlow(rl: Interface, centralDb: GnosysDB, localActiveCo
   let remotePath: string | undefined;
 
   if (candidates.length > 0) {
-    console.log("Detected mounted volumes:");
-    candidates.forEach((c, i) => console.log(`  ${i + 1}) ${c}`));
-    console.log(`  ${candidates.length + 1}) Custom path`);
-    console.log(`  ${candidates.length + 2}) Cancel`);
-
+    // askChoice() prints the option list — don't double-print it here.
     const choices = [
       ...candidates.map((_, i) => ({ key: String(i + 1), label: candidates[i] })),
       { key: String(candidates.length + 1), label: "Custom path" },
-      { key: String(candidates.length + 2), label: "Cancel" },
+      { key: String(candidates.length + 2), label: "Skip" },
     ];
-    const choice = await askChoice(rl, "Select a volume or enter a custom path:", choices);
+    const choice = await askChoice(rl, "Detected mounted volumes — select one:", choices);
 
     if (choice === String(candidates.length + 2)) return false;
     if (choice === String(candidates.length + 1)) {
@@ -205,7 +201,7 @@ async function setupRemoteFlow(rl: Interface, centralDb: GnosysDB, localActiveCo
   const remoteHasData = validation.checks.existingDb.found && (validation.checks.existingDb.memoryCount ?? 0) > 0;
   const localHasData = localActiveCount > 0;
 
-  let strategy: "migrate" | "merge" | "pull" | "configure-only" | "cancel" = "configure-only";
+  let strategy: "migrate" | "merge" | "pull" | "configure-only" = "configure-only";
 
   if (!remoteHasData && !localHasData) {
     // Both empty — just point at remote
@@ -225,20 +221,23 @@ async function setupRemoteFlow(rl: Interface, centralDb: GnosysDB, localActiveCo
     strategy = pull ? "pull" : "configure-only";
   } else {
     // BOTH have data — the tricky case
-    console.log(`  Local DB:   ${localActiveCount} memories`);
-    console.log(`  Remote DB:  ${validation.checks.existingDb.memoryCount} memories`);
+    // Reword to match deci-037: remote is the canonical source of truth,
+    // local is an offline-resilience cache. The two counts shown here are
+    // pre-merge snapshots, not "two co-equal copies".
+    console.log(`  Remote DB (source of truth):   ${validation.checks.existingDb.memoryCount} memories`);
+    console.log(`  Local cache (offline backup):  ${localActiveCount} memories`);
     console.log("");
     const choice = await askChoice(rl, "How do you want to combine them?", [
-      { key: "1", label: "Merge — push local-only memories up, pull remote-only down, flag any conflicts (recommended)" },
-      { key: "2", label: "Replace remote with my local (overwrites the remote — destructive)" },
-      { key: "3", label: "Replace local with remote (your local memories will be lost — destructive)" },
-      { key: "4", label: "Cancel" },
+      { key: "1", label: "Merge — push local-only memories up, pull remote-only down, flag conflicts (recommended)" },
+      { key: "2", label: "Replace remote with local (overwrites remote — destructive)" },
+      { key: "3", label: "Replace local with remote (overwrites local cache)" },
+      { key: "4", label: "Skip — configure remote without touching either DB" },
     ], "1");
 
     if (choice === "1") strategy = "merge";
     else if (choice === "2") strategy = "migrate"; // overwrites
     else if (choice === "3") strategy = "pull";
-    else strategy = "cancel";
+    else strategy = "configure-only"; // "Skip" is configure-only, not cancel
 
     if (strategy === "migrate" || strategy === "pull") {
       const confirm = await askConfirm(
@@ -251,11 +250,6 @@ async function setupRemoteFlow(rl: Interface, centralDb: GnosysDB, localActiveCo
         return false;
       }
     }
-  }
-
-  if (strategy === "cancel") {
-    console.log("Cancelled.");
-    return false;
   }
 
   // Step 4: Save config and execute strategy
