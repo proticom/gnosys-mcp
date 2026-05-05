@@ -170,6 +170,23 @@ program
   .name("gnosys")
   .description("Gnosys — Persistent memory for AI agents. Sandbox-first runtime, central SQLite brain, federated search, reflection API, process tracing, preferences, Dream Mode, Obsidian export. Also runs as a full MCP server.")
   .version(pkg.version)
+  .addHelpText("after", `
+Commands by group (alphabetical within group):
+  Setup & status:    setup · status · doctor · check · upgrade
+  Memory ops:        add · add-structured · update · read · reinforce · ingest
+                     bootstrap · import · export
+  Search:            discover · search · hybrid-search · semantic-search · ask · recall
+                     fsearch · briefing · lens
+  Project mgmt:      init · projects · list · stats · timeline · graph · tags · tags-add
+                     stale · history · rollback · audit · links
+  Chat (TUI):        chat
+  Maintenance:       maintain · reindex · reindex-graph · dearchive · dream · backup · restore · prune
+  Multi-machine:     setup remote (configure | status | push | pull | sync | resolve)
+  Agent runtime:     serve · sandbox · helper · pref · sync · update-status · working-set
+  Legacy / advanced: dashboard · migrate · migrate-db · stores · config
+
+Run 'gnosys <command> --help' for command-specific help.
+`)
   .hook("preAction", async () => {
     // Check if central DB was upgraded to a newer version on another machine
     try {
@@ -640,14 +657,18 @@ setupCmd
     });
   });
 
-// `gnosys setup remote` — configure remote sync (alias for `gnosys remote configure`)
-setupCmd
+// ─── gnosys setup remote (parent + subcommands) ────────────────────────
+// v5.7.0: the standalone `gnosys remote` parent was dropped; everything
+// (configure, status, push, pull, sync, resolve) lives here now.
+const setupRemoteCmd = setupCmd
   .command("remote")
-  .description("Configure multi-machine sync (NAS/shared drive)")
+  .description("Multi-machine sync — configure, sync, and resolve conflicts");
+
+// Bare `gnosys setup remote` — configure wizard (back-compat with v5.6.x)
+setupRemoteCmd
   .option("--path <path>", "Set remote path directly (non-interactive)")
   .action(async (opts: { path?: string }) => {
     const { GnosysDB } = await import("./lib/db.js");
-    // Sync configuration needs explicit local DB access (not auto-routed remote).
     const db = GnosysDB.openLocal();
     if (!db.isAvailable()) {
       console.error("Central DB not available.");
@@ -664,6 +685,213 @@ setupCmd
       }
     } finally {
       db.close();
+    }
+  });
+
+setupRemoteCmd
+  .command("status")
+  .description("Show remote sync status: pending changes, conflicts, last sync")
+  .option("--json", "Output as JSON")
+  .action(async (opts: { json: boolean }) => {
+    let centralDb: GnosysDB | null = null;
+    try {
+      centralDb = GnosysDB.openLocal();
+      if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
+
+      const remotePath = centralDb.getMeta("remote_path");
+      if (!remotePath) {
+        if (opts.json) {
+          console.log(JSON.stringify({ configured: false, message: "Remote not configured. Run 'gnosys setup remote'." }, null, 2));
+        } else {
+          console.log("Remote sync: not configured.");
+          console.log("Run 'gnosys setup remote' to set up multi-machine sync.");
+        }
+        return;
+      }
+
+      const { RemoteSync, formatStatus } = await import("./lib/remote.js");
+      const sync = new RemoteSync(centralDb, remotePath);
+      const status = await sync.getStatus();
+      sync.closeRemote();
+
+      if (opts.json) {
+        console.log(JSON.stringify(status, null, 2));
+      } else {
+        console.log(formatStatus(status));
+        if (status.conflicts.length > 0) {
+          console.log("\nConflicts:");
+          for (const c of status.conflicts) {
+            console.log(`  ${c.memoryId}: ${c.title}`);
+            console.log(`    local:  ${c.localModified}`);
+            console.log(`    remote: ${c.remoteModified}`);
+          }
+          console.log("\nResolve with: gnosys setup remote resolve <memory-id> --keep <local|remote>");
+        }
+      }
+    } catch (err) {
+      console.error(`Error: ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    } finally {
+      centralDb?.close();
+    }
+  });
+
+setupRemoteCmd
+  .command("push")
+  .description("Push local changes to remote")
+  .option("--newer-wins", "Auto-resolve conflicts by taking the newer version")
+  .action(async (opts: { newerWins?: boolean }) => {
+    let centralDb: GnosysDB | null = null;
+    try {
+      centralDb = GnosysDB.openLocal();
+      if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
+
+      const remotePath = centralDb.getMeta("remote_path");
+      if (!remotePath) { console.error("Remote not configured."); process.exit(1); }
+
+      const { RemoteSync } = await import("./lib/remote.js");
+      const sync = new RemoteSync(centralDb, remotePath);
+      const result = await sync.push({ strategy: opts.newerWins ? "newer-wins" : "skip-and-flag" });
+      sync.closeRemote();
+
+      const projParts = (result.projectsPushed || 0) > 0 ? ` | Projects pushed: ${result.projectsPushed}` : "";
+      const auditParts = (result.auditPushed || 0) > 0 ? ` | Audit pushed: ${result.auditPushed}` : "";
+      console.log(`Pushed: ${result.pushed} | Skipped: ${result.skipped} | Conflicts: ${result.conflicts.length}${projParts}${auditParts}`);
+      if (result.errors.length > 0) {
+        console.log("\nErrors:");
+        for (const e of result.errors) console.log(`  ${e}`);
+      }
+      if (result.conflicts.length > 0) {
+        console.log("\nConflicts flagged (run 'gnosys setup remote status' for details):");
+        for (const c of result.conflicts) console.log(`  ${c.memoryId} — ${c.title}`);
+      }
+    } catch (err) {
+      console.error(`Error: ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    } finally {
+      centralDb?.close();
+    }
+  });
+
+setupRemoteCmd
+  .command("pull")
+  .description("Pull remote changes to local")
+  .option("--newer-wins", "Auto-resolve conflicts by taking the newer version")
+  .action(async (opts: { newerWins?: boolean }) => {
+    let centralDb: GnosysDB | null = null;
+    try {
+      centralDb = GnosysDB.openLocal();
+      if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
+
+      const remotePath = centralDb.getMeta("remote_path");
+      if (!remotePath) { console.error("Remote not configured."); process.exit(1); }
+
+      const { RemoteSync } = await import("./lib/remote.js");
+      const sync = new RemoteSync(centralDb, remotePath);
+      const result = await sync.pull({ strategy: opts.newerWins ? "newer-wins" : "skip-and-flag" });
+      sync.closeRemote();
+
+      const projParts = (result.projectsPulled || 0) > 0 ? ` | Projects pulled: ${result.projectsPulled}` : "";
+      const auditParts = (result.auditPulled || 0) > 0 ? ` | Audit pulled: ${result.auditPulled}` : "";
+      console.log(`Pulled: ${result.pulled} | Skipped: ${result.skipped} | Conflicts: ${result.conflicts.length}${projParts}${auditParts}`);
+      if (result.errors.length > 0) {
+        console.log("\nErrors:");
+        for (const e of result.errors) console.log(`  ${e}`);
+      }
+    } catch (err) {
+      console.error(`Error: ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    } finally {
+      centralDb?.close();
+    }
+  });
+
+setupRemoteCmd
+  .command("sync")
+  .description("Two-way sync: push local changes then pull remote changes")
+  .option("--auto", "Run silently for cron/LaunchAgent (skip-and-flag for conflicts)")
+  .option("--newer-wins", "Auto-resolve conflicts by taking the newer version")
+  .action(async (opts: { auto?: boolean; newerWins?: boolean }) => {
+    let centralDb: GnosysDB | null = null;
+    try {
+      centralDb = GnosysDB.openLocal();
+      if (!centralDb.isAvailable()) {
+        if (!opts.auto) console.error("Central DB not available.");
+        process.exit(1);
+      }
+
+      const remotePath = centralDb.getMeta("remote_path");
+      if (!remotePath) {
+        if (!opts.auto) console.error("Remote not configured.");
+        process.exit(opts.auto ? 0 : 1);
+      }
+
+      const { RemoteSync } = await import("./lib/remote.js");
+      const sync = new RemoteSync(centralDb, remotePath);
+      const result = await sync.sync({
+        auto: opts.auto,
+        strategy: opts.newerWins ? "newer-wins" : "skip-and-flag",
+      });
+      sync.closeRemote();
+
+      if (!opts.auto || result.conflicts.length > 0 || result.errors.length > 0) {
+        const pp = result.projectsPushed || 0;
+        const pl = result.projectsPulled || 0;
+        const ap = result.auditPushed || 0;
+        const al = result.auditPulled || 0;
+        const projParts = (pp + pl) > 0 ? ` | Projects: ↑${pp}/↓${pl}` : "";
+        const auditParts = (ap + al) > 0 ? ` | Audit: ↑${ap}/↓${al}` : "";
+        console.log(`Pushed: ${result.pushed} | Pulled: ${result.pulled} | Conflicts: ${result.conflicts.length}${projParts}${auditParts}`);
+        if (result.errors.length > 0) {
+          console.log("\nErrors:");
+          for (const e of result.errors) console.log(`  ${e}`);
+        }
+        if (result.conflicts.length > 0) {
+          console.log("\nConflicts need resolution (run 'gnosys setup remote status' for details).");
+        }
+      }
+    } catch (err) {
+      if (!opts.auto) console.error(`Error: ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    } finally {
+      centralDb?.close();
+    }
+  });
+
+setupRemoteCmd
+  .command("resolve <memoryId>")
+  .description("Resolve a sync conflict by choosing local, remote, or merged content")
+  .option("--keep <choice>", "Choice: local | remote", "local")
+  .action(async (memoryId: string, opts: { keep: string }) => {
+    let centralDb: GnosysDB | null = null;
+    try {
+      centralDb = GnosysDB.openLocal();
+      if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
+
+      const remotePath = centralDb.getMeta("remote_path");
+      if (!remotePath) { console.error("Remote not configured."); process.exit(1); }
+
+      if (opts.keep !== "local" && opts.keep !== "remote") {
+        console.error(`--keep must be 'local' or 'remote' (got: ${opts.keep})`);
+        process.exit(1);
+      }
+
+      const { RemoteSync } = await import("./lib/remote.js");
+      const sync = new RemoteSync(centralDb, remotePath);
+      const result = await sync.resolve(memoryId, opts.keep as "local" | "remote");
+      sync.closeRemote();
+
+      if (result.ok) {
+        console.log(`Resolved ${memoryId}: kept ${opts.keep} version.`);
+      } else {
+        console.error(`Failed to resolve: ${result.error}`);
+        process.exit(1);
+      }
+    } catch (err) {
+      console.error(`Error: ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    } finally {
+      centralDb?.close();
     }
   });
 
@@ -1997,9 +2225,11 @@ program
 // ─── gnosys stats ───────────────────────────────────────────────────────
 program
   .command("stats")
-  .description("Show summary statistics for the memory store")
+  .description("Show summary statistics for the memory store. Use --by-project for a per-project breakdown across the central DB.")
   .option("--json", "Output as JSON")
-  .action(async (opts: { json?: boolean }) => {
+  .option("--by-project", "Show a per-project breakdown table instead of single-store stats")
+  .option("--all", "Include all projects (don't filter to current project)")
+  .action(async (opts: { json?: boolean; byProject?: boolean; all?: boolean }) => {
     let centralDb: GnosysDB | null = null;
     try {
       centralDb = GnosysDB.openCentral();
@@ -2008,8 +2238,70 @@ program
         process.exit(1);
       }
 
+      // v5.7.0: --by-project shows a per-project breakdown across the entire
+      // central DB (memories, archived, never reinforced, etc.) as a table.
+      if (opts.byProject) {
+        const projects = centralDb.getAllProjects();
+        const all = centralDb.getAllMemories();
+        const rows = projects.map((p) => {
+          const ms = all.filter((m) => m.project_id === p.id);
+          const active = ms.filter((m) => m.tier === "active" && m.status === "active").length;
+          const archived = ms.filter((m) => m.tier === "archive").length;
+          const reinforced = ms.reduce((sum, m) => sum + (m.reinforcement_count ?? 0), 0);
+          const lastTouch = ms.reduce((m, x) => (x.modified > m ? x.modified : m), "0");
+          return { name: p.name, id: p.id, active, archived, reinforced, lastTouch };
+        });
+        // User/global memories (no project_id)
+        const userScope = all.filter((m) => !m.project_id && m.scope === "user");
+        const globalScope = all.filter((m) => !m.project_id && m.scope === "global");
+        if (userScope.length > 0) {
+          rows.push({
+            name: "(user)",
+            id: "—",
+            active: userScope.filter((m) => m.tier === "active" && m.status === "active").length,
+            archived: userScope.filter((m) => m.tier === "archive").length,
+            reinforced: userScope.reduce((sum, m) => sum + (m.reinforcement_count ?? 0), 0),
+            lastTouch: userScope.reduce((m, x) => (x.modified > m ? x.modified : m), "0"),
+          });
+        }
+        if (globalScope.length > 0) {
+          rows.push({
+            name: "(global)",
+            id: "—",
+            active: globalScope.filter((m) => m.tier === "active" && m.status === "active").length,
+            archived: globalScope.filter((m) => m.tier === "archive").length,
+            reinforced: globalScope.reduce((sum, m) => sum + (m.reinforcement_count ?? 0), 0),
+            lastTouch: globalScope.reduce((m, x) => (x.modified > m ? x.modified : m), "0"),
+          });
+        }
+
+        rows.sort((a, b) => b.active - a.active);
+
+        if (opts.json) {
+          console.log(JSON.stringify({ rows }, null, 2));
+          return;
+        }
+
+        const nameW = Math.max(8, ...rows.map((r) => r.name.length));
+        const idW = 12;
+        console.log("");
+        console.log(`  ${"PROJECT".padEnd(nameW)}  ${"ID".padEnd(idW)}  ${"ACTIVE".padStart(7)}  ${"ARCHIVED".padStart(8)}  ${"REINF".padStart(6)}  LAST MODIFIED`);
+        console.log(`  ${"-".repeat(nameW + idW + 7 + 8 + 6 + 19 + 10)}`);
+        for (const r of rows) {
+          const last = r.lastTouch === "0" ? "—" : r.lastTouch.slice(0, 19);
+          const idShort = r.id === "—" ? "—" : r.id.slice(0, idW);
+          console.log(`  ${r.name.padEnd(nameW)}  ${idShort.padEnd(idW)}  ${String(r.active).padStart(7)}  ${String(r.archived).padStart(8)}  ${String(r.reinforced).padStart(6)}  ${last}`);
+        }
+        const totalActive = rows.reduce((s, r) => s + r.active, 0);
+        console.log(`  ${"-".repeat(nameW + idW + 7 + 8 + 6 + 19 + 10)}`);
+        console.log(`  ${"TOTAL".padEnd(nameW)}  ${" ".repeat(idW)}  ${String(totalActive).padStart(7)}`);
+        console.log("");
+        return;
+      }
+
+      // Default behavior: scoped stats (current project + user/global, OR --all)
       const projIdentity = await findProjectIdentity(process.cwd());
-      const projectId = projIdentity?.identity.projectId || null;
+      const projectId = !opts.all && projIdentity?.identity.projectId || null;
 
       let dbMemories = centralDb.getActiveMemories();
       if (projectId) {
@@ -2120,7 +2412,7 @@ program
 // ─── gnosys graph ───────────────────────────────────────────────────────
 program
   .command("graph")
-  .description("Show the full cross-reference graph across all memories")
+  .description("Show the [[wikilink]] cross-reference graph between memories. Empty until you start using [[Title]] in memory content — then this shows which memories reference each other.")
   .action(async () => {
     // v5.4.1: Query the central DB directly. Previously this used the
     // filesystem resolver, which returns nothing in v5.x DB-only mode
@@ -2474,7 +2766,7 @@ importCmd
 program
   .command("reindex")
   .description(
-    "Rebuild all semantic embeddings from every memory file. Downloads the model (~80 MB) on first run."
+    "Rebuild semantic embeddings for every memory in the central DB. Run after bulk imports, schema changes, or if hybrid search starts returning poor matches. Downloads the all-MiniLM-L6-v2 model (~80 MB) on first run.",
   )
   .action(async () => {
     const resolver = await getResolver();
@@ -3052,9 +3344,11 @@ program
   });
 
 // ─── gnosys dashboard ───────────────────────────────────────────────────
+// v5.7.0: kept as a thin alias of `gnosys status --system`. Will be removed
+// in a future release; use `gnosys status` instead.
 program
   .command("dashboard")
-  .description("Show system dashboard: memory count, health, graph stats, LLM status")
+  .description("(alias) Show system health — equivalent to 'gnosys status --system'")
   .option("--json", "Output as JSON instead of pretty table")
   .action(async (opts: { json?: boolean }) => {
     const { collectDashboardData, formatDashboard, formatDashboardJSON } = await import("./lib/dashboard.js");
@@ -3184,219 +3478,6 @@ program
   });
 
 // NOTE: gnosys migrate is defined below (near the end) with --to-central support
-
-// ─── gnosys remote (multi-machine sync) ────────────────────────────────
-const remoteCmd = program
-  .command("remote")
-  .description("Multi-machine sync — share gnosys.db across machines via NAS or shared drive");
-
-remoteCmd
-  .command("status")
-  .description("Show remote sync status: pending changes, conflicts, last sync")
-  .option("--json", "Output as JSON")
-  .action(async (opts: { json: boolean }) => {
-    let centralDb: GnosysDB | null = null;
-    try {
-      // Sync operations need explicit local DB access (not auto-routed remote).
-      centralDb = GnosysDB.openLocal();
-      if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
-
-      const remotePath = centralDb.getMeta("remote_path");
-      if (!remotePath) {
-        if (opts.json) {
-          console.log(JSON.stringify({ configured: false, message: "Remote not configured. Run 'gnosys remote configure'." }, null, 2));
-        } else {
-          console.log("Remote sync: not configured.");
-          console.log("Run 'gnosys remote configure' to set up multi-machine sync.");
-        }
-        return;
-      }
-
-      const { RemoteSync, formatStatus } = await import("./lib/remote.js");
-      const sync = new RemoteSync(centralDb, remotePath);
-      const status = await sync.getStatus();
-      sync.closeRemote();
-
-      if (opts.json) {
-        console.log(JSON.stringify(status, null, 2));
-      } else {
-        console.log(formatStatus(status));
-        if (status.conflicts.length > 0) {
-          console.log("\nConflicts:");
-          for (const c of status.conflicts) {
-            console.log(`  ${c.memoryId}: ${c.title}`);
-            console.log(`    local:  ${c.localModified}`);
-            console.log(`    remote: ${c.remoteModified}`);
-          }
-          console.log("\nResolve with: gnosys remote resolve <memory-id> --keep <local|remote>");
-        }
-      }
-    } catch (err) {
-      console.error(`Error: ${err instanceof Error ? err.message : err}`);
-      process.exit(1);
-    } finally {
-      centralDb?.close();
-    }
-  });
-
-remoteCmd
-  .command("push")
-  .description("Push local changes to remote")
-  .option("--newer-wins", "Auto-resolve conflicts by taking the newer version")
-  .action(async (opts: { newerWins?: boolean }) => {
-    let centralDb: GnosysDB | null = null;
-    try {
-      centralDb = GnosysDB.openLocal();
-      if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
-
-      const remotePath = centralDb.getMeta("remote_path");
-      if (!remotePath) { console.error("Remote not configured."); process.exit(1); }
-
-      const { RemoteSync } = await import("./lib/remote.js");
-      const sync = new RemoteSync(centralDb, remotePath);
-      const result = await sync.push({ strategy: opts.newerWins ? "newer-wins" : "skip-and-flag" });
-      sync.closeRemote();
-
-      const projParts = (result.projectsPushed || 0) > 0 ? ` | Projects pushed: ${result.projectsPushed}` : "";
-      console.log(`Pushed: ${result.pushed} | Skipped: ${result.skipped} | Conflicts: ${result.conflicts.length}${projParts}`);
-      if (result.errors.length > 0) {
-        console.log("\nErrors:");
-        for (const e of result.errors) console.log(`  ${e}`);
-      }
-      if (result.conflicts.length > 0) {
-        console.log("\nConflicts flagged (run 'gnosys remote status' for details):");
-        for (const c of result.conflicts) console.log(`  ${c.memoryId} — ${c.title}`);
-      }
-    } catch (err) {
-      console.error(`Error: ${err instanceof Error ? err.message : err}`);
-      process.exit(1);
-    } finally {
-      centralDb?.close();
-    }
-  });
-
-remoteCmd
-  .command("pull")
-  .description("Pull remote changes to local")
-  .option("--newer-wins", "Auto-resolve conflicts by taking the newer version")
-  .action(async (opts: { newerWins?: boolean }) => {
-    let centralDb: GnosysDB | null = null;
-    try {
-      centralDb = GnosysDB.openLocal();
-      if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
-
-      const remotePath = centralDb.getMeta("remote_path");
-      if (!remotePath) { console.error("Remote not configured."); process.exit(1); }
-
-      const { RemoteSync } = await import("./lib/remote.js");
-      const sync = new RemoteSync(centralDb, remotePath);
-      const result = await sync.pull({ strategy: opts.newerWins ? "newer-wins" : "skip-and-flag" });
-      sync.closeRemote();
-
-      const projParts = (result.projectsPulled || 0) > 0 ? ` | Projects pulled: ${result.projectsPulled}` : "";
-      console.log(`Pulled: ${result.pulled} | Skipped: ${result.skipped} | Conflicts: ${result.conflicts.length}${projParts}`);
-      if (result.errors.length > 0) {
-        console.log("\nErrors:");
-        for (const e of result.errors) console.log(`  ${e}`);
-      }
-    } catch (err) {
-      console.error(`Error: ${err instanceof Error ? err.message : err}`);
-      process.exit(1);
-    } finally {
-      centralDb?.close();
-    }
-  });
-
-remoteCmd
-  .command("sync")
-  .description("Two-way sync: push local changes then pull remote changes")
-  .option("--auto", "Run silently for cron/LaunchAgent (skip-and-flag for conflicts)")
-  .option("--newer-wins", "Auto-resolve conflicts by taking the newer version")
-  .action(async (opts: { auto?: boolean; newerWins?: boolean }) => {
-    let centralDb: GnosysDB | null = null;
-    try {
-      centralDb = GnosysDB.openLocal();
-      if (!centralDb.isAvailable()) {
-        if (!opts.auto) console.error("Central DB not available.");
-        process.exit(1);
-      }
-
-      const remotePath = centralDb.getMeta("remote_path");
-      if (!remotePath) {
-        if (!opts.auto) console.error("Remote not configured.");
-        process.exit(opts.auto ? 0 : 1);
-      }
-
-      const { RemoteSync } = await import("./lib/remote.js");
-      const sync = new RemoteSync(centralDb, remotePath);
-      const result = await sync.sync({
-        auto: opts.auto,
-        strategy: opts.newerWins ? "newer-wins" : "skip-and-flag",
-      });
-      sync.closeRemote();
-
-      if (!opts.auto || result.conflicts.length > 0 || result.errors.length > 0) {
-        const pp = result.projectsPushed || 0;
-        const pl = result.projectsPulled || 0;
-        const projParts = (pp + pl) > 0 ? ` | Projects: ↑${pp}/↓${pl}` : "";
-        console.log(`Pushed: ${result.pushed} | Pulled: ${result.pulled} | Conflicts: ${result.conflicts.length}${projParts}`);
-        if (result.errors.length > 0) {
-          console.log("\nErrors:");
-          for (const e of result.errors) console.log(`  ${e}`);
-        }
-        if (result.conflicts.length > 0) {
-          console.log("\nConflicts need resolution (run 'gnosys remote status' for details).");
-        }
-      }
-    } catch (err) {
-      if (!opts.auto) console.error(`Error: ${err instanceof Error ? err.message : err}`);
-      process.exit(1);
-    } finally {
-      centralDb?.close();
-    }
-  });
-
-remoteCmd
-  .command("resolve <memoryId>")
-  .description("Resolve a sync conflict by choosing local, remote, or merged content")
-  .option("--keep <choice>", "Choice: local | remote", "local")
-  .action(async (memoryId: string, opts: { keep: string }) => {
-    let centralDb: GnosysDB | null = null;
-    try {
-      centralDb = GnosysDB.openLocal();
-      if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
-
-      const remotePath = centralDb.getMeta("remote_path");
-      if (!remotePath) { console.error("Remote not configured."); process.exit(1); }
-
-      if (opts.keep !== "local" && opts.keep !== "remote") {
-        console.error(`--keep must be 'local' or 'remote' (got: ${opts.keep})`);
-        process.exit(1);
-      }
-
-      const { RemoteSync } = await import("./lib/remote.js");
-      const sync = new RemoteSync(centralDb, remotePath);
-      const result = await sync.resolve(memoryId, opts.keep as "local" | "remote");
-      sync.closeRemote();
-
-      if (result.ok) {
-        console.log(`Resolved ${memoryId}: kept ${opts.keep} version.`);
-      } else {
-        console.error(`Failed to resolve: ${result.error}`);
-        process.exit(1);
-      }
-    } catch (err) {
-      console.error(`Error: ${err instanceof Error ? err.message : err}`);
-      process.exit(1);
-    } finally {
-      centralDb?.close();
-    }
-  });
-
-// v5.4.2 removal: `gnosys remote configure` was removed in favor of the
-// canonical `gnosys setup remote` form (which calls the same wizard
-// helpers from lib/remoteWizard.ts). Sync operations like push/pull/sync
-// remain under the `remote` parent.
 
 // ─── gnosys upgrade ─────────────────────────────────────────────────────
 program
@@ -3885,10 +3966,10 @@ async function isLegacyStoreSafeToRemove(localDbPath: string): Promise<{ ok: boo
 // ─── gnosys check ─────────────────────────────────────────────────────────
 program
   .command("check")
-  .description("Test LLM connectivity for all 5 task configurations (structuring, synthesis, vision, transcription, dream)")
-  .option("-d, --directory <dir>", "Project directory (default: cwd)")
-  .action(async (opts: { directory?: string }) => {
-    const projectDir = opts.directory ? path.resolve(opts.directory) : process.cwd();
+  .description("Test LLM connectivity for each configured task (structuring, synthesis, chat, vision, transcription, dream)")
+  .option("-t, --task <name>", "Test only one task (structuring | synthesis | chat | vision | transcription | dream)")
+  .action(async (opts: { task?: string }) => {
+    const projectDir = process.cwd();
     const storePath = path.join(projectDir, ".gnosys");
     const globalStorePath = getGnosysHome();
 
@@ -3944,6 +4025,13 @@ program
         resolve: () => resolveTaskModel(cfg, "synthesis"),
       },
       {
+        name: "chat",
+        description: "interactive chat (gnosys chat)",
+        // Chat reuses the synthesis task's model — surface it under its own name
+        // so users can see exactly what their TUI will use.
+        resolve: () => resolveTaskModel(cfg, "synthesis"),
+      },
+      {
         name: "vision",
         description: "images, PDFs",
         resolve: () => resolveTaskModel(cfg, "vision"),
@@ -3967,7 +4055,16 @@ program
     let failed = 0;
     let skipped = 0;
 
-    for (const task of tasks) {
+    // Filter to a single task if --task was given.
+    const filteredTasks = opts.task
+      ? tasks.filter((t) => t.name === opts.task)
+      : tasks;
+    if (opts.task && filteredTasks.length === 0) {
+      console.error(`Unknown task: ${opts.task}. Pick one of: ${tasks.map((t) => t.name).join(", ")}`);
+      process.exit(1);
+    }
+
+    for (const task of filteredTasks) {
       const { provider, model } = task.resolve();
       const label = `${task.name.padEnd(16)} ${DIM}${provider} / ${model}${RESET}`;
       const desc = `${DIM}(${task.description})${RESET}`;
@@ -4325,7 +4422,9 @@ exportCmd
 // ─── gnosys serve ────────────────────────────────────────────────────────
 program
   .command("serve")
-  .description("Start the MCP server (stdio mode)")
+  .description(
+    "Start the MCP server (stdio mode). Used by IDE integrations — Claude Code/Desktop, Cursor, Codex, etc. spawn this command in the background to talk to gnosys via the Model Context Protocol. You don't normally invoke this yourself; `gnosys init <ide>` wires it into the IDE config.",
+  )
   .option("--with-maintenance", "Run maintenance every 6 hours in background")
   .action(async (opts: { withMaintenance?: boolean }) => {
     if (opts.withMaintenance) {
@@ -4822,7 +4921,9 @@ program
 // ─── gnosys pref ─────────────────────────────────────────────────────────
 const prefCmd = program
   .command("pref")
-  .description("Manage user preferences (stored in central DB, scope='user')");
+  .description(
+    "User preferences — small key-value memories scoped to you (not a project), surfaced into every agent's context. Use for cross-project conventions like 'prefer simple solutions' or 'no emoji in UI'. Subcommands: set, get, delete. Review/clean up with `gnosys setup preferences`.",
+  );
 
 prefCmd
   .command("set <key> <value>")
@@ -5081,13 +5182,13 @@ program
 
 // ─── gnosys briefing ─────────────────────────────────────────────────────
 program
-  .command("briefing")
+  .command("briefing [projectNameOrId]")
   .description("Generate project briefing — memory state summary, categories, recent activity, top tags")
   .option("-p, --project <id>", "Project ID (auto-detects if omitted)")
   .option("-a, --all", "Generate briefings for all projects")
   .option("-d, --directory <dir>", "Project directory for auto-detection")
   .option("--json", "Output as JSON")
-  .action(async (opts: { project?: string; all?: boolean; directory?: string; json: boolean }) => {
+  .action(async (projectNameOrId: string | undefined, opts: { project?: string; all?: boolean; directory?: string; json: boolean }) => {
     let centralDb: GnosysDB | null = null;
     try {
       centralDb = GnosysDB.openCentral();
@@ -5109,7 +5210,24 @@ program
         return;
       }
 
-      let pid = opts.project || null;
+      // v5.7.0: accept project name as positional argument in addition to --project <id>.
+      // Resolution order: positional name → --project flag → cwd auto-detect.
+      let pid = opts.project ?? null;
+      if (!pid && projectNameOrId) {
+        // Try as exact ID first, then by name lookup.
+        const byId = centralDb.getProject(projectNameOrId);
+        if (byId) {
+          pid = byId.id;
+        } else {
+          const all = centralDb.getAllProjects();
+          const byName = all.find((p) => p.name === projectNameOrId);
+          if (byName) pid = byName.id;
+        }
+        if (!pid) {
+          console.error(`Project not found: "${projectNameOrId}". Run 'gnosys projects' to list registered projects.`);
+          process.exit(1);
+        }
+      }
       if (!pid) pid = await detectCurrentProject(centralDb, opts.directory || undefined);
       if (!pid) { console.error("No project specified and none detected."); process.exit(1); }
 
@@ -5207,13 +5325,34 @@ program
 // ─── gnosys status ──────────────────────────────────────────────────────
 program
   .command("status")
-  .description("Show project status. From a project dir: shows that project. With --global: shows all projects. With --web: opens the HTML dashboard.")
+  .description("Show project status (--global: all projects, --web: HTML dashboard, --system: memory/LLM health)")
   .option("-d, --directory <dir>", "Project directory (auto-detects if omitted)")
   .option("-p, --project <id>", "Project ID")
   .option("-g, --global", "Show all projects")
   .option("-w, --web", "Open the HTML dashboard in the browser")
+  .option("-s, --system", "Show system health (memory count, LLM connectivity, embeddings, archive)")
   .option("--json", "Output as JSON")
-  .action(async (opts: { directory?: string; project?: string; global?: boolean; web?: boolean; json: boolean }) => {
+  .action(async (opts: { directory?: string; project?: string; global?: boolean; web?: boolean; system?: boolean; json: boolean }) => {
+    // --system delegates to the dashboard formatter (formerly `gnosys dashboard`).
+    if (opts.system) {
+      const { collectDashboardData, formatDashboard, formatDashboardJSON } = await import("./lib/dashboard.js");
+      const resolver = await getResolver();
+      const stores = resolver.getStores();
+      if (stores.length === 0) {
+        console.error("No Gnosys stores found. Run gnosys init first.");
+        process.exit(1);
+      }
+      const cfg = await loadConfig(stores[0].path);
+      let dashDb: import("./lib/db.js").GnosysDB | undefined;
+      try {
+        const db = GnosysDB.openCentral();
+        if (db.isAvailable() && db.isMigrated()) dashDb = db;
+      } catch { /* non-fatal */ }
+      const data = await collectDashboardData(resolver, cfg, pkg.version, dashDb);
+      console.log(opts.json ? formatDashboardJSON(data) : formatDashboard(data));
+      return;
+    }
+
     let centralDb: GnosysDB | null = null;
     try {
       centralDb = GnosysDB.openCentral();
@@ -5430,7 +5569,9 @@ program
 
 const sandboxCmd = program
   .command("sandbox")
-  .description("Manage the Gnosys sandbox background process");
+  .description(
+    "Manage the Gnosys sandbox — a long-lived background process that holds the SQLite handle so agents can call gnosys.add()/recall() through a tiny helper library instead of paying the MCP roundtrip on every call. Lower latency, lower context cost. Most users don't need this; it's for high-throughput agent workflows.",
+  );
 
 sandboxCmd
   .command("start")
@@ -5509,7 +5650,9 @@ sandboxCmd
 
 const helperCmd = program
   .command("helper")
-  .description("Manage the Gnosys helper library for agent integration");
+  .description(
+    "Generate a tiny TypeScript helper library that agents import to talk to the gnosys sandbox directly. Pairs with `gnosys sandbox start` — agents call gnosys.add()/recall() like normal code instead of issuing MCP tool calls. Run `gnosys helper generate` in your agent's project to drop in `gnosys-helper.ts`.",
+  );
 
 helperCmd
   .command("generate")
