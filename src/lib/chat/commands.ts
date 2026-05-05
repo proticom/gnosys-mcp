@@ -40,6 +40,12 @@ export type CommandResult =
   | { kind: "remember"; text: string }                            // /remember
   | { kind: "save-turn" }                                         // /save-turn
   | { kind: "attach"; filePath: string }                          // /attach
+  | { kind: "focus"; topic: string }                              // /focus
+  | { kind: "branch" }                                            // /branch
+  | { kind: "resume-focus"; topic?: string }                      // /resume-focus
+  | { kind: "export-session"; filePath: string }                  // /export
+  | { kind: "search-chats"; query: string }                       // /search-chats
+  | { kind: "dream-here" }                                        // /dream-here
   | { kind: "error"; message: string };
 
 export interface CommandSpec {
@@ -312,6 +318,61 @@ const attachCmd: CommandSpec = {
   },
 };
 
+// ─── Phase 7 commands: focus boundaries ──────────────────────────────────
+
+const focusCmd: CommandSpec = {
+  name: "/focus",
+  usage: "/focus <topic>",
+  summary: "Clear the working buffer and declare a new focus (session log preserved)",
+  handler: (_ctx, args) => {
+    if (args.length === 0) return { kind: "error", message: "Usage: /focus <topic>" };
+    return { kind: "focus", topic: args.join(" ") };
+  },
+};
+
+const branchCmd: CommandSpec = {
+  name: "/branch",
+  summary: "Fork the working buffer — explore a what-if without losing this thread",
+  handler: () => ({ kind: "branch" }),
+};
+
+const resumeFocusCmd: CommandSpec = {
+  name: "/resume-focus",
+  usage: "/resume-focus [topic]",
+  summary: "Restore a prior focus (no arg = pop the most recent branch)",
+  handler: (_ctx, args) => {
+    return { kind: "resume-focus", topic: args[0] };
+  },
+};
+
+// ─── Phase 8 commands: polish ────────────────────────────────────────────
+
+const exportSessionCmd: CommandSpec = {
+  name: "/export",
+  usage: "/export <file.md>",
+  summary: "Dump the current chat session as markdown",
+  handler: (_ctx, args) => {
+    if (args.length === 0) return { kind: "error", message: "Usage: /export <file.md>" };
+    return { kind: "export-session", filePath: args.join(" ") };
+  },
+};
+
+const searchChatsCmd: CommandSpec = {
+  name: "/search-chats",
+  usage: "/search-chats <query>",
+  summary: "Full-text search across all chat session logs",
+  handler: (_ctx, args) => {
+    if (args.length === 0) return { kind: "error", message: "Usage: /search-chats <query>" };
+    return { kind: "search-chats", query: args.join(" ") };
+  },
+};
+
+const dreamHereCmd: CommandSpec = {
+  name: "/dream-here",
+  summary: "Run a dream cycle scoped to memories surfaced in this session",
+  handler: () => ({ kind: "dream-here" }),
+};
+
 const REGISTRY: CommandSpec[] = [
   helpCmd,
   clearCmd,
@@ -331,6 +392,12 @@ const REGISTRY: CommandSpec[] = [
   rememberCmd,
   saveTurnCmd,
   attachCmd,
+  focusCmd,
+  branchCmd,
+  resumeFocusCmd,
+  exportSessionCmd,
+  searchChatsCmd,
+  dreamHereCmd,
 ];
 
 export function listCommands(): CommandSpec[] {

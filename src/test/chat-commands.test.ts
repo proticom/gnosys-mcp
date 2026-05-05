@@ -61,7 +61,15 @@ describe("chat command registry", () => {
     expect(names).toContain("/remember");
     expect(names).toContain("/save-turn");
     expect(names).toContain("/attach");
-    expect(cmds.length).toBeGreaterThanOrEqual(18);
+    // Phase 7
+    expect(names).toContain("/focus");
+    expect(names).toContain("/branch");
+    expect(names).toContain("/resume-focus");
+    // Phase 8
+    expect(names).toContain("/export");
+    expect(names).toContain("/search-chats");
+    expect(names).toContain("/dream-here");
+    expect(cmds.length).toBeGreaterThanOrEqual(24);
   });
 
   it("findCommand resolves aliases (case-insensitive)", () => {
@@ -243,5 +251,61 @@ describe("dispatchCommand", () => {
 
   it("/attach with no args returns error", async () => {
     expect((await dispatchCommand("/attach", baseCtx))?.kind).toBe("error");
+  });
+
+  // ─── Phase 7 commands ─────────────────────────────────────────────────
+
+  it("/focus with topic returns focus result", async () => {
+    const result = await dispatchCommand("/focus auth refactor", baseCtx);
+    expect(result?.kind).toBe("focus");
+    if (result?.kind === "focus") expect(result.topic).toBe("auth refactor");
+  });
+
+  it("/focus with no topic returns error", async () => {
+    expect((await dispatchCommand("/focus", baseCtx))?.kind).toBe("error");
+  });
+
+  it("/branch returns branch result", async () => {
+    const result = await dispatchCommand("/branch", baseCtx);
+    expect(result?.kind).toBe("branch");
+  });
+
+  it("/resume-focus with topic returns resume-focus result with topic", async () => {
+    const result = await dispatchCommand("/resume-focus auth", baseCtx);
+    expect(result?.kind).toBe("resume-focus");
+    if (result?.kind === "resume-focus") expect(result.topic).toBe("auth");
+  });
+
+  it("/resume-focus with no args returns resume-focus result with undefined topic", async () => {
+    const result = await dispatchCommand("/resume-focus", baseCtx);
+    expect(result?.kind).toBe("resume-focus");
+    if (result?.kind === "resume-focus") expect(result.topic).toBeUndefined();
+  });
+
+  // ─── Phase 8 commands ─────────────────────────────────────────────────
+
+  it("/export with path returns export-session result", async () => {
+    const result = await dispatchCommand("/export ./session.md", baseCtx);
+    expect(result?.kind).toBe("export-session");
+    if (result?.kind === "export-session") expect(result.filePath).toBe("./session.md");
+  });
+
+  it("/export with no args returns error", async () => {
+    expect((await dispatchCommand("/export", baseCtx))?.kind).toBe("error");
+  });
+
+  it("/search-chats with query returns search-chats result", async () => {
+    const result = await dispatchCommand("/search-chats ULID encoding", baseCtx);
+    expect(result?.kind).toBe("search-chats");
+    if (result?.kind === "search-chats") expect(result.query).toBe("ULID encoding");
+  });
+
+  it("/search-chats with no args returns error", async () => {
+    expect((await dispatchCommand("/search-chats", baseCtx))?.kind).toBe("error");
+  });
+
+  it("/dream-here returns dream-here result", async () => {
+    const result = await dispatchCommand("/dream-here", baseCtx);
+    expect(result?.kind).toBe("dream-here");
   });
 });

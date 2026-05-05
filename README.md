@@ -96,6 +96,50 @@ The helper auto-starts the sandbox if it's not running. No MCP required.
 
 ---
 
+## Interactive Chat (TUI)
+
+`gnosys chat` opens a memory-aware terminal chat. Every prompt triggers federated recall against the central brain; the LLM sees relevant memories in context and cites them in its answers.
+
+```bash
+gnosys chat                    # new session
+gnosys chat --resume <id>      # continue an earlier session
+gnosys chat --list             # see all sessions
+gnosys chat --search <query>   # full-text search across session logs
+```
+
+**Free-text or slash commands.** "remember that flag default is OFF" works the same as `/remember flag default is OFF`. The TUI also recognizes "what did we decide about ULIDs?" → `/recall`, "thanks, that's all" → `/quit`. Destructive intents always confirm; non-destructive ones auto-accept after 5 confirmations of the same pattern.
+
+**24 slash commands** across reading, recall, writing, focus, and polish — type `/help` inside the TUI for the full list. Highlights:
+
+- `/pin <id>`, `/scope`, `/threshold`, `/recall <q>` — tune what shows up in context
+- `/remember <text>`, `/save-turn`, `/attach <file>` — promote chat content to gnosys memory (PDFs, images, audio all auto-pin to the session)
+- `/focus <topic>`, `/branch`, `/resume-focus` — replace the "new chat" model with cheap focus boundaries; one continuous session log, instant pivot
+- `/export <file.md>`, `/search-chats <q>`, `/dream-here` — round-trip the session, find old chats, or trigger a focused dream cycle
+
+**Multiple choice.** When the model needs you to pick from a small set, it emits a fenced `gnosys-choose` block. The TUI parses it and shows an arrow-key selectable list — provider-agnostic, no tool-use API required.
+
+Sessions live as append-only JSONL at `~/.gnosys/chat-sessions/`; promoted memories carry `session:<id>`, `from-chat:true`, and `source:remember|save-turn|auto|attach` provenance tags so you can find them later via federated search.
+
+---
+
+## Per-Project Bundles
+
+Move a single project's memories between machines without dragging the whole central DB.
+
+```bash
+gnosys export project --to ./gnosys-public.json.gz       # auto-detects current project
+gnosys export project <projectId> --to <bundle>          # explicit
+gnosys import project <bundle> --strategy merge          # default — skip existing
+gnosys import project <bundle> --strategy replace        # wipe target project first
+gnosys import project <bundle> --strategy new-id         # remap to a fresh project ID
+```
+
+Bundles are gzipped JSON containing the project row, memories (with embeddings inline), relationships, and audit log. Lossless round-trip with the same DB schema; partially compatible across versions via the bundle manifest.
+
+For an Obsidian-compatible markdown vault, use `gnosys export vault --to <dir>` (the v5.5.x form `gnosys export --to <dir>` keeps working).
+
+---
+
 ## Web Knowledge Base
 
 Turn any website into a searchable knowledge base for AI chatbots. No database required. Works on Vercel, Netlify, Cloudflare Pages, or any platform that can serve files.

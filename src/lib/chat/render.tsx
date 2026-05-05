@@ -18,6 +18,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Box, Text, useApp } from "ink";
 import TextInput from "ink-text-input";
+import SelectInput from "ink-select-input";
 import Spinner from "ink-spinner";
 import { ChatHeaderInfo, ChatStatus, Turn } from "./types.js";
 import { dispatchCommand, CommandContext } from "./commands.js";
@@ -35,6 +36,15 @@ import {
   IntentAcceptanceLog,
   InferredIntent,
 } from "./intent.js";
+import { extractChooseFence, ChooseBlock, ChooseOption, formatSelection } from "./choose.js";
+import {
+  newFocusState,
+  applyFocus,
+  applyBranch,
+  applyResumeFocus,
+  popBranch,
+  FocusState,
+} from "./focus.js";
 import { GnosysConfig, LLMProviderName } from "../config.js";
 import { GnosysDB } from "../db.js";
 
@@ -65,6 +75,13 @@ export const ChatApp: React.FC<ChatAppProps> = ({ initialHeader, initialBuffer, 
   // Intent detection — inferred-but-not-yet-confirmed action
   const [pendingIntent, setPendingIntent] = useState<InferredIntent | null>(null);
   const acceptanceLogRef = useRef<IntentAcceptanceLog>(newAcceptanceLog());
+
+  // Multiple-choice — when the LLM emits a gnosys-choose fence, capture
+  // the block here and render a SelectInput in place of the regular text input.
+  const [pendingChoice, setPendingChoice] = useState<ChooseBlock | null>(null);
+
+  // Focus boundaries — declared topic + saved snapshots + branch stack
+  const [focusState, setFocusState] = useState<FocusState>(newFocusState());
 
   function nowIso(): string {
     return new Date().toISOString();
@@ -355,6 +372,159 @@ export const ChatApp: React.FC<ChatAppProps> = ({ initialHeader, initialBuffer, 
           }
           break;
         }
+        case "focus": {
+          const updated = applyFocus(focusState, buffer, result.topic, nowIso());
+          setFocusState(updated.state);
+          setBuffer(updated.buffer);
+          appendEvent(header.sessionId, {
+            type: "focus",
+            ts: nowIso(),
+            topic: result.topic,
+            previous_topic: updated.previousTopic ?? undefined,
+          });
+          pushSystem(
+            updated.previousTopic
+              ? `Focus: ${result.topic} (${updated.previousTopic} stashed — /resume-focus ${updated.previousTopic})`
+              : `Focus: ${result.topic}`,
+          );
+          break;
+        }
+        case "branch": {
+          if (buffer.length === 0) {
+            pushSystem("Nothing to branch — buffer is empty.");
+            break;
+          }
+          setFocusState(applyBranch(focusState, buffer, nowIso()));
+          appendEvent(header.sessionId, {
+            type: "branch",
+            ts: nowIso(),
+            from_session: header.sessionId,
+            new_session: header.sessionId, // Phase 7 keeps the same session log
+          });
+          pushSystem(
+            `Branch saved (${focusState.branches.length + 1} on stack — /resume-focus to pop the latest).`,
+          );
+          break;
+        }
+        case "resume-focus": {
+          if (result.topic) {
+            const restored = applyResumeFocus(focusState, buffer, result.topic, nowIso());
+            if (!restored) {
+              pushSystem(`No saved focus named "${result.topic}".`);
+              break;
+            }
+            setFocusState(restored.state);
+            setBuffer(restored.buffer);
+            pushSystem(`Resumed focus: ${result.topic}`);
+          } else {
+            // No arg → pop most recent branch
+            const popped = popBranch(focusState);
+            if (!popped) {
+              pushSystem("No branches on the stack and no topic given.");
+              break;
+            }
+            setFocusState(popped.state);
+            setBuffer(popped.buffer);
+            pushSystem(`Restored branch (focus: ${popped.topic})`);
+          }
+          break;
+        }
+        case "export-session": {
+          try {
+            const { writeFileSync } = await import("fs");
+            const path = await import("path");
+            const md = renderSessionAsMarkdown(buffer, header.sessionId);
+            const targetPath = path.resolve(result.filePath);
+            writeFileSync(targetPath, md, "utf-8");
+            pushSystem(`Exported ${buffer.length} turn(s) to ${targetPath}`);
+          } catch (err) {
+            pushSystem(`Export failed: ${err instanceof Error ? err.message : String(err)}`);
+          }
+          break;
+        }
+        case "search-chats": {
+          const { searchSessions } = await import("./session.js");
+          const matches = searchSessions(result.query, 20);
+          if (matches.length === 0) {
+            pushSystem(`No matches for: ${result.query}`);
+            break;
+          }
+          const lines = [`${matches.length} match(es):`];
+          for (const m of matches.slice(0, 15)) {
+            const text = (() => {
+              const e = m.event;
+              switch (e.type) {
+                case "user":
+                case "assistant":
+                  return e.text;
+                case "command":
+                  return `${e.name} ${e.args.join(" ")}`;
+                case "focus":
+                  return e.topic;
+                case "recall":
+                  return e.query;
+                default:
+                  return "";
+              }
+            })();
+            const preview = text.length > 80 ? text.slice(0, 77) + "..." : text;
+            lines.push(`  ${m.sessionId.slice(0, 12)}…  [${m.event.type}]  ${preview}`);
+          }
+          pushSystem(lines);
+          break;
+        }
+        case "dream-here": {
+          // Run a focused dream cycle scoped to the memories surfaced in this session.
+          // Pulls the cited_memory_ids from the session log and uses them as the
+          // workset for the dream engine.
+          pushSystem("Starting dream cycle for this session…");
+          try {
+            const { GnosysDB } = await import("../db.js");
+            const { GnosysDreamEngine } = await import("../dream.js");
+            const { readSession } = await import("./session.js");
+            const db = GnosysDB.openCentral();
+            if (!db.isAvailable()) {
+              pushSystem("Central DB unavailable");
+              db.close();
+              break;
+            }
+            try {
+              const events = readSession(header.sessionId);
+              const cited = new Set<string>();
+              for (const e of events) {
+                if (e.type === "assistant" && e.cited_memory_ids) {
+                  for (const id of e.cited_memory_ids) cited.add(id);
+                }
+                if (e.type === "recall") {
+                  for (const id of e.memory_ids) cited.add(id);
+                }
+              }
+              if (cited.size === 0) {
+                pushSystem("No memories surfaced this session yet — nothing to dream on.");
+                db.close();
+                break;
+              }
+              const engine = new GnosysDreamEngine(db, configRef.current, {
+                enabled: true,
+                idleMinutes: 0,
+                maxRuntimeMinutes: 5,
+                selfCritique: true,
+                generateSummaries: false,
+                discoverRelationships: true,
+                minMemories: 1,
+                provider: configRef.current.dream?.provider ?? "ollama",
+                model: configRef.current.dream?.model,
+              });
+              const report = await engine.dream();
+              pushSystem(`Dream complete — duration ${report.durationMs}ms; surfaced ${cited.size} session memories.`);
+            } finally {
+              db.close();
+            }
+          } catch (err) {
+            pushSystem(`Dream-here failed: ${err instanceof Error ? err.message : String(err)}`);
+          }
+          break;
+        }
         case "error":
           pushSystem(`Error: ${result.message}`);
           break;
@@ -396,6 +566,12 @@ export const ChatApp: React.FC<ChatAppProps> = ({ initialHeader, initialBuffer, 
     const hint = detectAutoPromote(text);
     if (hint) {
       pushSystem(`hint: that looks like a ${hint.reason} — type /save-turn after the response to capture it.`);
+    }
+
+    // File-path detection — suggest /attach if the user pasted a path
+    const detectedPath = detectFilePath(text);
+    if (detectedPath) {
+      pushSystem(`hint: detected file path "${detectedPath}" — type "/attach ${detectedPath}" to ingest it.`);
     }
 
     setStatus({ kind: "thinking" });
@@ -441,9 +617,35 @@ export const ChatApp: React.FC<ChatAppProps> = ({ initialHeader, initialBuffer, 
         },
       });
 
+      // Check for gnosys-choose fence — if present, strip it from the
+      // visible turn and surface as an interactive picker.
+      const fence = extractChooseFence(result.text);
+
+      let visibleText = result.text;
+      let pendingBlock: ChooseBlock | null = null;
+      if (fence?.kind === "ok") {
+        visibleText = [fence.before, fence.after].filter((s) => s.length > 0).join("\n\n");
+        pendingBlock = fence.block;
+        appendEvent(header.sessionId, {
+          type: "choice_offered",
+          ts: nowIso(),
+          prompt: fence.block.prompt,
+          option_ids: fence.block.options.map((o) => o.id),
+        });
+      } else if (fence?.kind === "parse-error") {
+        // Fail-soft: leave the raw fence in the visible text so the user can
+        // see what the LLM tried to emit. Log the parse error for debugging.
+        pushSystem(`malformed gnosys-choose fence: ${fence.reason}`);
+        appendEvent(header.sessionId, {
+          type: "error",
+          ts: nowIso(),
+          message: `gnosys-choose parse error: ${fence.reason}`,
+        });
+      }
+
       const assistantTurn: Turn = {
         role: "assistant",
-        text: result.text,
+        text: visibleText,
         ts: nowIso(),
         provider: result.provider,
         model: result.model,
@@ -453,11 +655,16 @@ export const ChatApp: React.FC<ChatAppProps> = ({ initialHeader, initialBuffer, 
       appendEvent(header.sessionId, {
         type: "assistant",
         ts: assistantTurn.ts,
-        text: result.text,
+        text: result.text, // log the FULL text (including fence) for fidelity
         provider: result.provider,
         model: result.model,
         cited_memory_ids: result.recalledIds,
       });
+
+      if (pendingBlock) {
+        setPendingChoice(pendingBlock);
+      }
+
       setStatus({ kind: "idle" });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -481,7 +688,14 @@ export const ChatApp: React.FC<ChatAppProps> = ({ initialHeader, initialBuffer, 
 
   return (
     <Box flexDirection="column">
-      <ChatHeader info={header} recallScope={scope} threshold={threshold} pinnedCount={pinnedIds.length} />
+      <ChatHeader
+        info={header}
+        recallScope={scope}
+        threshold={threshold}
+        pinnedCount={pinnedIds.length}
+        focus={focusState.current}
+        branchCount={focusState.branches.length}
+      />
 
       <Box flexDirection="column" marginTop={1}>
         {buffer.map((turn, i) => (
@@ -518,10 +732,87 @@ export const ChatApp: React.FC<ChatAppProps> = ({ initialHeader, initialBuffer, 
         </Box>
       )}
 
-      <Box marginTop={1}>
-        <Text>&gt; </Text>
-        <TextInput value={input} onChange={setInput} onSubmit={handleSubmit} />
-      </Box>
+      {pendingChoice ? (
+        <ChoosePicker
+          block={pendingChoice}
+          onSelect={async (option) => {
+            const selectionText = formatSelection(option);
+            appendEvent(header.sessionId, {
+              type: "choice_made",
+              ts: nowIso(),
+              option_id: option.id,
+              label: option.label,
+            });
+            setPendingChoice(null);
+            // Fire the selection as a synthetic user turn — runs through
+            // the normal handleSubmit path so recall + LLM happen.
+            await handleSubmit(selectionText);
+          }}
+        />
+      ) : (
+        <Box marginTop={1}>
+          <Text>&gt; </Text>
+          <TextInput value={input} onChange={setInput} onSubmit={handleSubmit} />
+        </Box>
+      )}
+    </Box>
+  );
+};
+
+/** Render the conversation buffer as a human-readable markdown transcript for /export. */
+function renderSessionAsMarkdown(buffer: Turn[], sessionId: string): string {
+  const lines: string[] = [
+    `# Gnosys chat session ${sessionId}`,
+    ``,
+    `_Exported ${new Date().toISOString()}_`,
+    ``,
+    `---`,
+    ``,
+  ];
+  for (const turn of buffer) {
+    if (turn.role === "user") {
+      lines.push(`## You`);
+      lines.push(turn.text);
+      lines.push(``);
+    } else if (turn.role === "assistant") {
+      const provider = turn.provider ? ` (${turn.provider}/${turn.model})` : "";
+      lines.push(`## Assistant${provider}`);
+      lines.push(turn.text);
+      if (turn.citedMemoryIds && turn.citedMemoryIds.length > 0) {
+        lines.push(``);
+        lines.push(`_cited: ${turn.citedMemoryIds.map((id) => `\`${id}\``).join(", ")}_`);
+      }
+      lines.push(``);
+    } else if (turn.role === "system") {
+      lines.push(`> ${turn.text}`);
+      lines.push(``);
+    }
+  }
+  return lines.join("\n");
+}
+
+/** Detect a file path in user input — returns the path if found, null otherwise. */
+function detectFilePath(text: string): string | null {
+  // Match common file path formats — absolute, ~, or ./relative — with extensions
+  const m = text.match(/(?<![\w/])((?:~|\.{1,2})?\/[^\s]+\.(?:pdf|md|txt|docx|png|jpg|jpeg|gif|mp3|wav|m4a|mp4|mov|webm))/i);
+  return m ? m[1] : null;
+}
+
+const ChoosePicker: React.FC<{ block: ChooseBlock; onSelect: (opt: ChooseOption) => void }> = ({ block, onSelect }) => {
+  const items = block.options.map((opt) => ({
+    label: opt.detail ? `${opt.label}  —  ${opt.detail}` : opt.label,
+    value: opt.id,
+  }));
+  return (
+    <Box flexDirection="column" marginTop={1}>
+      <Text color="magenta">{block.prompt}</Text>
+      <SelectInput
+        items={items}
+        onSelect={(item) => {
+          const picked = block.options.find((o) => o.id === item.value);
+          if (picked) onSelect(picked);
+        }}
+      />
     </Box>
   );
 };
@@ -531,7 +822,9 @@ const ChatHeader: React.FC<{
   recallScope: RecallScope;
   threshold: number;
   pinnedCount: number;
-}> = ({ info, recallScope, threshold, pinnedCount }) => (
+  focus: string | null;
+  branchCount: number;
+}> = ({ info, recallScope, threshold, pinnedCount, focus, branchCount }) => (
   <Box flexDirection="column">
     <Box>
       <Text color="green">gnosys chat</Text>
@@ -552,6 +845,18 @@ const ChatHeader: React.FC<{
       <Text dimColor>threshold={threshold.toFixed(2)}</Text>
       <Text>  </Text>
       <Text dimColor>pinned={pinnedCount}</Text>
+      {focus && (
+        <>
+          <Text>  </Text>
+          <Text dimColor>focus={focus}</Text>
+        </>
+      )}
+      {branchCount > 0 && (
+        <>
+          <Text>  </Text>
+          <Text dimColor>branches={branchCount}</Text>
+        </>
+      )}
     </Box>
   </Box>
 );

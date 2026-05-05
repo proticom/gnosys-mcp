@@ -11,6 +11,7 @@ import { LLMProvider, getLLMProvider, createProvider } from "../llm.js";
 import { LLMProviderName } from "../config.js";
 import { Turn } from "./types.js";
 import { RecalledMemory, formatRecallForPrompt } from "./recall.js";
+import { CHOOSE_SYSTEM_PROMPT_ADDENDUM } from "./choose.js";
 
 export interface LLMTurnOptions {
   /** Conversation buffer to send (will be formatted into a single prompt). */
@@ -31,7 +32,7 @@ export interface LLMTurnResult {
   recalledIds: string[];
 }
 
-const BASE_SYSTEM_PROMPT = `You are an assistant inside the Gnosys terminal chat — a memory-aware REPL. The user has persistent memory across sessions; relevant memories are injected as <memory id="..."> blocks before their question. Cite memory IDs in square brackets like [deci-037] when you use them. Be concise and direct. Markdown renders.`;
+const BASE_SYSTEM_PROMPT = `You are an assistant inside the Gnosys terminal chat — a memory-aware REPL. The user has persistent memory across sessions; relevant memories are injected as <memory id="..."> blocks before their question. Cite memory IDs in square brackets like [deci-037] when you use them. Be concise and direct. Markdown renders.${CHOOSE_SYSTEM_PROMPT_ADDENDUM}`;
 
 function composeSystemPrompt(recalled: RecalledMemory[] | undefined): string {
   if (!recalled || recalled.length === 0) return BASE_SYSTEM_PROMPT;

@@ -5,6 +5,39 @@ All notable changes to Gnosys are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.6.0] — 2026-05-04
+
+### Added
+
+- **`gnosys chat` — interactive memory-aware terminal chat (TUI).** Built on `ink`. Lazy-loaded so non-chat CLI commands aren't paying for the import cost.
+  - **Memory recall on every turn.** Each prompt triggers federated recall (project > user > global with tier boosting) and the matching memories are injected into the LLM's system prompt. Each assistant turn shows its citation footer: `cited: [deci-037] [arch-012]`.
+  - **Two-layer persistence.** Every turn fsync's into `~/.gnosys/chat-sessions/<sessionId>.jsonl` (the audit trail) AND smart-promotes to gnosys memories on `/remember`, `/save-turn`, `/attach`, or auto-detected decisions (with confirm).
+  - **Focus boundaries replace sessions.** `/focus <topic>` clears the working buffer but keeps the session log. `/branch` forks for hypothetical exploration. `/resume-focus` restores prior focuses or pops the most recent branch.
+  - **Free-text intent detection.** Type "remember that…", "what did we decide about…", "thanks, that's all" — the TUI matches against a regex catalog (instant) or falls back to a cheap LLM classifier (only when ambiguous + imperative). Non-destructive intents auto-accept after 5 confirmations of the same pattern; destructive ones (`/quit`) always confirm.
+  - **Multiple-choice protocol.** When the model emits a fenced ` ```gnosys-choose ` block, the TUI parses it and renders an arrow-key selectable list. The selection injects as `[picked: <id> — <label>]` into the next user turn. Provider-agnostic — no tool-use API needed.
+  - **24 slash commands** across recall, writing, focus, and polish:
+    - Reading: `/help`, `/history`, `/list`, `/read <id>`, `/tags`, `/dashboard`, `/quit`
+    - Recall: `/pin <id>`, `/unpin <id>`, `/scope`, `/threshold`, `/recall <q>`, `/reinforce <id>`
+    - Writing: `/remember <text>`, `/save-turn`, `/attach <file>`
+    - Focus: `/focus <topic>`, `/branch`, `/resume-focus [topic]`
+    - Polish: `/clear`, `/provider`, `/export <file.md>`, `/search-chats <query>`, `/dream-here`
+  - CLI flags: `gnosys chat --resume <sessionId>`, `--list`, `--search <query>`, `--provider`, `--model`.
+
+- **Per-project bundle import/export.** Restructured under `gnosys export` and `gnosys import` parent commands (mirrors the `gnosys setup models|remote|dream` pattern):
+  - `gnosys export project [id] --to <file.json.gz>` — bundles project memories, relationships, and audit log into a portable `.json.gz` file (auto-detects current project from cwd).
+  - `gnosys export vault --to <dir>` — explicit alias for the v5.5.x Obsidian vault export.
+  - `gnosys import project <bundle> --strategy merge|replace|new-id` — restore a bundle. `merge` skips existing memories (default), `replace` wipes the target project first, `new-id` generates a fresh project ID and remaps memory IDs to avoid collisions.
+  - The v5.5.x form `gnosys export --to <dir>` keeps working via a pre-parse argv shim that rewrites it to the `vault` subcommand. Documented as the migration path.
+
+### Changed
+
+- `gnosys export` is now a parent command — bare invocation prints subcommand usage instead of running vault export. Use `gnosys export vault --to <dir>` (or the back-compat shim above).
+- `gnosys import [fileOrUrl]` made the positional argument optional so subcommands can take precedence; missing `--format`/`--mapping` is now a runtime error with a usage hint pointing to `gnosys import project` for bundles.
+
+### Tests
+
+- 877+ tests passing. New chat-related tests across 7 files: `chat-session`, `chat-commands`, `chat-orchestrator`, `chat-recall`, `chat-write`, `chat-intent`, `chat-choose`, `chat-focus`. Plus `export-import-project` for the bundle round-trip.
+
 ## [5.5.0] — 2026-05-03
 
 ### Changed
