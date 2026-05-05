@@ -4821,9 +4821,11 @@ program
   .command("projects")
   .description("List registered projects from the central DB")
   .option("--json", "Output as JSON")
-  .option("--all", "Include dead projects (deleted directories, /tmp/ paths)")
-  .option("--prune", "Delete registry entries whose directory no longer exists or is a tmp path")
-  .action(async (opts: { json?: boolean; all?: boolean; prune?: boolean }) => {
+  .option("--all", "Include dead projects (deleted directories)")
+  .option("--prune", "Delete registry entries whose directory no longer exists (interactive by default)")
+  .option("--dry-run", "With --prune: list what would be deleted, don't actually delete")
+  .option("--yes", "With --prune: skip the confirmation prompt (scripting/automation)")
+  .action(async (opts: { json?: boolean; all?: boolean; prune?: boolean; dryRun?: boolean; yes?: boolean }) => {
     let centralDb: GnosysDB | null = null;
     try {
       centralDb = GnosysDB.openCentral();
@@ -4835,28 +4837,53 @@ program
       const allProjects = centralDb.getAllProjects();
 
       if (opts.prune) {
-        // Find and delete dead projects
+        // Find dead projects first — never just delete without showing
+        // them. v5.7.0 adds confirmation by default; --yes skips for
+        // scripted use; --dry-run shows the list without deleting.
         const deadProjects = allProjects.filter((p) => isDeadProjectDir(p.working_directory));
+
+        if (deadProjects.length === 0) {
+          console.log("No dead projects to prune.");
+          return;
+        }
+
+        const DIM = "\x1b[2m";
+        const RESET = "\x1b[0m";
+
+        // Always show what would be removed first.
+        console.log(`Found ${deadProjects.length} dead project(s):\n`);
+        for (const p of deadProjects) {
+          const memCount = centralDb.getMemoriesByProject(p.id, true).length;
+          console.log(`  ${p.name}  ${DIM}${p.working_directory}${RESET}  (${memCount} memorie(s))`);
+        }
+        console.log();
+
+        if (opts.dryRun) {
+          console.log("[dry-run] No changes made. Re-run without --dry-run to delete.");
+          return;
+        }
+
+        if (!opts.yes) {
+          const readline = await import("readline/promises");
+          const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+          const answer = (await rl.question(`Delete these ${deadProjects.length} project registry entries? [y/N] `)).trim().toLowerCase();
+          rl.close();
+          if (answer !== "y" && answer !== "yes") {
+            console.log("Cancelled.");
+            return;
+          }
+        }
+
         for (const p of deadProjects) {
           centralDb.deleteProject(p.id);
         }
+
         outputResult(!!opts.json, {
           deleted: deadProjects.length,
           remaining: allProjects.length - deadProjects.length,
           deletedProjects: deadProjects.map((p) => ({ id: p.id, name: p.name, directory: p.working_directory })),
         }, () => {
-          if (deadProjects.length === 0) {
-            console.log("No dead projects to prune.");
-          } else {
-            const DIM = "\x1b[2m";
-            const RESET = "\x1b[0m";
-            console.log(`Pruned ${deadProjects.length} dead project(s):\n`);
-            for (const p of deadProjects) {
-              console.log(`  ${p.name}  ${DIM}${p.working_directory}${RESET}`);
-            }
-            console.log();
-            console.log(`${allProjects.length - deadProjects.length} project(s) remain.`);
-          }
+          console.log(`✓ Pruned ${deadProjects.length} project(s). ${allProjects.length - deadProjects.length} remain.`);
         });
         return;
       }

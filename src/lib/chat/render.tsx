@@ -615,6 +615,23 @@ export const ChatApp: React.FC<ChatAppProps> = ({ initialHeader, initialBuffer, 
           partial += tok;
           setStatus({ kind: "streaming", partial });
         },
+        onToolCall: (info) => {
+          if (info.error) {
+            pushSystem(`tool ${info.tool} failed: ${info.error}`);
+          } else {
+            const argSummary = Object.keys(info.args).length > 0
+              ? ` ${Object.entries(info.args).map(([k, v]) => `${k}=${v}`).join(", ")}`
+              : "";
+            pushSystem(`called ${info.tool}${argSummary}`);
+            appendEvent(header.sessionId, {
+              type: "command",
+              ts: nowIso(),
+              name: `tool:${info.tool}`,
+              args: Object.entries(info.args).map(([k, v]) => `${k}=${v}`),
+              result: info.result?.slice(0, 200),
+            });
+          }
+        },
       });
 
       // Check for gnosys-choose fence — if present, strip it from the

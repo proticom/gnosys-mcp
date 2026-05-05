@@ -5,6 +5,125 @@ All notable changes to Gnosys are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.7.0] — 2026-05-05
+
+UX & bug sweep release. Five areas of work, each in its own phase commit
+on master so individual pieces can be reverted independently:
+
+### Fixed (Phase 1 — bug sweep)
+
+- **MCP "database disk image is malformed" auto-recovery.** Long-lived MCP
+  handles can go stale when concurrent writes happen (e.g. `gnosys setup`
+  while Claude Code's MCP gnosys is open). The DB file itself is fine —
+  just the cached page view is out of date. Added a `withRecovery<T>()`
+  wrapper inside `GnosysDB`: on `SQLITE_CORRUPT`, close the handle,
+  reopen, retry once. Surfaces a clear message pointing at `gnosys doctor`
+  if persistent. Wraps insertMemory / getMemory / getActiveMemories /
+  getAllMemories / logAudit / getAuditLog / queryAuditLog / insertProject
+  / getProject / getProjectByDirectory / getAllProjects.
+- **`gnosys timeline` queries the central DB.** Was reading from
+  `GnosysResolver.getAllMemories()` (legacy file stores) which is empty
+  post-DB-only. Showed only 1 memory despite 600+ in the central DB.
+  Now uses `groupDbByPeriod(memories: DbMemory[], period)`. Adds
+  `--project <id>` and `--limit-titles <n>` flags.
+- **`gnosys audit` queries the central DB.** Was reading
+  `.gnosys/.config/audit.jsonl` (legacy file audit). Now uses
+  `db.queryAuditLog()`. New helper: `readAuditFromDb()`.
+- **`gnosys doctor` Maintenance Health from central DB.** Was reporting
+  all-zeros because `GnosysMaintenanceEngine(resolver)` reads file stores.
+  Rewrote inline against the central DB with the same decay formula
+  (DECAY_LAMBDA = 0.005, STALE_THRESHOLD = 0.3). Handles non-ISO legacy
+  dates by treating them as "today" instead of NaN-corrupting averages.
+- **`gnosys doctor --fix`** flag added: when the legacy
+  `<store>/.gnosys/gnosys.db` exists, verify all its memory IDs are in the
+  central DB before prompting for removal. Conservative — refuses to
+  delete if any ID is missing centrally.
+- **`audit_log` cross-table sync (deci-037 gap closed).** Audit entries
+  now sync local↔remote with per-direction high-water cursors stored in
+  `gnosys_meta` (`audit_last_pushed_at`, `audit_last_pulled_at`). First
+  sync pushes the full backlog to remote. Push-then-pull cycles dedupe
+  via the push cursor so we don't re-pull what we just pushed.
+  `SyncResult` gains `auditPushed` / `auditPulled` counters.
+
+### Added (Phase 2 — setup wizard)
+
+- **Summary-first setup wizard.** When `gnosys setup` runs and a config
+  exists, the first screen is a numbered summary of every section. Pick
+  a number to edit just that piece, return to summary with `✓ updated`.
+  `[D]one` to apply, `[E]xit` to leave. Run the linear 5-step wizard
+  with `gnosys setup --full`.
+- **Three new setup subcommands** for direct access:
+  - `gnosys setup ides` — IDE/MCP integration only
+  - `gnosys setup routing` — per-task LLM routing only
+  - `gnosys setup preferences` — review user-scope prefs (incl. legacy
+    imports). Classifies each pref by ID format
+    (gnosys-native vs imported pre-gnosys), shows full content, lets you
+    delete with confirm.
+- **Multi-machine wizard polish.** Step 1 dedup (was double-listing
+  detected volumes). Step 3 reworded to match deci-037 framing
+  (remote = canonical source of truth, local = offline cache).
+  "Cancel" → "Skip" — Step 3's Skip is now `configure-only` instead of
+  fully aborting.
+
+### Changed (Phase 3 — command organization)
+
+- **`gnosys remote` parent removed.** All multi-machine commands live
+  under `gnosys setup remote` now: configure (bare invocation), `status`,
+  `push`, `pull`, `sync`, `resolve`. The standalone `gnosys remote`
+  parent and its subcommands are deleted. `setup remote` push/pull/sync
+  output now includes audit-counter (`↑audit ↓audit`) reflecting the
+  Phase 1.5 sync gap fix.
+- **`gnosys dashboard` → `gnosys status --system`.** The system-health
+  view (memory count, LLM connectivity, embeddings, maintenance health)
+  is now a flag on `status`. `dashboard` remains as a thin alias for
+  back-compat.
+- **Grouped `gnosys --help` output.** New "Commands by group" footer
+  organized by purpose (Setup & status · Memory ops · Search ·
+  Project mgmt · Chat · Maintenance · Multi-machine · Agent runtime ·
+  Legacy / advanced). Alphabetical within group. The full list still
+  appears above for scriptability.
+- **Confusing `--help` text rewrites** for: `serve`, `sandbox`, `helper`,
+  `pref`, `reindex`, `graph`. Each now explains what it does and when to
+  use it instead of just naming it.
+
+### Added (Phase 4 — chat MCP tool access)
+
+- **Chat agent can call gnosys functions in-process.** A new
+  `gnosys-tool` fenced protocol lets the LLM look up live data the user
+  asks about — list of projects, memory contents, briefings, recent
+  activity. Same pattern as `gnosys-choose` from v5.6.0: provider-agnostic,
+  no native tool_use API needed.
+
+  Available tools: `list_projects`, `search`, `read`, `briefing`, `stats`,
+  `tags`, `audit`, `recent_memories`. The system prompt teaches the LLM
+  the syntax; each call runs in-process against the central DB and the
+  result is fed back as a system turn before the LLM's next response.
+  Up to 4 tool-call iterations per chat turn (configurable via
+  `maxToolIterations`).
+
+### Polish (Phase 3/5)
+
+- **`gnosys briefing paperboy`** — accept project name as positional arg
+  in addition to `--project <id>`. Resolves to ID via name lookup.
+- **`gnosys check`** — drop the wrong `--directory` flag. Add
+  `--task <name>` to test only one task. Add `chat` to the task list
+  (matches what setup configures); chat reuses synthesis routing —
+  surfaced under its own name so users see what their TUI uses.
+- **`gnosys stats --by-project`** — new flag for a per-project breakdown
+  table (active, archived, reinforcements, last modified). Default
+  behavior still scoped to current project unless `--all` is given.
+
+### Tests
+
+- 905+ tests passing across 53 test files. New coverage: `db-recovery`
+  (6), `remote-audit-sync` (5), `chat-tools` (18). Updates to existing
+  files for the new behaviors.
+
+### Known issues (carried forward from v5.6.0)
+
+`npm install` still emits two upstream-deprecation warnings — both
+transitive, both functional, neither breaking. Tracked in road-006.
+
 ## [5.6.0] — 2026-05-04
 
 ### Added
