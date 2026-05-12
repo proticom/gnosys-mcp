@@ -237,7 +237,8 @@ program
   .option("--federated", "Use federated discovery with tier boosting (project > user > global)")
   .option("--scope <scope>", "Filter by scope: project, user, global (comma-separated for multiple)")
   .option("-d, --directory <dir>", "Project directory for context")
-  .action(async (query: string, opts: { limit: string; json?: boolean; federated?: boolean; scope?: string; directory?: string }) => {
+  .option("--id-format <format>", "ID display format: short | long | raw (default: short)", "short")
+  .action(async (query: string, opts: { limit: string; json?: boolean; federated?: boolean; scope?: string; directory?: string; idFormat?: string }) => {
     // Federated discover path
     if (opts.federated || opts.scope) {
       let centralDb: GnosysDB | null = null;
@@ -288,11 +289,17 @@ program
         return;
       }
 
+      const { formatMemoryId, buildProjectNameLookup, parseIdFormat } = await import("./lib/idFormat.js");
+      const idFormat = parseIdFormat(opts.idFormat);
+      const projectNames = buildProjectNameLookup(centralDb);
+
       outputResult(!!opts.json, { query, count: results.length, results }, () => {
         console.log(`Found ${results.length} relevant memories for "${query}":\n`);
         for (const r of results) {
+          const projectName = r.project_id ? projectNames.get(r.project_id) || null : null;
+          const displayId = formatMemoryId(r.id, projectName, idFormat);
           console.log(`  ${r.title}`);
-          console.log(`    id: ${r.id}`);
+          console.log(`    id: ${displayId}`);
           if (r.relevance) console.log(`    Relevance: ${r.relevance}`);
           console.log();
         }
@@ -395,8 +402,9 @@ program
   .option("-t, --tag <tag>", "Filter by tag")
   .option("-s, --store <store>", "Filter by store layer (project|user|global)")
   .option("--json", "Output as JSON")
+  .option("--id-format <format>", "ID display format: short | long | raw (default: short)", "short")
   .action(
-    async (opts: { category?: string; tag?: string; store?: string; json?: boolean }) => {
+    async (opts: { category?: string; tag?: string; store?: string; json?: boolean; idFormat?: string }) => {
       let centralDb: GnosysDB | null = null;
       try {
         centralDb = GnosysDB.openCentral();
@@ -435,6 +443,10 @@ program
           });
         }
 
+        const { formatMemoryId, buildProjectNameLookup, parseIdFormat } = await import("./lib/idFormat.js");
+        const idFormat = parseIdFormat(opts.idFormat);
+        const projectNames = buildProjectNameLookup(centralDb);
+
         outputResult(!!opts.json, {
           count: memories.length,
           memories: memories.map((m) => ({
@@ -444,14 +456,17 @@ program
             status: m.status,
             scope: m.scope,
             confidence: m.confidence,
+            project: m.project_id ? projectNames.get(m.project_id) || null : null,
           })),
         }, () => {
           console.log(`${memories.length} memories:\n`);
           for (const m of memories) {
+            const projectName = m.project_id ? projectNames.get(m.project_id) || null : null;
+            const displayId = formatMemoryId(m.id, projectName, idFormat);
             console.log(
               `  [${m.scope}] [${m.status}] ${m.title}`
             );
-            console.log(`    id: ${m.id} | category: ${m.category} | confidence: ${m.confidence}`);
+            console.log(`    id: ${displayId} | category: ${m.category} | confidence: ${m.confidence}`);
             console.log();
           }
         });
@@ -710,8 +725,12 @@ setupRemoteCmd
       }
 
       const { RemoteSync, formatStatus } = await import("./lib/remote.js");
+      const { withHeartbeat } = await import("./lib/heartbeat.js");
       const sync = new RemoteSync(centralDb, remotePath);
-      const status = await sync.getStatus();
+      const status = await withHeartbeat(
+        "Checking remote sync status",
+        () => sync.getStatus(),
+      );
       sync.closeRemote();
 
       if (opts.json) {
@@ -740,7 +759,8 @@ setupRemoteCmd
   .command("push")
   .description("Push local changes to remote")
   .option("--newer-wins", "Auto-resolve conflicts by taking the newer version")
-  .action(async (opts: { newerWins?: boolean }) => {
+  .option("--verbose", "Stream per-memory progress to stderr")
+  .action(async (opts: { newerWins?: boolean; verbose?: boolean }) => {
     let centralDb: GnosysDB | null = null;
     try {
       centralDb = GnosysDB.openLocal();
@@ -750,8 +770,19 @@ setupRemoteCmd
       if (!remotePath) { console.error("Remote not configured."); process.exit(1); }
 
       const { RemoteSync } = await import("./lib/remote.js");
+      const { withHeartbeat } = await import("./lib/heartbeat.js");
+      const { createProgress } = await import("./lib/progress.js");
+      const progress = createProgress(!!opts.verbose);
       const sync = new RemoteSync(centralDb, remotePath);
-      const result = await sync.push({ strategy: opts.newerWins ? "newer-wins" : "skip-and-flag" });
+      // Suppress heartbeat when verbose is on (progress already streams).
+      const runPush = () =>
+        sync.push({
+          strategy: opts.newerWins ? "newer-wins" : "skip-and-flag",
+          onProgress: progress.noop ? undefined : progress.emit.bind(progress),
+        });
+      const result = opts.verbose
+        ? await runPush()
+        : await withHeartbeat("Pushing to remote", runPush);
       sync.closeRemote();
 
       const projParts = (result.projectsPushed || 0) > 0 ? ` | Projects pushed: ${result.projectsPushed}` : "";
@@ -777,7 +808,8 @@ setupRemoteCmd
   .command("pull")
   .description("Pull remote changes to local")
   .option("--newer-wins", "Auto-resolve conflicts by taking the newer version")
-  .action(async (opts: { newerWins?: boolean }) => {
+  .option("--verbose", "Stream per-memory progress to stderr")
+  .action(async (opts: { newerWins?: boolean; verbose?: boolean }) => {
     let centralDb: GnosysDB | null = null;
     try {
       centralDb = GnosysDB.openLocal();
@@ -787,8 +819,18 @@ setupRemoteCmd
       if (!remotePath) { console.error("Remote not configured."); process.exit(1); }
 
       const { RemoteSync } = await import("./lib/remote.js");
+      const { withHeartbeat } = await import("./lib/heartbeat.js");
+      const { createProgress } = await import("./lib/progress.js");
+      const progress = createProgress(!!opts.verbose);
       const sync = new RemoteSync(centralDb, remotePath);
-      const result = await sync.pull({ strategy: opts.newerWins ? "newer-wins" : "skip-and-flag" });
+      const runPull = () =>
+        sync.pull({
+          strategy: opts.newerWins ? "newer-wins" : "skip-and-flag",
+          onProgress: progress.noop ? undefined : progress.emit.bind(progress),
+        });
+      const result = opts.verbose
+        ? await runPull()
+        : await withHeartbeat("Pulling from remote", runPull);
       sync.closeRemote();
 
       const projParts = (result.projectsPulled || 0) > 0 ? ` | Projects pulled: ${result.projectsPulled}` : "";
@@ -811,7 +853,8 @@ setupRemoteCmd
   .description("Two-way sync: push local changes then pull remote changes")
   .option("--auto", "Run silently for cron/LaunchAgent (skip-and-flag for conflicts)")
   .option("--newer-wins", "Auto-resolve conflicts by taking the newer version")
-  .action(async (opts: { auto?: boolean; newerWins?: boolean }) => {
+  .option("--verbose", "Stream per-memory progress to stderr")
+  .action(async (opts: { auto?: boolean; newerWins?: boolean; verbose?: boolean }) => {
     let centralDb: GnosysDB | null = null;
     try {
       centralDb = GnosysDB.openLocal();
@@ -827,11 +870,22 @@ setupRemoteCmd
       }
 
       const { RemoteSync } = await import("./lib/remote.js");
+      const { withHeartbeat } = await import("./lib/heartbeat.js");
+      const { createProgress } = await import("./lib/progress.js");
+      const progress = createProgress(!!opts.verbose);
       const sync = new RemoteSync(centralDb, remotePath);
-      const result = await sync.sync({
-        auto: opts.auto,
-        strategy: opts.newerWins ? "newer-wins" : "skip-and-flag",
-      });
+      const runSync = () =>
+        sync.sync({
+          auto: opts.auto,
+          strategy: opts.newerWins ? "newer-wins" : "skip-and-flag",
+          onProgress: progress.noop ? undefined : progress.emit.bind(progress),
+        });
+      // Auto mode + verbose mode both bypass the heartbeat. Auto mode is
+      // for non-interactive runs (no spinner). Verbose streams its own output.
+      const result =
+        opts.auto || opts.verbose
+          ? await runSync()
+          : await withHeartbeat("Syncing with remote", runSync);
       sync.closeRemote();
 
       if (!opts.auto || result.conflicts.length > 0 || result.errors.length > 0) {
@@ -3343,45 +3397,9 @@ program
     console.log(formatGraphStats(stats));
   });
 
-// ─── gnosys dashboard ───────────────────────────────────────────────────
-// v5.7.0: kept as a thin alias of `gnosys status --system`. Will be removed
-// in a future release; use `gnosys status` instead.
-program
-  .command("dashboard")
-  .description("(alias) Show system health — equivalent to 'gnosys status --system'")
-  .option("--json", "Output as JSON instead of pretty table")
-  .action(async (opts: { json?: boolean }) => {
-    const { collectDashboardData, formatDashboard, formatDashboardJSON } = await import("./lib/dashboard.js");
-
-    const resolver = await getResolver();
-    const stores = resolver.getStores();
-
-    if (stores.length === 0) {
-      console.error("No Gnosys stores found. Run gnosys init first.");
-      process.exit(1);
-    }
-
-    const cfg = await loadConfig(stores[0].path);
-
-    // v5.1: Use central DB for dashboard stats
-    let dashDb: import("./lib/db.js").GnosysDB | undefined;
-    try {
-      const db = GnosysDB.openCentral();
-      if (db.isAvailable() && db.isMigrated()) {
-        dashDb = db;
-      }
-    } catch {
-      // Central DB not available — legacy dashboard only
-    }
-
-    const data = await collectDashboardData(resolver, cfg, pkg.version, dashDb);
-
-    if (opts.json) {
-      console.log(formatDashboardJSON(data));
-    } else {
-      console.log(formatDashboard(data));
-    }
-  });
+// `gnosys dashboard` was removed in v5.7.1.
+// Use `gnosys status --system` instead. Hard removal — commander will emit
+// the standard "unknown command" error.
 
 // ─── gnosys maintain ─────────────────────────────────────────────────────
 program
@@ -3479,12 +3497,20 @@ program
 
 // NOTE: gnosys migrate is defined below (near the end) with --to-central support
 
-// ─── gnosys upgrade ─────────────────────────────────────────────────────
-program
-  .command("upgrade")
-  .description("Re-initialize all registered projects after a Gnosys version upgrade. Updates agent rules, project registry, stamps the central DB, and regenerates the portfolio dashboard.")
-  .option("--skip-dashboard", "Skip regenerating the portfolio dashboard")
-  .action(async (opts: { skipDashboard?: boolean }) => {
+// ─── gnosys upgrade  +  gnosys setup sync-projects ──────────────────────
+//
+// v5.7.1 (#15) split this command:
+//
+//   gnosys upgrade            — upgrade the gnosys CLI/MCP itself
+//                               (npm install + restart signal to MCPs)
+//   gnosys setup sync-projects — what the old `gnosys upgrade` used to do
+//                               (re-init project identities, agent rules,
+//                                central DB stamp, portfolio dashboard)
+//
+// The body of the legacy command is preserved verbatim below as
+// `syncProjectsAction`, called from the new `setup sync-projects` command.
+
+async function syncProjectsAction(opts: { skipDashboard?: boolean }): Promise<void> {
     const currentVersion = pkg.version;
     console.log(`Gnosys v${currentVersion} — upgrading registered projects...\n`);
 
@@ -3708,6 +3734,84 @@ program
         console.log(`\n  Could not regenerate portfolio dashboard`);
       }
     }
+}
+
+// `gnosys setup sync-projects` — re-init project identities + agent rules.
+// (This is what `gnosys upgrade` used to do; renamed in v5.7.1.)
+setupCmd
+  .command("sync-projects")
+  .description("Re-initialize all registered projects after upgrading gnosys: refresh agent rules, project registry, central DB stamp, and portfolio dashboard.")
+  .option("--skip-dashboard", "Skip regenerating the portfolio dashboard")
+  .action(syncProjectsAction);
+
+// `gnosys upgrade` — upgrade the gnosys CLI/MCP itself, then prompt the
+// user to run sync-projects. Writes ~/.gnosys/last-upgrade-at so running
+// MCP servers exit cleanly and the host respawns them against the new
+// global binary (see src/lib/upgrade.ts).
+program
+  .command("upgrade")
+  .description("Upgrade gnosys itself (npm install -g gnosys@latest) and signal running MCP servers to restart. After upgrading, suggests running 'gnosys setup sync-projects'.")
+  .option("--yes", "Skip the post-upgrade sync-projects prompt and exit")
+  .option("--no-sync", "Don't suggest running sync-projects afterward")
+  .action(async (opts: { yes?: boolean; sync?: boolean }) => {
+    const currentVersion = pkg.version;
+    console.log(`Gnosys CLI: currently v${currentVersion}`);
+    console.log(`Running: npm install -g gnosys@latest ...`);
+
+    const { execSync } = await import("child_process");
+    try {
+      execSync("npm install -g gnosys@latest", { stdio: "inherit" });
+    } catch (err) {
+      console.error(`\nUpgrade failed: ${err instanceof Error ? err.message : err}`);
+      console.error(`Try running 'npm install -g gnosys@latest' manually.`);
+      process.exit(1);
+    }
+
+    // Read the newly-installed version (best-effort — we may still be the
+    // old binary in-process; this is purely informational).
+    let newVersion = "(see npm output)";
+    try {
+      const out = execSync("npm ls -g gnosys --depth=0 --json", { encoding: "utf8" });
+      const parsed = JSON.parse(out);
+      newVersion = parsed?.dependencies?.gnosys?.version || newVersion;
+    } catch {
+      // Best-effort lookup only.
+    }
+
+    // Write the marker so any running MCP servers exit and respawn.
+    const { writeUpgradeMarker } = await import("./lib/upgrade.js");
+    try {
+      writeUpgradeMarker(typeof newVersion === "string" && newVersion !== "(see npm output)"
+        ? newVersion
+        : currentVersion);
+      console.log(`\n✓ Upgrade marker written: ~/.gnosys/last-upgrade-at`);
+      console.log(`  Any running MCP servers will detect this within 10s and restart cleanly.`);
+      console.log(`  (Your MCP client — Claude Code, Cursor, VS Code — will auto-respawn.)`);
+    } catch (err) {
+      console.error(`\nCould not write upgrade marker: ${err instanceof Error ? err.message : err}`);
+      console.error(`Running MCP servers will need to be restarted manually.`);
+    }
+
+    if (opts.sync === false || opts.yes) {
+      console.log(`\nDone. Run 'gnosys setup sync-projects' when you're ready to refresh registered projects.`);
+      return;
+    }
+
+    // Prompt for sync-projects.
+    const readline = await import("readline");
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const answer = await new Promise<string>((resolve) =>
+      rl.question(`\nRun 'gnosys setup sync-projects' now to refresh registered projects? [Y/n] `, resolve),
+    );
+    rl.close();
+
+    if (answer.trim().toLowerCase() === "n" || answer.trim().toLowerCase() === "no") {
+      console.log(`Done. You can run 'gnosys setup sync-projects' later.`);
+      return;
+    }
+
+    console.log(``);
+    await syncProjectsAction({});
   });
 
 // ─── gnosys doctor ──────────────────────────────────────────────────────
@@ -5287,79 +5391,64 @@ program
     }
   });
 
-// ─── gnosys portfolio ───────────────────────────────────────────────────
-program
-  .command("portfolio")
-  .description("Portfolio dashboard — all projects with status, roadmap, and recent activity")
-  .option("-o, --output <file>", "Write dashboard to a file (auto-detects format from extension)")
-  .option("--html", "Output as HTML dashboard")
-  .option("--json", "Output as JSON")
-  .action(async (opts: { output?: string; html: boolean; json: boolean }) => {
-    let centralDb: GnosysDB | null = null;
-    try {
-      centralDb = GnosysDB.openCentral();
-      if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
-
-      const { generatePortfolio, formatPortfolioMarkdown } = await import("./lib/portfolio.js");
-
-      const report = generatePortfolio(centralDb);
-
-      // Detect format from output extension if not explicitly set
-      const useHtml = opts.html || (opts.output?.endsWith(".html") ?? false);
-      const useJson = opts.json || (opts.output?.endsWith(".json") ?? false);
-
-      if (useJson) {
-        const json = JSON.stringify(report, null, 2);
-        if (opts.output) {
-          const { writeFileSync } = await import("fs");
-          writeFileSync(opts.output, json, "utf-8");
-          console.log(`Portfolio written to ${opts.output}`);
-        } else {
-          console.log(json);
-        }
-        return;
-      }
-
-      if (useHtml) {
-        const { generatePortfolioHtml } = await import("./lib/portfolioHtml.js");
-        const html = generatePortfolioHtml(report, opts.output);
-        if (opts.output) {
-          const { writeFileSync } = await import("fs");
-          writeFileSync(opts.output, html, "utf-8");
-          console.log(`Portfolio dashboard written to ${opts.output}`);
-        } else {
-          console.log(html);
-        }
-        return;
-      }
-
-      const markdown = formatPortfolioMarkdown(report);
-      if (opts.output) {
-        const { writeFileSync } = await import("fs");
-        writeFileSync(opts.output, markdown, "utf-8");
-        console.log(`Portfolio dashboard written to ${opts.output}`);
-      } else {
-        console.log(markdown);
-      }
-    } catch (err) {
-      console.error(`Error: ${err instanceof Error ? err.message : err}`);
-      process.exit(1);
-    } finally {
-      centralDb?.close();
-    }
-  });
+// `gnosys portfolio` was removed in v5.7.1.
+// Use `gnosys status --projects` (formerly --global) for the projects
+// overview, or `gnosys status --web` for the HTML dashboard, or
+// `gnosys status --projects --output file.html` to write to disk.
 
 // ─── gnosys status ──────────────────────────────────────────────────────
+// v5.7.1 (#11): the catch-all status command. Section flags select what to
+// show; output flags control format. Default (no flag) is the current
+// project. `dashboard` and `portfolio` were removed in v5.7.1 — their
+// content lives under `--system` and `--projects` respectively.
 program
   .command("status")
-  .description("Show project status (--global: all projects, --web: HTML dashboard, --system: memory/LLM health)")
+  .description("Show status. Sections: --projects (all projects) · --remote (sync) · --system (memory/LLM health) · default: current project. Output: --web · --json. Note: 'gnosys dashboard' and 'gnosys portfolio' were removed in v5.7.1 — use 'gnosys status --system' and 'gnosys status --projects' instead.")
   .option("-d, --directory <dir>", "Project directory (auto-detects if omitted)")
   .option("-p, --project <id>", "Project ID")
-  .option("-g, --global", "Show all projects")
+  .option("-g, --global", "(deprecated alias for --projects)")
+  .option("--projects", "Show all projects portfolio (replaces the old 'gnosys portfolio')")
+  .option("-r, --remote", "Show remote sync status (alias for 'gnosys setup remote status')")
   .option("-w, --web", "Open the HTML dashboard in the browser")
   .option("-s, --system", "Show system health (memory count, LLM connectivity, embeddings, archive)")
   .option("--json", "Output as JSON")
-  .action(async (opts: { directory?: string; project?: string; global?: boolean; web?: boolean; system?: boolean; json: boolean }) => {
+  .action(async (opts: { directory?: string; project?: string; global?: boolean; projects?: boolean; remote?: boolean; web?: boolean; system?: boolean; json: boolean }) => {
+    // v5.7.1: --projects supersedes --global (kept as alias).
+    if (opts.projects) opts.global = true;
+
+    // v5.7.1: --remote — dispatch to RemoteSync.getStatus()
+    if (opts.remote) {
+      let remoteCentralDb: GnosysDB | null = null;
+      try {
+        remoteCentralDb = GnosysDB.openLocal();
+        if (!remoteCentralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
+        const remotePath = remoteCentralDb.getMeta("remote_path");
+        if (!remotePath) {
+          if (opts.json) {
+            console.log(JSON.stringify({ configured: false, message: "Remote not configured. Run 'gnosys setup remote'." }, null, 2));
+          } else {
+            console.log("Remote sync: not configured. Run 'gnosys setup remote' to set up multi-machine sync.");
+          }
+          return;
+        }
+        const { RemoteSync, formatStatus } = await import("./lib/remote.js");
+        const { withHeartbeat } = await import("./lib/heartbeat.js");
+        const sync = new RemoteSync(remoteCentralDb, remotePath);
+        const status = await withHeartbeat("Checking remote sync status", () => sync.getStatus());
+        sync.closeRemote();
+        if (opts.json) {
+          console.log(JSON.stringify(status, null, 2));
+        } else {
+          console.log(formatStatus(status));
+        }
+        return;
+      } catch (err) {
+        console.error(`Error: ${err instanceof Error ? err.message : err}`);
+        process.exit(1);
+      } finally {
+        remoteCentralDb?.close();
+      }
+    }
     // --system delegates to the dashboard formatter (formerly `gnosys dashboard`).
     if (opts.system) {
       const { collectDashboardData, formatDashboard, formatDashboardJSON } = await import("./lib/dashboard.js");

@@ -707,6 +707,33 @@ export class GnosysDB {
     return this.withRecovery(() => this.db.prepare("SELECT * FROM memories").all() as DbMemory[]);
   }
 
+  /**
+   * Cheap variant: just id + modified, in one shot. Used by remote sync status
+   * to compute pending push/pull counts without paying for full row hydration
+   * over SMB. Returns rows changed strictly after `sinceIso`.
+   */
+  getIdsModifiedSince(sinceIso: string): Array<{ id: string; modified: string }> {
+    return this.withRecovery(() =>
+      this.db
+        .prepare("SELECT id, modified FROM memories WHERE modified > ? OR created > ?")
+        .all(sinceIso, sinceIso) as Array<{ id: string; modified: string }>,
+    );
+  }
+
+  /**
+   * Configure a one-shot SQLite busy_timeout (in milliseconds) on this
+   * connection. Default at open time is 10s; for short-deadline operations
+   * like `gnosys status --remote` we drop it to ~3s so a held write lock on
+   * the NAS fails fast with SQLITE_BUSY instead of hanging the CLI.
+   *
+   * The caller should restore the prior value with `setBusyTimeout(10000)`
+   * once the deadline-bounded operation is done.
+   */
+  setBusyTimeout(ms: number): void {
+    if (!this.db) return;
+    this.db.pragma(`busy_timeout = ${Math.max(0, Math.floor(ms))}`);
+  }
+
   getMemoriesByTier(tier: string): DbMemory[] {
     return this.db.prepare("SELECT * FROM memories WHERE tier = ?").all(tier) as DbMemory[];
   }
@@ -963,28 +990,38 @@ export class GnosysDB {
     }
   }
 
-  discoverFts(query: string, limit: number = 20): Array<{ id: string; title: string; relevance: string; rank: number }> {
+  discoverFts(
+    query: string,
+    limit: number = 20,
+  ): Array<{ id: string; title: string; relevance: string; rank: number; project_id: string | null }> {
     const safeQuery = query.replace(/['"]/g, "").trim();
     if (!safeQuery) return [];
 
+    // v5.7.1 (#14): join `memories` so callers can render project-prefixed IDs.
+    const select = `
+      SELECT m.id AS id, m.title AS title, m.relevance AS relevance, fts.rank AS rank, m.project_id AS project_id
+      FROM memories_fts fts
+      JOIN memories m ON m.id = fts.id
+      WHERE memories_fts MATCH ?
+      ORDER BY fts.rank
+      LIMIT ?
+    `;
+
     try {
       const colQuery = `{relevance title tags} : ${safeQuery}`;
-      const results = this.db.prepare(`
-        SELECT id, title, relevance, rank
-        FROM memories_fts WHERE memories_fts MATCH ? ORDER BY rank LIMIT ?
-      `).all(colQuery, limit);
+      const results = this.db.prepare(select).all(colQuery, limit) as Array<{
+        id: string; title: string; relevance: string; rank: number; project_id: string | null;
+      }>;
       if (results.length > 0) return results;
 
-      return this.db.prepare(`
-        SELECT id, title, relevance, rank
-        FROM memories_fts WHERE memories_fts MATCH ? ORDER BY rank LIMIT ?
-      `).all(safeQuery, limit);
+      return this.db.prepare(select).all(safeQuery, limit) as Array<{
+        id: string; title: string; relevance: string; rank: number; project_id: string | null;
+      }>;
     } catch {
       try {
-        return this.db.prepare(`
-          SELECT id, title, relevance, rank
-          FROM memories_fts WHERE memories_fts MATCH ? ORDER BY rank LIMIT ?
-        `).all(safeQuery, limit);
+        return this.db.prepare(select).all(safeQuery, limit) as Array<{
+          id: string; title: string; relevance: string; rank: number; project_id: string | null;
+        }>;
       } catch {
         return [];
       }

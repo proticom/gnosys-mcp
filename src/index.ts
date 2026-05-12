@@ -12,6 +12,7 @@
 import dotenv from "dotenv";
 import path from "path";
 import { readFileSync } from "fs";
+import { fileURLToPath } from "url";
 const home = process.env.HOME || process.env.USERPROFILE || "/tmp";
 try {
   const envFile = readFileSync(path.join(home, ".config", "gnosys", ".env"), "utf8");
@@ -22,6 +23,19 @@ try {
 } catch {
   // .env file not found — that's fine, env vars may be set elsewhere
 }
+
+// v5.7.1 (#15): read our running version so the upgrade-marker watcher
+// can detect when a newer global install lands and exit for client respawn.
+const __filenameMcp = fileURLToPath(import.meta.url);
+const __dirnameMcp = path.dirname(__filenameMcp);
+const RUNNING_VERSION: string = (() => {
+  try {
+    const raw = readFileSync(path.resolve(__dirnameMcp, "..", "package.json"), "utf8");
+    return (JSON.parse(raw).version as string) || "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+})();
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -76,6 +90,40 @@ function formatMcpError(action: string, err: unknown): string {
     return `Error ${action}: ${err instanceof Error ? err.message : String(err)}\n\n${GnosysDB.corruptionRecoveryInstructions()}`;
   }
   return `Error ${action}: ${err instanceof Error ? err.message : String(err)}`;
+}
+
+/**
+ * v5.7.1 (#15): poll `~/.gnosys/last-upgrade-at` and exit when a newer
+ * version has been installed. The MCP client (Claude Code, Cursor, etc.)
+ * sees the clean exit and respawns the process, which then runs the new
+ * global binary.
+ *
+ * The 10s cadence is a deliberate trade-off: latency is small, the FS
+ * check is one stat (~µs), and an upgrade that landed mid-session gets
+ * picked up before the next agent turn in almost every case.
+ */
+function startUpgradeMarkerWatcher(): void {
+  const check = async () => {
+    try {
+      const { shouldRestartMcp, readUpgradeMarker } = await import("./lib/upgrade.js");
+      if (shouldRestartMcp(RUNNING_VERSION)) {
+        const marker = readUpgradeMarker();
+        const newVersion = marker?.version || "newer";
+        console.error(
+          `gnosys MCP: upgrading from v${RUNNING_VERSION} → v${newVersion} — restarting`,
+        );
+        // Clean exit so the MCP host respawns us against the upgraded binary.
+        process.exit(0);
+      }
+    } catch {
+      // Stat failed — non-critical. Try again on the next tick.
+    }
+  };
+  // Immediate boot-time check, then poll.
+  void check();
+  const timer = setInterval(() => void check(), 10_000);
+  // Don't block process exit on this timer.
+  timer.unref();
 }
 
 // These are initialized in main() after resolver runs
@@ -183,6 +231,44 @@ async function resolveToolContext(projectRoot?: string): Promise<ToolContext> {
     centralDb,
     projectId,
   };
+}
+
+/**
+ * v5.7.1 (#13): Resolve scope + projectId for a memory write.
+ *
+ * Previously every write was hard-coded to scope="project" with whatever
+ * `ctx.projectId` happened to resolve to — including null. That produced
+ * "project-scope, no project" orphans visible cross-project.
+ *
+ * Now: derive scope from the explicit `store` argument and refuse to
+ * create a project-scoped memory when no project identity is reachable,
+ * telling the caller exactly how to fix it.
+ */
+function resolveWriteScope(
+  ctx: ToolContext,
+  targetStore: "project" | "personal" | "global" | undefined,
+):
+  | { ok: true; scope: "project" | "personal" | "global"; projectId: string | null }
+  | { ok: false; error: string } {
+  const scope = targetStore || "project";
+  if (scope === "global" || scope === "personal") {
+    return { ok: true, scope, projectId: null };
+  }
+  if (!ctx.projectId) {
+    return {
+      ok: false,
+      error: [
+        "Cannot write a project-scoped memory: no project identity is reachable.",
+        "",
+        "Pick one:",
+        "  • Pass projectRoot=<path-to-project> to anchor this memory to that project",
+        "  • Pass store='global' to write to shared org knowledge",
+        "  • Pass store='personal' for cross-project personal notes",
+        "  • Run gnosys_init in the target directory to register it as a project",
+      ].join("\n"),
+    };
+  }
+  return { ok: true, scope: "project", projectId: ctx.projectId };
 }
 
 // ─── Tool: gnosys_discover ──────────────────────────────────────────────
@@ -543,7 +629,17 @@ server.tool(
           isError: true,
         };
       }
-      const id = ctx.centralDb.getNextId(result.category, ctx.projectId ?? undefined);
+
+      // v5.7.1 (#13): determine scope/projectId before writing
+      const scopeResult = resolveWriteScope(
+        ctx,
+        targetStore as "project" | "personal" | "global" | undefined,
+      );
+      if (!scopeResult.ok) {
+        return { content: [{ type: "text", text: scopeResult.error }], isError: true };
+      }
+
+      const id = ctx.centralDb.getNextId(result.category, scopeResult.projectId ?? undefined);
 
       const today = new Date().toISOString().split("T")[0];
       const frontmatter = {
@@ -565,7 +661,14 @@ server.tool(
       const content = `# ${result.title}\n\n${result.content}`;
 
       // Write to DB only (SQLite is sole source of truth)
-      syncMemoryToDb(ctx.centralDb, frontmatter, content, undefined, ctx.projectId, "project");
+      syncMemoryToDb(
+        ctx.centralDb,
+        frontmatter,
+        content,
+        undefined,
+        scopeResult.projectId,
+        scopeResult.scope,
+      );
       auditToDb(ctx.centralDb, "write", id, { tool: "gnosys_add", category: result.category });
 
       // Rebuild search index across all stores
@@ -650,7 +753,17 @@ server.tool(
           isError: true,
         };
       }
-      const id = ctx.centralDb.getNextId(category, ctx.projectId ?? undefined);
+
+      // v5.7.1 (#13): determine scope/projectId before writing
+      const scopeResult = resolveWriteScope(
+        ctx,
+        targetStore as "project" | "personal" | "global" | undefined,
+      );
+      if (!scopeResult.ok) {
+        return { content: [{ type: "text", text: scopeResult.error }], isError: true };
+      }
+
+      const id = ctx.centralDb.getNextId(category, scopeResult.projectId ?? undefined);
 
       const today = new Date().toISOString().split("T")[0];
       const frontmatter: MemoryFrontmatter = {
@@ -672,7 +785,14 @@ server.tool(
       const fullContent = `# ${title}\n\n${content}`;
 
       // Write to DB only (SQLite is sole source of truth)
-      syncMemoryToDb(ctx.centralDb, frontmatter, fullContent, undefined, ctx.projectId, "project");
+      syncMemoryToDb(
+        ctx.centralDb,
+        frontmatter,
+        fullContent,
+        undefined,
+        scopeResult.projectId,
+        scopeResult.scope,
+      );
       auditToDb(ctx.centralDb, "write", id, { tool: "gnosys_add_structured", category });
 
       if (ctx.search) await reindexAllStores();
@@ -3347,6 +3467,11 @@ This marks the conversation checkpoint so the next /gnosys-memorize only process
 
 // ─── Start the server ────────────────────────────────────────────────────
 async function main() {
+  // v5.7.1 (#15): start the upgrade-marker watcher BEFORE anything else.
+  // If `gnosys upgrade` was run on this machine while the MCP was idle,
+  // pick that up immediately instead of serving stale tool handlers.
+  startUpgradeMarkerWatcher();
+
   // v3.0: Initialize central DB at ~/.gnosys/gnosys.db
   try {
     centralDb = GnosysDB.openCentral();

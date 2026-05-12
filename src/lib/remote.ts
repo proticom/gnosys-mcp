@@ -13,6 +13,7 @@
 import { existsSync, statSync, mkdirSync, writeFileSync, unlinkSync, readFileSync } from "fs";
 import * as path from "path";
 import { GnosysDB, DbMemory } from "./db.js";
+import type { ProgressCallback } from "./progress.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -223,10 +224,17 @@ export class RemoteSync {
     this.remoteDb = null;
   }
 
-  /** Get current sync status without modifying anything */
+  /**
+   * Get current sync status without modifying anything.
+   *
+   * v5.7.1 (#8a): fast-fail design.
+   * - Caps remote query duration with a short busy_timeout (3s)
+   * - Uses id+modified-only aggregates (one SQL call per side) instead of
+   *   the prior N+1 getMemory loop, which was O(local × remote) over SMB
+   * - On SQLITE_BUSY, returns a clear "remote DB busy" message rather than
+   *   blocking the CLI indefinitely
+   */
   async getStatus(): Promise<RemoteStatus> {
-    const remoteDb = this.getRemoteDb();
-    const reachable = remoteDb !== null;
     const lastSync = this.localDb.getMeta(META_LAST_SYNC);
     const queued = this.localDb.getPendingSync();
     const conflictRows = this.localDb.getUnresolvedConflicts();
@@ -245,33 +253,51 @@ export class RemoteSync {
 
     let pendingPush = queued.length;
     let pendingPull = 0;
+    let reachable = false;
+    let remoteBusy = false;
 
-    if (reachable && remoteDb) {
-      // Count memories that would push/pull on next sync
-      const since = lastSync || "1970-01-01T00:00:00Z";
-      const localChanges = this.localDb
-        .getAllMemories()
-        .filter((m) => (m.modified || m.created) > since);
-      const remoteChanges = remoteDb
-        .getAllMemories()
-        .filter((m) => (m.modified || m.created) > since);
+    const remoteDb = this.getRemoteDb();
+    if (remoteDb !== null) {
+      reachable = true;
+      // Drop the timeout so a contended write lock fails in ~3s instead of
+      // the default 10s. Restore after.
+      remoteDb.setBusyTimeout(3000);
+      try {
+        const since = lastSync || "1970-01-01T00:00:00Z";
+        const localChanges = this.localDb.getIdsModifiedSince(since);
+        const remoteChanges = remoteDb.getIdsModifiedSince(since);
 
-      const remoteIds = new Set(remoteChanges.map((m) => m.id));
-      pendingPush = localChanges.filter((m) => {
-        const remote = remoteDb.getMemory(m.id);
-        if (!remote) return true; // not on remote
-        return m.modified > remote.modified;
-      }).length;
+        const remoteByIdMap = new Map(remoteChanges.map((r) => [r.id, r.modified]));
+        const localByIdMap = new Map(localChanges.map((l) => [l.id, l.modified]));
 
-      pendingPull = remoteChanges.filter((m) => {
-        const local = this.localDb.getMemory(m.id);
-        if (!local) return true;
-        return m.modified > local.modified;
-      }).length;
+        // When remote is reachable, replace the queued-only count with an
+        // accurate diff against the remote DB. (Matches pre-v5.7.1 semantics.)
+        let pushCount = 0;
+        for (const l of localChanges) {
+          const rMod = remoteByIdMap.get(l.id);
+          if (!rMod || l.modified > rMod) pushCount++;
+        }
+        for (const r of remoteChanges) {
+          const lMod = localByIdMap.get(r.id);
+          if (!lMod || r.modified > lMod) pendingPull++;
+        }
+        pendingPush = pushCount;
+      } catch (err) {
+        const errAny = err as { code?: string };
+        if (errAny?.code === "SQLITE_BUSY") {
+          remoteBusy = true;
+        } else {
+          throw err;
+        }
+      } finally {
+        remoteDb.setBusyTimeout(10000);
+      }
     }
 
     let message: string | undefined;
-    if (!reachable && this.remotePath) {
+    if (remoteBusy) {
+      message = "Remote DB busy — another sync is probably running on another machine. Try again in a moment.";
+    } else if (!reachable && this.remotePath) {
       message = `Remote unreachable at ${this.remotePath}`;
     } else if (conflicts.length > 0) {
       message = `${conflicts.length} unresolved conflict${conflicts.length !== 1 ? "s" : ""} need attention`;
@@ -435,8 +461,14 @@ export class RemoteSync {
   }
 
   /** Push local changes to remote. Returns what was pushed/skipped. */
-  async push(options: { strategy?: "skip-and-flag" | "newer-wins" } = {}): Promise<SyncResult> {
+  async push(
+    options: {
+      strategy?: "skip-and-flag" | "newer-wins";
+      onProgress?: ProgressCallback;
+    } = {},
+  ): Promise<SyncResult> {
     const strategy = options.strategy || "skip-and-flag";
+    const onProgress = options.onProgress;
     const remoteDb = this.getRemoteDb();
     if (!remoteDb) {
       return { pushed: 0, pulled: 0, conflicts: [], errors: ["Remote not reachable"], skipped: 0 };
@@ -447,9 +479,12 @@ export class RemoteSync {
       .getAllMemories()
       .filter((m) => (m.modified || m.created) > lastSync);
 
+    onProgress?.({ kind: "header", text: `Push: ${localChanges.length} local change(s) since ${lastSync}` });
+
     const result: SyncResult = { pushed: 0, pulled: 0, conflicts: [], errors: [], skipped: 0 };
 
     for (const local of localChanges) {
+      onProgress?.({ kind: "tick", text: `→ ${local.id}` });
       const remote = remoteDb.getMemory(local.id);
 
       if (!remote) {
@@ -520,6 +555,9 @@ export class RemoteSync {
 
     // Process pending sync queue (offline writes)
     const queued = this.localDb.getPendingSync();
+    if (queued.length > 0) {
+      onProgress?.({ kind: "step", text: `Replaying ${queued.length} queued write(s)` });
+    }
     for (const item of queued) {
       const local = this.localDb.getMemory(item.memory_id);
       if (!local) continue;
@@ -541,12 +579,22 @@ export class RemoteSync {
     // remote DB (which would otherwise be empty for this table).
     this.pushAuditToRemote(remoteDb, result);
 
+    onProgress?.({
+      kind: "done",
+      text: `Push complete: ${result.pushed} pushed, ${result.skipped} skipped, ${result.conflicts.length} conflicts`,
+    });
     return result;
   }
 
   /** Pull remote changes to local. Returns what was pulled/skipped. */
-  async pull(options: { strategy?: "skip-and-flag" | "newer-wins" } = {}): Promise<SyncResult> {
+  async pull(
+    options: {
+      strategy?: "skip-and-flag" | "newer-wins";
+      onProgress?: ProgressCallback;
+    } = {},
+  ): Promise<SyncResult> {
     const strategy = options.strategy || "skip-and-flag";
+    const onProgress = options.onProgress;
     const remoteDb = this.getRemoteDb();
     if (!remoteDb) {
       return { pushed: 0, pulled: 0, conflicts: [], errors: ["Remote not reachable"], skipped: 0 };
@@ -557,9 +605,12 @@ export class RemoteSync {
       .getAllMemories()
       .filter((m) => (m.modified || m.created) > lastSync);
 
+    onProgress?.({ kind: "header", text: `Pull: ${remoteChanges.length} remote change(s) since ${lastSync}` });
+
     const result: SyncResult = { pushed: 0, pulled: 0, conflicts: [], errors: [], skipped: 0 };
 
     for (const remote of remoteChanges) {
+      onProgress?.({ kind: "tick", text: `← ${remote.id}` });
       const local = this.localDb.getMemory(remote.id);
 
       if (!local) {
@@ -620,14 +671,25 @@ export class RemoteSync {
     // v5.7.0: pull audit_log too.
     this.pullAuditFromRemote(remoteDb, result);
 
+    onProgress?.({
+      kind: "done",
+      text: `Pull complete: ${result.pulled} pulled, ${result.skipped} skipped, ${result.conflicts.length} conflicts`,
+    });
     return result;
   }
 
   /** Run a full sync: push then pull. */
-  async sync(options: { auto?: boolean; strategy?: "skip-and-flag" | "newer-wins" } = {}): Promise<SyncResult> {
+  async sync(
+    options: {
+      auto?: boolean;
+      strategy?: "skip-and-flag" | "newer-wins";
+      onProgress?: ProgressCallback;
+    } = {},
+  ): Promise<SyncResult> {
     const strategy = options.strategy || (options.auto ? "skip-and-flag" : "skip-and-flag");
-    const pushResult = await this.push({ strategy });
-    const pullResult = await this.pull({ strategy });
+    const onProgress = options.onProgress;
+    const pushResult = await this.push({ strategy, onProgress });
+    const pullResult = await this.pull({ strategy, onProgress });
 
     // Update last sync timestamp on success (no errors)
     if (pushResult.errors.length === 0 && pullResult.errors.length === 0) {

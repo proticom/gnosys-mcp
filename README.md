@@ -80,7 +80,7 @@ gnosys recall "database selection"
 
 > **Postinstall hook:** After `npm install -g gnosys`, a postinstall script automatically runs `gnosys setup` if no configuration is detected, so first-time users are guided through provider and IDE setup immediately.
 
-> **Multi-machine?** Set `GNOSYS_GLOBAL` to a cloud-synced folder (iCloud Drive, Dropbox, OneDrive) and both machines share the same brain. After updating, run `gnosys upgrade` — it re-syncs all projects, regenerates agent rules, and warns other machines to upgrade too. See the [User Guide — Installation & Setup](https://gnosys.ai/guide.html#guide-installation) for the full walkthrough, memory scopes, and multi-machine setup.
+> **Multi-machine?** Set `GNOSYS_GLOBAL` to a cloud-synced folder (iCloud Drive, Dropbox, OneDrive) and both machines share the same brain. To update: run `gnosys upgrade` — it installs the latest gnosys, signals any running MCP servers to restart cleanly, and prompts to run `gnosys setup sync-projects` afterwards (re-syncs all projects, regenerates agent rules, warns other machines to upgrade). See the [User Guide — Installation & Setup](https://gnosys.ai/guide.html#guide-installation) for the full walkthrough, memory scopes, and multi-machine setup.
 
 ### Agent / Helper Library
 
@@ -331,7 +331,7 @@ Dream Mode is the idle-time consolidation engine — confidence decay, summary g
 - Run `gnosys setup dream` on the machine you want to host dream cycles.
 - The wizard validates your provider/model with a live API probe before saving.
 - Other machines stay quiet — they see the designation in the central DB and skip the scheduler.
-- `gnosys dream log` shows recent runs; `gnosys dashboard` has a `DREAM HEALTH` section with last-run timestamp, designated machine, and consecutive-failure counter.
+- `gnosys dream log` shows recent runs; `gnosys status --system` has a `DREAM HEALTH` section with last-run timestamp, designated machine, and consecutive-failure counter.
 - If the designated machine's LLM provider becomes unreachable, you'll see warnings at three layers: in audit log entries (`dream_provider_unreachable`), as stderr at MCP startup, and as a desktop notification after 3 consecutive failures.
 
 ### Removed in v5.4.2
@@ -344,6 +344,19 @@ The following commands were removed in favor of the canonical `gnosys setup <thi
 | `gnosys remote configure` | `gnosys setup remote` |
 
 `gnosys remote push|pull|sync|status` remain unchanged — only `configure` moved.
+
+### Removed / renamed in v5.7.1
+
+| Removed / renamed | Use instead |
+|---|---|
+| `gnosys dashboard` | `gnosys status --system` |
+| `gnosys portfolio` | `gnosys status --projects` (or `--web` for HTML) |
+| `gnosys upgrade` (old behaviour) | `gnosys setup sync-projects` |
+| `gnosys status --global` | `gnosys status --projects` (alias kept) |
+
+`gnosys upgrade` is now `npm install -g gnosys@latest` + a marker that
+tells running MCP servers to exit-and-respawn against the new global
+binary. Run it on each machine.
 
 ---
 

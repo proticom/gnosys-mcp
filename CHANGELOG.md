@@ -5,6 +5,81 @@ All notable changes to Gnosys are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.7.1] — 2026-05-12
+
+Dogfooding follow-ups from heavy daily use of v5.7.0 across multiple
+machines. No new features — just rougher edges sanded down.
+
+### Breaking changes
+
+- **`gnosys dashboard` removed.** Use `gnosys status --system` instead.
+  Pure rename: same output, same flags.
+- **`gnosys portfolio` removed.** Use `gnosys status --projects` (or
+  `--web` for the HTML view). `--global` is preserved as a deprecated
+  alias for `--projects`.
+- **`gnosys upgrade` is now a different command.** It used to re-init
+  registered projects after a manual `npm install -g gnosys@latest`.
+  Now `gnosys upgrade` runs the npm install itself, then prompts to run
+  `gnosys setup sync-projects` (which is the old `upgrade` body, moved).
+  Rationale: the old name implied it upgraded gnosys; it didn't. (#15)
+
+### Fixed
+
+- **MCP servers no longer serve stale code after an upgrade.** Root cause
+  of the v5.7.0 cross-machine ID collision: the MCP server keeps running
+  whatever binary it was spawned with, even after `npm install -g
+  gnosys@latest`. New design: `gnosys upgrade` writes
+  `~/.gnosys/last-upgrade-at`. Running MCP servers stat this marker every
+  10s and exit cleanly when the version mismatches the binary they're
+  running. The MCP host (Claude Code / Cursor / VS Code) auto-respawns
+  the process against the new global binary. (#12, #15)
+- **`gnosys setup remote status` is fast on SMB.** Replaced an
+  O(local × remote) `getAllMemories()` + N+1 `getMemory()` loop with a
+  one-query-per-side `getIdsModifiedSince()` aggregate, and capped the
+  remote DB busy_timeout at 3s for status queries. On a contended write
+  lock the status now returns "Remote DB busy — another sync is probably
+  running on another machine" rather than hanging for 10s+. (#8a)
+- **New memories without a project anchor return a clear error.**
+  Previously `gnosys_add` and `gnosys_add_structured` could silently
+  create a project-scoped memory with `project_id = null` when the
+  agent forgot to pass `projectRoot`. Now those calls fail-fast with a
+  message listing the four ways to scope the write (projectRoot, store=
+  global, store=personal, or gnosys_init the directory). Scope is now
+  derived from the explicit `store` argument; "global" / "personal"
+  writes correctly skip the project anchor. (#13)
+
+### Added
+
+- **Always-on liveness indicator (heartbeat).** Long-running CLI ops
+  that block on I/O for >500ms now show an animated spinner + elapsed
+  seconds on stderr, repainted in place. TTY-only — silent in pipes,
+  CI, and `--auto` modes. Wired into `setup remote status / push /
+  pull / sync`. New helper: `src/lib/heartbeat.ts`. (#8)
+- **`--verbose` flag for sync commands.** Streams per-memory progress
+  to stderr (`→ deci-01HXXJK2…`). Bypasses the heartbeat (which would
+  fight the verbose output) and uses plain newlines in non-TTY
+  contexts. New helper: `src/lib/progress.ts`. Wired into
+  `setup remote push / pull / sync`. (#7)
+- **Display-layer project prefix on memory IDs.** Citations and list
+  output now render as `gnosys-ai · deci-01HXXJK2…` instead of bare
+  `deci-01HXXJK2ABCDEFGHIJK`. Storage is unchanged — only the display
+  is project-prefixed, so project renames don't break IDs. Add
+  `--id-format <short|long|raw>` to choose the form. Wired into
+  `gnosys list` and `gnosys discover`; other commands follow in v5.8.0.
+  New helper: `src/lib/idFormat.ts`. (#14)
+- **`gnosys status --remote`** (alias for `gnosys setup remote status`).
+- **`gnosys status --projects`** (replaces `gnosys portfolio`).
+- **`gnosys setup sync-projects`** (the body that `gnosys upgrade` used
+  to run before its rename).
+
+### Notes
+
+- Roadmap & triage: see road-009 in the central DB for the full triage
+  of dogfooding feedback into v5.7.1 / v5.8.0 / v6.0 buckets. v5.8.0
+  picks up the chat features (setup wizard, slash-command palette,
+  input-echo lag fix, TUI elevation). v6.0 is a dedicated performance
+  + testing sweep before any major-version bump.
+
 ## [5.7.0] — 2026-05-05
 
 UX & bug sweep release. Five areas of work, each in its own phase commit

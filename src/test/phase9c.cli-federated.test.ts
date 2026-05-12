@@ -361,8 +361,9 @@ describe("TC-9c.5: CLI --json output includes scope info", () => {
     expect(typeof parsed.totalCount).toBe("number");
   });
 
-  it("gnosys dashboard --json produces valid JSON", () => {
-    const output = cli("dashboard --json", tmpDir);
+  it("gnosys status --system --json produces valid JSON", () => {
+    // v5.7.1: 'gnosys dashboard' was removed; equivalent is 'status --system'.
+    const output = cli("status --system --json", tmpDir);
     const parsed = JSON.parse(extractJson(output));
     expect(parsed).toBeDefined();
   });
