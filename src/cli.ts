@@ -11,27 +11,33 @@ import os from "os";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import { readFileSync, existsSync, copyFileSync } from "fs";
+// v5.8.0 (#4): only the lightweight modules are imported at top-level.
+// Anything that pulls @huggingface/transformers, mammoth/pdf-parse/turndown,
+// large file-walking machinery, or otherwise costs >100ms to load gets
+// `await import(...)` inside its own action handler. This keeps
+// `gnosys --help` and other lightweight commands fast.
 import { GnosysResolver } from "./lib/resolver.js";
 import { getGnosysHome } from "./lib/paths.js";
 import { GnosysSearch } from "./lib/search.js";
 import { GnosysTagRegistry } from "./lib/tags.js";
-import { GnosysIngestion } from "./lib/ingest.js";
 import { applyLens, applyCompoundLens, LensFilter } from "./lib/lensing.js";
 import { getFileHistory, getFileAtCommit, rollbackToCommit, hasGitHistory, getFileDiff } from "./lib/history.js";
 import { groupByPeriod, computeStats, TimePeriod } from "./lib/timeline.js";
 import { buildLinkGraph, getBacklinks, getOutgoingLinks, formatGraphSummary } from "./lib/wikilinks.js";
-import { bootstrap, discoverFiles } from "./lib/bootstrap.js";
-import { performImport, formatImportSummary, estimateDuration } from "./lib/import.js";
 import { loadConfig, generateConfigTemplate, GnosysConfig, DEFAULT_CONFIG, writeConfig, updateConfig, resolveTaskModel, ALL_PROVIDERS, LLMProviderName, getProviderModel } from "./lib/config.js";
-import { GnosysEmbeddings } from "./lib/embeddings.js";
-import { GnosysHybridSearch } from "./lib/hybridSearch.js";
-import { GnosysAsk } from "./lib/ask.js";
 import { getLLMProvider, isProviderAvailable, LLMProvider } from "./lib/llm.js";
 import { GnosysDB } from "./lib/db.js";
-import { migrate, formatMigrationReport } from "./lib/migrate.js";
 import { createProjectIdentity, readProjectIdentity, findProjectIdentity, migrateProject } from "./lib/projectIdentity.js";
 import { setPreference, getPreference, getAllPreferences, deletePreference } from "./lib/preferences.js";
 import { syncRules, syncToTarget } from "./lib/rulesGen.js";
+// Lazy-loaded inside action handlers (each ~200ms-2.5s on cold cache):
+//   - ./lib/embeddings.js       (@huggingface/transformers — 80MB)
+//   - ./lib/hybridSearch.js     (depends on embeddings)
+//   - ./lib/ask.js              (depends on hybridSearch)
+//   - ./lib/import.js           (mammoth, pdf-parse, turndown)
+//   - ./lib/bootstrap.js        (file walking — 2.5s)
+//   - ./lib/ingest.js           (LLM machinery)
+//   - ./lib/migrate.js          (only migrate-db needs it)
 
 // Load API keys from ~/.config/gnosys/.env (same as MCP server)
 // IMPORTANT: We use dotenv.parse() instead of dotenv.config() because
@@ -321,7 +327,8 @@ program
   .option("--federated", "Use federated search with tier boosting (project > user > global)")
   .option("--scope <scope>", "Filter by scope: project, user, global (comma-separated for multiple)")
   .option("-d, --directory <dir>", "Project directory for context")
-  .action(async (query: string, opts: { limit: string; json?: boolean; federated?: boolean; scope?: string; directory?: string }) => {
+  .option("--id-format <format>", "ID display format: short | long | raw (default: short)", "short")
+  .action(async (query: string, opts: { limit: string; json?: boolean; federated?: boolean; scope?: string; directory?: string; idFormat?: string }) => {
     // Federated search path — uses central DB with tier boosting
     if (opts.federated || opts.scope) {
       let centralDb: GnosysDB | null = null;
@@ -375,11 +382,17 @@ program
         return;
       }
 
+      const { formatMemoryId, buildProjectNameLookup, parseIdFormat } = await import("./lib/idFormat.js");
+      const idFormat = parseIdFormat(opts.idFormat);
+      const projectNames = buildProjectNameLookup(centralDb);
+
       outputResult(!!opts.json, { query, count: results.length, results }, () => {
         console.log(`Found ${results.length} results for "${query}":\n`);
         for (const r of results) {
+          const projectName = r.project_id ? projectNames.get(r.project_id) || null : null;
+          const displayId = formatMemoryId(r.id, projectName, idFormat);
           console.log(`  ${r.title}`);
-          console.log(`    id: ${r.id}`);
+          console.log(`    id: ${displayId}`);
           console.log(
             `    ${r.snippet.replace(/>>>/g, "").replace(/<<</g, "")}`
           );
@@ -554,6 +567,7 @@ program
         writeTarget.store.getStorePath()
       );
       await tagRegistry.load();
+      const { GnosysIngestion } = await import("./lib/ingest.js");
       const ingestion = new GnosysIngestion(writeTarget.store, tagRegistry);
 
       if (!ingestion.isLLMAvailable) {
@@ -956,6 +970,15 @@ setupCmd
   .action(async () => {
     const { runDreamSetup } = await import("./lib/setup.js");
     await runDreamSetup({ directory: process.cwd() });
+  });
+
+// `gnosys setup chat` — configure chat TUI (provider, recall, tools, prefix)
+setupCmd
+  .command("chat")
+  .description("Configure the chat TUI — provider/model, recall behavior, tools, system-prompt prefix")
+  .action(async () => {
+    const { runChatSetup } = await import("./lib/setup.js");
+    await runChatSetup({ directory: process.cwd() });
   });
 
 // `gnosys setup ides` — configure IDE / MCP integrations standalone
@@ -1949,6 +1972,7 @@ program
 
     const tagRegistry = new GnosysTagRegistry(writeTarget.store.getStorePath());
     await tagRegistry.load();
+    const { GnosysIngestion } = await import("./lib/ingest.js");
     const ingestion = new GnosysIngestion(writeTarget.store, tagRegistry);
 
     if (!ingestion.isLLMAvailable) {
@@ -2563,6 +2587,7 @@ program
       }
 
       // Show what we'll scan
+      const { bootstrap, discoverFiles } = await import("./lib/bootstrap.js");
       const files = await discoverFiles(sourceDir, opts.pattern);
       console.log(`Found ${files.length} files in ${sourceDir}\n`);
 
@@ -2692,6 +2717,8 @@ const importCmd = program
         writeTarget.store.getStorePath()
       );
       await tagRegistry.load();
+      const { GnosysIngestion } = await import("./lib/ingest.js");
+      const { performImport, formatImportSummary } = await import("./lib/import.js");
       const ingestion = new GnosysIngestion(writeTarget.store, tagRegistry);
 
       const format = opts.format as "csv" | "json" | "jsonl";
@@ -2837,6 +2864,8 @@ program
       await search.addStoreMemories(s.store, s.label);
     }
 
+    const { GnosysEmbeddings } = await import("./lib/embeddings.js");
+    const { GnosysHybridSearch } = await import("./lib/hybridSearch.js");
     const embeddings = new GnosysEmbeddings(storePath);
     const hybridSearch = new GnosysHybridSearch(search, embeddings, resolver, storePath);
 
@@ -2911,6 +2940,8 @@ program
       await search.addStoreMemories(s.store, s.label);
     }
 
+    const { GnosysEmbeddings } = await import("./lib/embeddings.js");
+    const { GnosysHybridSearch } = await import("./lib/hybridSearch.js");
     const embeddings = new GnosysEmbeddings(storePath);
     const hybridSearch = new GnosysHybridSearch(search, embeddings, resolver, storePath);
 
@@ -2966,6 +2997,8 @@ program
       await search.addStoreMemories(s.store, s.label);
     }
 
+    const { GnosysEmbeddings } = await import("./lib/embeddings.js");
+    const { GnosysHybridSearch } = await import("./lib/hybridSearch.js");
     const embeddings = new GnosysEmbeddings(storePath);
     const hybridSearch = new GnosysHybridSearch(search, embeddings, resolver, storePath);
 
@@ -3020,12 +3053,34 @@ program
       await search.addStoreMemories(s.store, s.label);
     }
 
+    const { GnosysEmbeddings } = await import("./lib/embeddings.js");
+    const { GnosysHybridSearch } = await import("./lib/hybridSearch.js");
+    const { GnosysAsk } = await import("./lib/ask.js");
     const embeddings = new GnosysEmbeddings(storePath);
     const hybridSearch = new GnosysHybridSearch(search, embeddings, resolver, storePath);
     const ask = new GnosysAsk(hybridSearch, cliConfig, resolver, storePath);
 
     if (!ask.isLLMAvailable) {
-      console.error("No LLM provider available. Set ANTHROPIC_API_KEY or switch to Ollama: gnosys config set provider ollama");
+      // v5.8.0 (#8): provider-aware error instead of hardcoded ANTHROPIC_API_KEY.
+      const providerName = cliConfig.llm.defaultProvider;
+      const envVarMap: Record<string, string> = {
+        anthropic: "ANTHROPIC_API_KEY",
+        openai: "OPENAI_API_KEY",
+        groq: "GROQ_API_KEY",
+        xai: "XAI_API_KEY",
+        mistral: "MISTRAL_API_KEY",
+      };
+      const envVar = envVarMap[providerName];
+      if (envVar) {
+        console.error(
+          `No LLM provider available. Configured default is "${providerName}" but its key wasn't found. ` +
+            `Set ${envVar}, run 'gnosys setup' to store one in the macOS Keychain, or add llm.${providerName}.apiKey to gnosys.json.`,
+        );
+      } else {
+        console.error(
+          `No LLM provider available. Provider "${providerName}" is not reachable. Run 'gnosys setup' to configure one.`,
+        );
+      }
       process.exit(1);
     }
 
@@ -3962,6 +4017,7 @@ program
     // Check embeddings
     if (stores.length > 0) {
       console.log("Embeddings:");
+      const { GnosysEmbeddings } = await import("./lib/embeddings.js");
       const embeddings = new GnosysEmbeddings(stores[0].path);
       try {
         const stats = embeddings.getStats();
@@ -4819,6 +4875,7 @@ program
         console.error("No writable store found. Run 'gnosys init' first.");
         process.exit(1);
       }
+      const { migrate, formatMigrationReport } = await import("./lib/migrate.js");
       const stats = await migrate(writeTarget.store.getStorePath(), { verbose: opts.verbose });
       console.log(formatMigrationReport(stats));
       return;

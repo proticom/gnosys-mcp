@@ -25,14 +25,16 @@ const CHECK = `${GREEN}✓${RESET}`;
 
 export const TASK_DESCRIPTIONS: Record<string, string> = {
   structuring: "adding memories, tagging",
-  synthesis: "Q&A answers, chat",
+  synthesis: "Q&A answers, ask",
+  // v5.8.0 (#2): chat is its own task — was lumped under synthesis before.
+  chat: "interactive chat TUI",
   vision: "images, PDFs",
   transcription: "audio files",
   dream: "idle consolidation",
 };
 
-type TaskName = "structuring" | "synthesis" | "vision" | "transcription";
-const TASKS: TaskName[] = ["structuring", "synthesis", "vision", "transcription"];
+type TaskName = "structuring" | "synthesis" | "chat" | "vision" | "transcription";
+const TASKS: TaskName[] = ["structuring", "synthesis", "chat", "vision", "transcription"];
 
 export interface RoutingOptions {
   rl: ReadlineInterface;

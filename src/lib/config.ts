@@ -78,6 +78,10 @@ const TaskModelsSchema = z.object({
   synthesis: TaskModelSchema.optional(),
   vision: TaskModelSchema.optional(),
   transcription: TaskModelSchema.optional(),
+  // v5.8.0 (#2): chat is a first-class task. Previously the chat TUI fell
+  // through to the synthesis fallback chain; now you can route chat
+  // independently (e.g. fast/cheap model for chat, flagship for synthesis).
+  chat: TaskModelSchema.optional(),
 });
 
 // ─── Archive Schema ─────────────────────────────────────────────────────
@@ -126,6 +130,25 @@ const RecallConfigSchema = z.object({
 });
 
 export type RecallConfig = z.infer<typeof RecallConfigSchema>;
+
+// ─── Chat Schema ───────────────────────────────────────────────────────
+//
+// v5.8.0 (#1): config for the interactive chat TUI. Provider/model live in
+// `taskModels.chat` (so chat can route to a different LLM than synthesis).
+// Recall settings still come from `recall.*` (shared with `gnosys recall`).
+// This section is for chat-only knobs that don't fit either bucket.
+
+const ChatConfigSchema = z.object({
+  /** Allow LLM to call gnosys tools via gnosys-tool fences (default: true). */
+  toolsEnabled: z.boolean().default(true),
+  /** Suggest /save-turn after N consecutive turns where no memory was written.
+   *  0 disables the nudge. Heuristic only — never writes without consent. */
+  autoSummarizeAfterTurns: z.number().int().min(0).default(0),
+  /** Prepended to the chat system prompt. Use for persona / style / domain hints. */
+  systemPromptPrefix: z.string().default(""),
+});
+
+export type ChatConfig = z.infer<typeof ChatConfigSchema>;
 
 // ─── Multimodal Ingestion Schema ────────────────────────────────────────
 
@@ -259,6 +282,13 @@ export const GnosysConfigSchema = z.object({
     minMemories: 10,
   }),
 
+  /** Chat TUI — interactive chat configuration (v5.8.0) */
+  chat: ChatConfigSchema.default({
+    toolsEnabled: true,
+    autoSummarizeAfterTurns: 0,
+    systemPromptPrefix: "",
+  }),
+
   /** Multimodal ingestion — PDF, audio, image, video processing */
   multimodal: MultimodalConfigSchema.default({
     transcriptionProvider: "groq",
@@ -285,7 +315,7 @@ export const DEFAULT_CONFIG: GnosysConfig = GnosysConfigSchema.parse({});
  */
 export function resolveTaskModel(
   config: GnosysConfig,
-  task: "structuring" | "synthesis" | "vision" | "transcription"
+  task: "structuring" | "synthesis" | "vision" | "transcription" | "chat"
 ): { provider: LLMProviderName; model: string } {
   // 1. Task-specific override
   const taskOverride = config.taskModels?.[task];
@@ -636,6 +666,11 @@ export function generateConfigTemplate(): string {
         generateSummaries: true,
         discoverRelationships: true,
         minMemories: 10,
+      },
+      chat: {
+        toolsEnabled: true,
+        autoSummarizeAfterTurns: 0,
+        systemPromptPrefix: "",
       },
     },
     null,

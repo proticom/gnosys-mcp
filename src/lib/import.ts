@@ -289,8 +289,9 @@ export async function performImport(
 
   // Phase 3 & 4: Ingest + Write
   if (options.mode === "llm" && !ingestion.isLLMAvailable) {
+    // v5.8.0 (#8): provider-agnostic — don't assume Anthropic.
     throw new Error(
-      "LLM mode requires a configured LLM provider. Set ANTHROPIC_API_KEY, configure Ollama, or use --mode structured."
+      "LLM mode requires a configured LLM provider. Run 'gnosys setup' to configure one (Anthropic, OpenAI, Groq, xAI, Mistral, Ollama, LM Studio), or re-run with --mode structured.",
     );
   }
 

@@ -74,7 +74,10 @@ export async function runTurn(
   config: GnosysConfig,
   opts: LLMTurnOptions,
 ): Promise<LLMTurnResult> {
-  const provider: LLMProvider = getLLMProvider(config, "synthesis");
+  // v5.8.0 (#2): chat is its own task in config.taskModels. resolveTaskModel
+  // falls back to defaultProvider when no chat override is set, so existing
+  // installs keep working without a chat-specific config.
+  const provider: LLMProvider = getLLMProvider(config, "chat");
   const system = composeSystemPrompt(opts.recalled);
   const maxIterations = opts.maxToolIterations ?? 4;
 

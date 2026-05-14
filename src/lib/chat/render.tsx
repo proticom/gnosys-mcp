@@ -16,12 +16,13 @@
  */
 
 import React, { useState, useEffect, useRef } from "react";
-import { Box, Text, useApp } from "ink";
+import { Box, Text, useApp, useInput } from "ink";
 import TextInput from "ink-text-input";
 import SelectInput from "ink-select-input";
 import Spinner from "ink-spinner";
 import { ChatHeaderInfo, ChatStatus, Turn } from "./types.js";
-import { dispatchCommand, CommandContext } from "./commands.js";
+import { dispatchCommand, CommandContext, listCommands } from "./commands.js";
+import { SlashPalette, filterCommands } from "./SlashPalette.js";
 import { appendEvent } from "./session.js";
 import { runTurn, buildProvider } from "./llmTurn.js";
 import { runRecall, reinforceMemory, buildRecallQuery, RecallScope } from "./recall.js";
@@ -82,6 +83,48 @@ export const ChatApp: React.FC<ChatAppProps> = ({ initialHeader, initialBuffer, 
 
   // Focus boundaries — declared topic + saved snapshots + branch stack
   const [focusState, setFocusState] = useState<FocusState>(newFocusState());
+
+  // v5.8.0 (#5): slash-command palette state. Opens when input starts with "/",
+  // closes on Esc or when input no longer starts with "/". paletteIndex is the
+  // highlighted match; Enter replaces the input with the chosen command name.
+  const [paletteIndex, setPaletteIndex] = useState(0);
+  const paletteOpen = input.startsWith("/") && !pendingChoice && !pendingIntent;
+  const allCommands = React.useMemo(() => listCommands(), []);
+  const paletteMatches = React.useMemo(
+    () => (paletteOpen ? filterCommands(allCommands, input) : []),
+    [paletteOpen, input, allCommands],
+  );
+
+  // Reset palette selection when the filter changes (avoids landing on a
+  // stale index that points past the end of the new match list).
+  useEffect(() => {
+    setPaletteIndex(0);
+  }, [input]);
+
+  useInput(
+    (rawInput, key) => {
+      if (!paletteOpen) return;
+      if (paletteMatches.length === 0) {
+        if (key.escape) setInput("");
+        return;
+      }
+      if (key.upArrow) {
+        setPaletteIndex((i) => (i <= 0 ? paletteMatches.length - 1 : i - 1));
+      } else if (key.downArrow) {
+        setPaletteIndex((i) => (i >= paletteMatches.length - 1 ? 0 : i + 1));
+      } else if (key.escape) {
+        // Dismiss the palette by clearing the leading slash.
+        setInput("");
+      } else if (key.tab) {
+        // Tab autocompletes the highlighted command into the input,
+        // leaving the cursor at the end (with a trailing space so the
+        // user can keep typing arguments).
+        const chosen = paletteMatches[paletteIndex];
+        if (chosen) setInput(`${chosen.name} `);
+      }
+    },
+    { isActive: paletteOpen },
+  );
 
   function nowIso(): string {
     return new Date().toISOString();
@@ -532,6 +575,27 @@ export const ChatApp: React.FC<ChatAppProps> = ({ initialHeader, initialBuffer, 
       return;
     }
 
+    // v5.8.0 (#3): push the user turn into the buffer SYNCHRONOUSLY here,
+    // before any await. React 19's automatic batching folds this setBuffer
+    // call together with the setInput("") at line ~126 into one render —
+    // so the user sees input-clear + user-turn-pushed in the same frame.
+    // Previously: the await on inferIntent yielded between those two state
+    // updates, producing a visible glitch where the input cleared but no
+    // user turn appeared until the LLM intent inference completed.
+    //
+    // If intent inference matches and auto-runs, the user's natural-language
+    // text still shows in the buffer (which is honest — they typed it),
+    // followed by the slash-command result.
+    //
+    // v5.8.0 (#6): also flip the status to "thinking" right here, before
+    // any sync work (recall, autoPromote, etc.) or async await. Batched
+    // together with the input-clear + user-turn-push, so the spinner
+    // appears in the same frame the user sees their message land.
+    const userTurn: Turn = { role: "user", text, ts: nowIso() };
+    setBuffer((b) => [...b, userTurn]);
+    setStatus({ kind: "thinking" });
+    appendEvent(header.sessionId, { type: "user", ts: userTurn.ts, text });
+
     // Free-text intent detection ──────────────────────────────────────
     // Try to map the user's natural-language input to a slash command.
     // If we find a match: auto-accept when the user has confirmed this
@@ -556,11 +620,6 @@ export const ChatApp: React.FC<ChatAppProps> = ({ initialHeader, initialBuffer, 
       }
     }
 
-    // Chat turn path
-    const userTurn: Turn = { role: "user", text, ts: nowIso() };
-    setBuffer((b) => [...b, userTurn]);
-    appendEvent(header.sessionId, { type: "user", ts: userTurn.ts, text });
-
     // Auto-promote heuristic — non-blocking hint; user can /save-turn
     // explicitly or ignore. We don't auto-write without consent.
     const hint = detectAutoPromote(text);
@@ -574,7 +633,9 @@ export const ChatApp: React.FC<ChatAppProps> = ({ initialHeader, initialBuffer, 
       pushSystem(`hint: detected file path "${detectedPath}" — type "/attach ${detectedPath}" to ingest it.`);
     }
 
-    setStatus({ kind: "thinking" });
+    // v5.8.0 (#6): status was already flipped to "thinking" up at the
+    // user-turn-push, so the spinner is visible the moment the user
+    // submits — no duplicate setStatus here.
 
     // Run recall before the LLM call so the model sees relevant memories.
     let recalled: ReturnType<typeof runRecall>["memories"] = [];
@@ -607,13 +668,22 @@ export const ChatApp: React.FC<ChatAppProps> = ({ initialHeader, initialBuffer, 
 
     try {
       let partial = "";
+      // v5.8.0 (#6): smoother streaming — batch token updates into ~16ms
+      // chunks (one render frame at 60Hz) instead of firing setStatus on
+      // every token. Reduces ink render jitter on fast providers (Groq /
+      // xAI / cached responses) where tokens land at 100+/sec.
+      let lastRenderAt = 0;
+      const flushPartial = () => {
+        setStatus({ kind: "streaming", partial });
+        lastRenderAt = Date.now();
+      };
       const result = await runTurn(configRef.current, {
         buffer: [...buffer, userTurn],
         userInput: text,
         recalled,
         onToken: (tok) => {
           partial += tok;
-          setStatus({ kind: "streaming", partial });
+          if (Date.now() - lastRenderAt >= 16) flushPartial();
         },
         onToolCall: (info) => {
           if (info.error) {
@@ -633,6 +703,10 @@ export const ChatApp: React.FC<ChatAppProps> = ({ initialHeader, initialBuffer, 
           }
         },
       });
+
+      // v5.8.0 (#6): flush any partial that didn't make the last 16ms tick
+      // so the final "streaming" frame matches the full result text.
+      if (partial.length > 0) flushPartial();
 
       // Check for gnosys-choose fence — if present, strip it from the
       // visible turn and surface as an interactive picker.
@@ -767,9 +841,40 @@ export const ChatApp: React.FC<ChatAppProps> = ({ initialHeader, initialBuffer, 
           }}
         />
       ) : (
-        <Box marginTop={1}>
-          <Text>&gt; </Text>
-          <TextInput value={input} onChange={setInput} onSubmit={handleSubmit} />
+        <Box flexDirection="column">
+          {/* v5.8.0 (#6): paste preview — when the input crosses the paste
+              threshold (newlines or >200 chars), surface a compact summary
+              above the editor so the buffer doesn't get visually swamped.
+              The actual input value is unchanged; this is purely a hint. */}
+          {(() => {
+            const PASTE_CHARS = 200;
+            const isPasted = input.includes("\n") || input.length > PASTE_CHARS;
+            if (!isPasted) return null;
+            const lines = input.split("\n").length;
+            const chars = input.length;
+            const firstLine = input.split("\n")[0].slice(0, 60);
+            return (
+              <Box marginTop={1}>
+                <Text dimColor>
+                  [paste: {lines} line{lines !== 1 ? "s" : ""}, {chars} chars
+                  {firstLine && firstLine !== input ? ` — "${firstLine}…"` : ""}
+                  ] — Enter to submit
+                </Text>
+              </Box>
+            );
+          })()}
+          <Box marginTop={1}>
+            <Text>&gt; </Text>
+            <TextInput value={input} onChange={setInput} onSubmit={handleSubmit} />
+          </Box>
+          {/* v5.8.0 (#5): slash-command palette — opens when input starts with "/" */}
+          {paletteOpen && (
+            <SlashPalette
+              filter={input}
+              commands={allCommands}
+              selectedIndex={paletteIndex}
+            />
+          )}
         </Box>
       )}
     </Box>

@@ -965,28 +965,38 @@ export class GnosysDB {
 
   // ─── FTS5 Search ────────────────────────────────────────────────────
 
-  searchFts(query: string, limit: number = 20): Array<{ id: string; title: string; snippet: string; rank: number }> {
+  searchFts(
+    query: string,
+    limit: number = 20,
+  ): Array<{ id: string; title: string; snippet: string; rank: number; project_id: string | null }> {
     const safeQuery = query.replace(/['"]/g, "").trim();
     if (!safeQuery) return [];
 
+    // v5.8.0 (#7): join memories so callers can render project-prefixed IDs.
     try {
       return this.db.prepare(`
-        SELECT id, title,
+        SELECT m.id AS id, m.title AS title,
                snippet(memories_fts, 5, '>>>', '<<<', '...', 40) as snippet,
-               rank
-        FROM memories_fts
+               fts.rank AS rank,
+               m.project_id AS project_id
+        FROM memories_fts fts
+        JOIN memories m ON m.id = fts.id
         WHERE memories_fts MATCH ?
-        ORDER BY rank
+        ORDER BY fts.rank
         LIMIT ?
-      `).all(safeQuery, limit);
+      `).all(safeQuery, limit) as Array<{
+        id: string; title: string; snippet: string; rank: number; project_id: string | null;
+      }>;
     } catch {
       // FTS5 syntax error — fallback to LIKE
       const pattern = `%${safeQuery}%`;
       return this.db.prepare(`
-        SELECT id, title, substr(content, 1, 200) as snippet, 0 as rank
+        SELECT id, title, substr(content, 1, 200) as snippet, 0 as rank, project_id
         FROM memories WHERE content LIKE ? OR title LIKE ? OR tags LIKE ?
         LIMIT ?
-      `).all(pattern, pattern, pattern, limit);
+      `).all(pattern, pattern, pattern, limit) as Array<{
+        id: string; title: string; snippet: string; rank: number; project_id: string | null;
+      }>;
     }
   }
 

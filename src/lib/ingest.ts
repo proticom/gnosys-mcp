@@ -51,10 +51,28 @@ export class GnosysIngestion {
   /**
    * Ingest raw text and structure it into an atomic memory.
    * Uses LLM if available, otherwise requires structured input.
+   *
+   * v5.8.0 (#8): accepts an optional `configOverride`. When provided,
+   * resolves a fresh provider from that config instead of the boot-time
+   * one. This matters for MCP tool calls — the boot config may be a
+   * project's gnosys.json with no LLM block, while the per-call merged
+   * config inherits the user's global xAI/OpenAI/etc. setup.
    */
-  async ingest(rawInput: string): Promise<IngestResult> {
-    if (!this.provider) {
-      const providerName = this.config.llm.defaultProvider;
+  async ingest(rawInput: string, configOverride?: GnosysConfig): Promise<IngestResult> {
+    const activeConfig = configOverride || this.config;
+    let activeProvider: LLMProvider | null;
+    if (configOverride) {
+      try {
+        activeProvider = getLLMProvider(configOverride, "structuring");
+      } catch {
+        activeProvider = null;
+      }
+    } else {
+      activeProvider = this.provider;
+    }
+
+    if (!activeProvider) {
+      const providerName = activeConfig.llm.defaultProvider;
       const envVarMap: Record<string, string> = {
         anthropic: "ANTHROPIC_API_KEY (or GNOSYS_ANTHROPIC_KEY)",
         openai: "OPENAI_API_KEY (or GNOSYS_OPENAI_KEY)",
@@ -121,7 +139,7 @@ Rules:
 5. Write in third person or neutral voice, not first person.
 6. The relevance field is critical for discovery. Include all terms an agent might use to find this memory — think about what someone working on a related task would search for.`;
 
-    const text = await this.provider.generate(
+    const text = await activeProvider.generate(
       `Structure this into an atomic memory:\n\n${rawInput}`,
       { system: systemPrompt, maxTokens: 2000 }
     );

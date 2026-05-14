@@ -161,12 +161,32 @@ export class GnosysAsk {
     }
   ): Promise<AskResult> {
     if (!this.provider) {
+      // v5.8.0 (#8): provider-aware error. Tell the user which provider is
+      // configured and what env var / config key to set for it — instead of
+      // hardcoding ANTHROPIC_API_KEY regardless of the actual default.
       const providerName = this.config.llm.defaultProvider;
+      const envVarMap: Record<string, string> = {
+        anthropic: "ANTHROPIC_API_KEY",
+        openai: "OPENAI_API_KEY",
+        groq: "GROQ_API_KEY",
+        xai: "XAI_API_KEY",
+        mistral: "MISTRAL_API_KEY",
+      };
+      const envVar = envVarMap[providerName];
+      const isLocal = providerName === "ollama" || providerName === "lmstudio";
+      if (isLocal) {
+        throw new Error(
+          `gnosys_ask requires an LLM. Configured default provider "${providerName}" is not reachable — make sure it's running locally.`,
+        );
+      }
+      if (envVar) {
+        throw new Error(
+          `gnosys_ask requires an LLM. Configured default provider "${providerName}" has no key. ` +
+            `Set ${envVar} in your shell, run 'gnosys setup' to store one in the macOS Keychain, or add llm.${providerName}.apiKey to gnosys.json.`,
+        );
+      }
       throw new Error(
-        providerName === "anthropic"
-          ? "No ANTHROPIC_API_KEY set. gnosys_ask requires an LLM for synthesis. " +
-            "Set the ANTHROPIC_API_KEY environment variable or switch to Ollama: gnosys config set provider ollama"
-          : `LLM provider "${providerName}" is not available. Check your configuration.`
+        `gnosys_ask requires an LLM. Provider "${providerName}" is not available. Run 'gnosys setup' to configure one.`,
       );
     }
 

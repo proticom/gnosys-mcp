@@ -5,6 +5,85 @@ All notable changes to Gnosys are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.8.0] — 2026-05-13
+
+Chat is now a first-class surface. Two production bugs reported by Cowork
+during v5.7.1 use are fixed (LLM error misdirection, CLAUDE.md auto-rewrite).
+CLI startup is materially faster.
+
+### Fixed
+
+- **`gnosys_add` / `gnosys_commit_context` no longer fail with
+  "set ANTHROPIC_API_KEY" when xAI (or any non-Anthropic provider) is
+  the configured default.** `GnosysIngestion.ingest()` now accepts an
+  optional per-call config override; MCP tool handlers pass `ctx.config`
+  so the LLM resolves against the merged project+global config —
+  even when the project's `gnosys.json` has no `llm` block. Also dropped
+  the misleading early-gate on `gnosys_commit_context` that bypassed
+  per-call config resolution. Provider-aware error messages everywhere
+  (no more hardcoded ANTHROPIC_API_KEY in `gnosys ask`, `gnosys_ask`,
+  `gnosys import`). (#8)
+- **`gnosys_sync` no longer rewrites tracked `CLAUDE.md` every time a
+  preference changes.** Two-pronged fix: (1) removed the
+  "Run \`gnosys_sync\` to update agent rules files" advice from
+  `gnosys_preference_set` / `gnosys_preference_delete` responses;
+  (2) made the `gnosys_sync` MCP tool inert by default — it returns the
+  preferences+conventions block as text. To actually write to
+  `CLAUDE.md` / `.cursor/rules/*.mdc` (tracked files in most repos),
+  callers must now pass `commit_to_disk: true`. Routine session
+  context already flows through the SessionStart hook
+  (`gnosys recall`); no disk write needed for that. (#9)
+- **Chat TUI input-echo lag.** Hitting Enter previously cleared the
+  input before the user turn appeared, because the user-turn push
+  came after the `inferIntent` await. Now the user turn pushes
+  synchronously before the await; React 19's automatic batching
+  folds it with `setInput("")` into one render. (#3)
+
+### Added
+
+- **`gnosys setup chat` wizard.** Mirrors `setup dream` / `setup remote`:
+  numbered summary, edit individual sections. Configures the chat-task
+  provider+model (via `taskModels.chat`), recall behavior, tools
+  fence on/off, auto-summarize nudge threshold, and a custom
+  system-prompt prefix. New `ChatConfigSchema` in `src/lib/config.ts`. (#1)
+- **`chat` is a first-class routing task.** Previously the chat TUI fell
+  through to the `synthesis` fallback chain. Now it has its own slot in
+  `config.taskModels` (alongside structuring / synthesis / vision /
+  transcription / dream), exposed in `gnosys setup routing`. Existing
+  installs see no change — when no `taskModels.chat` override exists,
+  `resolveTaskModel` falls through to the default provider exactly as
+  before. (#2)
+- **Slash-command palette in chat TUI.** Type `/` at column 0 to open a
+  filterable popup of all chat slash commands. Arrow keys navigate, Tab
+  completes the highlighted command into the input, Esc dismisses. New
+  component: `src/lib/chat/SlashPalette.tsx`. (#5)
+- **TUI polish sweep.** Three picks from road-009 #6:
+  - **Immediate "thinking…" feedback** — status flips on the same
+    render frame as the user-turn push, so the spinner is visible the
+    moment the user hits Enter (was delayed by a sync recall step).
+  - **Smoother streaming** — LLM tokens batch into ~16ms chunks (one
+    render frame at 60Hz) instead of firing setStatus per token. Cuts
+    visible jitter on fast providers (Groq, xAI, cached responses).
+  - **Paste detection** — when input has newlines or exceeds 200 chars,
+    a "[paste: N lines, M chars]" preview appears above the input
+    while the editor keeps the raw content for submit. (#6)
+- **`--id-format short|long|raw`** on `gnosys search` (joins the
+  `gnosys list` / `gnosys discover` versions from v5.7.1). `searchFts`
+  now returns `project_id` so display IDs can be project-prefixed
+  without N+1 lookups. Other commands either already display project
+  names via the federated path or don't print memory IDs. (#7)
+
+### Performance
+
+- **Pragmatic CLI startup.** `@huggingface/transformers` (80MB) and
+  related heavy modules (`mammoth`, `pdf-parse`, `turndown`,
+  `bootstrap` deps) no longer load on every `gnosys` invocation —
+  they `await import()` inside the action handlers that actually need
+  them (`reindex`, `recall`, `chat`, `bootstrap`, `import`,
+  `migrate-db`). Saves several hundred ms of CPU on `gnosys --help`,
+  `gnosys list`, `gnosys status`, etc. Full transformers warm-up
+  still happens on first `gnosys reindex` / `gnosys recall`. (#4)
+
 ## [5.7.1] — 2026-05-12
 
 Dogfooding follow-ups from heavy daily use of v5.7.0 across multiple

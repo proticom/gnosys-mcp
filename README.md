@@ -109,6 +109,8 @@ gnosys chat --search <query>   # full-text search across session logs
 
 **Free-text or slash commands.** "remember that flag default is OFF" works the same as `/remember flag default is OFF`. The TUI also recognizes "what did we decide about ULIDs?" → `/recall`, "thanks, that's all" → `/quit`. Destructive intents always confirm; non-destructive ones auto-accept after 5 confirmations of the same pattern.
 
+**Slash-command palette (v5.8.0).** Type `/` at column 0 → filterable popup of every chat command appears. Arrow keys navigate, Tab autocompletes the highlighted command into the input, Esc dismisses. Paste detection: when input has newlines or exceeds 200 chars, a compact "[paste: N lines, M chars]" preview surfaces above the input so the buffer stays readable.
+
 **24 slash commands** across reading, recall, writing, focus, and polish — type `/help` inside the TUI for the full list. Highlights:
 
 - `/pin <id>`, `/scope`, `/threshold`, `/recall <q>` — tune what shows up in context
@@ -322,6 +324,8 @@ gnosys setup           # full wizard (provider, models, IDE, remote sync, dream)
 gnosys setup models    # LLM provider + model only
 gnosys setup remote    # multi-machine sync (NAS/shared drive)
 gnosys setup dream     # Dream Mode designation, schedule, sub-tasks
+gnosys setup chat      # chat TUI: provider/model, recall, tools, system prompt (v5.8.0)
+gnosys setup routing   # per-task LLM routing (structuring/synthesis/chat/vision/transcription)
 ```
 
 ### Dream Mode setup (v5.4.2+)
@@ -357,6 +361,16 @@ The following commands were removed in favor of the canonical `gnosys setup <thi
 `gnosys upgrade` is now `npm install -g gnosys@latest` + a marker that
 tells running MCP servers to exit-and-respawn against the new global
 binary. Run it on each machine.
+
+### Behaviour changes in v5.8.0
+
+| What | Then | Now |
+|---|---|---|
+| `gnosys_sync` MCP tool | Always wrote a `GNOSYS:START/END` block into `CLAUDE.md` (a tracked file) | Inert by default — returns the block as text only. Pass `commit_to_disk: true` to actually write. |
+| `gnosys_preference_set/delete` MCP success messages | Suggested "Run `gnosys_sync` to update agent rules" | No suggestion — SessionStart hook (`gnosys recall`) injects updated context next session. |
+| `gnosys_add` / `gnosys_commit_context` when project's `gnosys.json` has no `llm` block | Failed with "set ANTHROPIC_API_KEY", ignoring the global xAI/OpenAI/etc. config | Resolves the LLM against the merged project+global config — falls back to the user's global provider. |
+| Chat TUI input | Cleared before user turn appeared (visible glitch) | Both happen in the same render frame. |
+| `gnosys --help`, `gnosys list`, etc. | Loaded `@huggingface/transformers` (80MB) every invocation | Heavy modules lazy-load on actual use (reindex, recall, chat, bootstrap, import). |
 
 ---
 

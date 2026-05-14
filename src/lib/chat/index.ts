@@ -79,10 +79,12 @@ export async function startChat(opts: StartChatOptions): Promise<void> {
     ? { id: opts.projectId, name: opts.projectId.slice(0, 8) }
     : detectProject();
 
-  // Resolve provider/model from config.synthesis (the default chat task)
-  const synth = resolveTaskModel(opts.config, "synthesis");
-  const provider = opts.providerName ?? synth.provider;
-  const model = opts.modelName ?? synth.model;
+  // v5.8.0 (#2): resolve chat-specific task model. resolveTaskModel falls
+  // through to defaultProvider when no `chat` override is set, so existing
+  // installs see no change.
+  const chatTask = resolveTaskModel(opts.config, "chat");
+  const provider = opts.providerName ?? chatTask.provider;
+  const model = opts.modelName ?? chatTask.model;
 
   // Resume existing session or start a new one
   let sessionId: string;

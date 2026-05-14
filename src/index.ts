@@ -622,7 +622,9 @@ server.tool(
     }
 
     try {
-      const result = await ingestion.ingest(input);
+      // v5.8.0 (#8): pass per-call config so the LLM provider resolves against
+      // the merged project+global config, not the MCP's boot-time config.
+      const result = await ingestion.ingest(input, ctx.config);
       if (!ctx.centralDb?.isAvailable()) {
         return {
           content: [{ type: "text", text: "Database not available. Cannot write memory." }],
@@ -1317,15 +1319,15 @@ server.tool(
   },
   async ({ context, dry_run, projectRoot }) => {
     const ctx = await resolveToolContext(projectRoot);
-    // Note: ingestion is module-level since it's heavy
-    if (!ingestion || !ingestion.isLLMAvailable) {
+    // v5.8.0 (#8): no early-gate on the module-level `ingestion` here.
+    // It's bound to the MCP's boot-time config — which may not have an LLM
+    // block on the directory we launched in. The real LLM resolution
+    // happens against `ctx.config` (merged project+global) below; if that
+    // can't find a provider, getLLMProvider() surfaces a provider-specific
+    // error message.
+    if (!ingestion) {
       return {
-        content: [
-          {
-            type: "text",
-            text: "Commit context requires an LLM. Configure a provider in gnosys.json or set ANTHROPIC_API_KEY.",
-          },
-        ],
+        content: [{ type: "text", text: "Ingestion module not initialized." }],
         isError: true,
       };
     }
@@ -1431,7 +1433,7 @@ Output ONLY the JSON array, no markdown fences.`,
               results.push(`❌ FAILED: "${candidate.summary}": Database not available`);
               continue;
             }
-            const result = await ingestion.ingest(candidate.summary);
+            const result = await ingestion.ingest(candidate.summary, ctx.config);
             const id = ctx.centralDb.getNextId(result.category, ctx.projectId ?? undefined);
             const today = new Date().toISOString().split("T")[0];
 
@@ -2701,7 +2703,11 @@ server.tool(
       return {
         content: [{
           type: "text" as const,
-          text: `Preference set: **${pref.title}**\n  Key: ${pref.key}\n  Value: ${pref.value}\n\nRun \`gnosys_sync\` to regenerate agent rules files with this preference.`,
+          // v5.8.0 (#9): no longer suggest running gnosys_sync. The
+          // SessionStart hook (gnosys recall) already injects preferences
+          // into the next session's context — no need to rewrite tracked
+          // files like CLAUDE.md.
+          text: `Preference set: **${pref.title}**\n  Key: ${pref.key}\n  Value: ${pref.value}`,
         }],
       };
     } catch (err) {
@@ -2791,20 +2797,37 @@ server.tool(
     return {
       content: [{
         type: "text" as const,
-        text: `Preference "${key}" deleted. Run \`gnosys_sync\` to update agent rules files.`,
+        // v5.8.0 (#9): drop the gnosys_sync suggestion — SessionStart
+        // hook picks up the change next time without rewriting tracked files.
+        text: `Preference "${key}" deleted.`,
       }],
     };
   }
 );
 
 // ─── Tool: gnosys_sync ──────────────────────────────────────────────────
+//
+// v5.8.0 (#9): inert-by-default. Previously this tool always wrote a
+// GNOSYS:START/GNOSYS:END block into the project's CLAUDE.md (a tracked
+// file in most repos), producing phantom git diffs every time an agent
+// helpfully called it after a preference change. Now the default is
+// "return the rules block as text" — the agent can use that as in-context
+// guidance without touching disk. To actually rewrite the rules file
+// (the v5.7.0 behaviour), pass `commit_to_disk: true` explicitly.
+//
+// Routine in-session context flows through the SessionStart hook
+// (`gnosys recall`), not through this tool.
 server.tool(
   "gnosys_sync",
-  "Regenerate agent rules file from current user preferences and project conventions. Injects a GNOSYS:START/GNOSYS:END block into the detected agent rules file (CLAUDE.md, .cursor/rules/gnosys.mdc). User content outside the block is preserved.",
+  "Get the current user preferences + project conventions formatted as a GNOSYS:START/GNOSYS:END block. By default returns the block as text only (no disk write). Pass commit_to_disk=true to write it into the detected agent rules file (CLAUDE.md, .cursor/rules/gnosys.mdc) — only do this if the user has explicitly asked to refresh the rules file. Routine session context is already injected via the SessionStart hook (`gnosys recall`); do NOT call this tool after every preference change.",
   {
     projectRoot: projectRootParam,
+    commit_to_disk: z
+      .boolean()
+      .optional()
+      .describe("If true, write the block into the detected agent rules file on disk. Default: false (text only). Note: rules files like CLAUDE.md and .cursor/rules/*.mdc are typically tracked in git, so writing creates a diff."),
   },
-  async ({ projectRoot }) => {
+  async ({ projectRoot, commit_to_disk }) => {
     if (!centralDb?.isAvailable()) {
       return {
         content: [{ type: "text" as const, text: "Central DB not available. Cannot sync rules." }],
@@ -2833,12 +2856,41 @@ server.tool(
       };
     }
 
+    const preferences = getAllPreferences(centralDb);
+    let projectConventions: import("./lib/db.js").DbMemory[] = [];
+    if (identity.projectId) {
+      const projectMems = centralDb.getMemoriesByProject(identity.projectId);
+      projectConventions = projectMems.filter(
+        (m) => (m.category === "decisions" || m.category === "conventions") && m.status === "active",
+      );
+    }
+    const block = generateRulesBlock(preferences, projectConventions);
+
+    // Default path: return the block as text, no disk write.
+    if (!commit_to_disk) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text:
+              `Rules block (preview, not written to disk):\n\n${block}\n\n` +
+              `Summary: ${preferences.length} preference(s), ${projectConventions.length} project convention(s).\n` +
+              `To write this into ${identity.agentRulesTarget || "the agent rules file"}, call gnosys_sync again with commit_to_disk=true.\n` +
+              `(SessionStart hook 'gnosys recall' already provides routine session context — usually no disk write is needed.)`,
+          },
+        ],
+      };
+    }
+
+    // Opt-in disk write path.
     if (!identity.agentRulesTarget) {
       return {
-        content: [{
-          type: "text" as const,
-          text: "No agent rules target detected (no .cursor/ or CLAUDE.md found). Create one of these first, then re-run gnosys_init to detect it.",
-        }],
+        content: [
+          {
+            type: "text" as const,
+            text: "commit_to_disk=true requested, but no agent rules target detected (no .cursor/ or CLAUDE.md found). Create one first, then re-run gnosys_init to detect it.",
+          },
+        ],
       };
     }
 
@@ -2846,7 +2898,7 @@ server.tool(
       centralDb,
       projectDir,
       identity.agentRulesTarget,
-      identity.projectId
+      identity.projectId,
     );
 
     if (!result) {
@@ -2858,12 +2910,16 @@ server.tool(
 
     const action = result.created ? "Created" : "Updated";
     return {
-      content: [{
-        type: "text" as const,
-        text: `${action} rules file: ${result.filePath}\n\n  Preferences injected: ${result.prefCount}\n  Project conventions: ${result.conventionCount}\n\nContent is inside <!-- GNOSYS:START --> / <!-- GNOSYS:END --> markers.\nUser content outside these markers is preserved.`,
-      }],
+      content: [
+        {
+          type: "text" as const,
+          text:
+            `${action} rules file: ${result.filePath}\n\n  Preferences injected: ${result.prefCount}\n  Project conventions: ${result.conventionCount}\n\n` +
+            `⚠ This wrote to a file that may be tracked in git — expect a diff. Routine session context flows through the SessionStart hook; only call gnosys_sync with commit_to_disk=true when the user explicitly asks to refresh the rules file.`,
+        },
+      ],
     };
-  }
+  },
 );
 
 // ─── Tool: gnosys_federated_search ───────────────────────────────────────
