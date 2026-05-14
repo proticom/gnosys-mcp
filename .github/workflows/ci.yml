@@ -150,7 +150,8 @@ jobs:
 
           echo "=== CLI commands work across projects ==="
           GNOSYS_PROJECT="$PROJ_A" node dist/cli.js list --json > /dev/null
-          GNOSYS_PROJECT="$PROJ_B" node dist/cli.js dashboard --json > /dev/null
+          # v5.7.1: `gnosys dashboard` was removed; use `gnosys status --system`.
+          GNOSYS_PROJECT="$PROJ_B" node dist/cli.js status --system --json > /dev/null
           GNOSYS_PROJECT="$PROJ_C" node dist/cli.js audit --json > /dev/null
 
           rm -rf "$PROJ_A" "$PROJ_B" "$PROJ_C"
