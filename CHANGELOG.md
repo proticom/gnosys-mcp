@@ -5,6 +5,25 @@ All notable changes to Gnosys are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.8.2] — 2026-05-13
+
+CI hotfix #2 — restore the coverage threshold that v5.8.0's new files
+temporarily pushed us below.
+
+### Fixed
+
+- **Coverage threshold restored.** v5.8.0 added five new modules
+  (`idFormat`, `heartbeat`, `progress`, `upgrade`, `SlashPalette`)
+  without tests, dropping statement coverage from ~50.5% to 49.69% —
+  just under the 50% threshold in `vitest.config.ts`. Added
+  `src/test/v580-helpers.test.ts` (27 tests) covering the pure helpers:
+  `formatMemoryId`, `parseIdFormat`, `buildProjectNameLookup`,
+  `filterCommands`, and the full upgrade-marker lifecycle
+  (`getMarkerPath`, `writeUpgradeMarker`, `readUpgradeMarker`,
+  `shouldRestartMcp`). Statements back to 50.15%; all thresholds
+  (statements 50, branches 40, functions 55, lines 50) pass with
+  margin. No functional code changes.
+
 ## [5.8.1] — 2026-05-13
 
 CI hotfix — clears the npm audit advisories that v5.8.0's CI tripped on.
