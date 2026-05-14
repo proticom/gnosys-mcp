@@ -5,6 +5,22 @@ All notable changes to Gnosys are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.8.1] — 2026-05-13
+
+CI hotfix — clears the npm audit advisories that v5.8.0's CI tripped on.
+
+### Fixed
+
+- **`npm audit` advisories on `master` cleared.** v5.8.0's
+  `package-lock.json` pinned stale transitive versions
+  (`hono@4.12.7`, `@hono/node-server@1.19.10`, `fast-uri@3.1.1`,
+  `ip-address@10.1.0`, `postcss@8.5.9`, `@xmldom/xmldom@0.8.12`,
+  `express-rate-limit@8.5.0`) that fell inside published advisory
+  ranges. `npm update` bumped each within its existing semver range
+  to the patched versions (`hono@4.12.18`, etc.). Zero functional
+  code changes; lockfile-only refresh. CI on `master` is green
+  again. (#90)
+
 ## [5.8.0] — 2026-05-13
 
 Chat is now a first-class surface. Two production bugs reported by Cowork
