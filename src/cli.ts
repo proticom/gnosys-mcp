@@ -295,7 +295,7 @@ program
         return;
       }
 
-      const { formatMemoryId, buildProjectNameLookup, parseIdFormat } = await import("./lib/idFormat.js");
+      const { formatMemoryIdHyperlink: formatMemoryId, buildProjectNameLookup, parseIdFormat } = await import("./lib/idFormat.js");
       const idFormat = parseIdFormat(opts.idFormat);
       const projectNames = buildProjectNameLookup(centralDb);
 
@@ -382,7 +382,7 @@ program
         return;
       }
 
-      const { formatMemoryId, buildProjectNameLookup, parseIdFormat } = await import("./lib/idFormat.js");
+      const { formatMemoryIdHyperlink: formatMemoryId, buildProjectNameLookup, parseIdFormat } = await import("./lib/idFormat.js");
       const idFormat = parseIdFormat(opts.idFormat);
       const projectNames = buildProjectNameLookup(centralDb);
 
@@ -456,7 +456,7 @@ program
           });
         }
 
-        const { formatMemoryId, buildProjectNameLookup, parseIdFormat } = await import("./lib/idFormat.js");
+        const { formatMemoryIdHyperlink: formatMemoryId, buildProjectNameLookup, parseIdFormat } = await import("./lib/idFormat.js");
         const idFormat = parseIdFormat(opts.idFormat);
         const projectNames = buildProjectNameLookup(centralDb);
 

@@ -24,6 +24,39 @@ export type IdFormat = "short" | "long" | "raw";
 
 const SHORT_ULID_PREFIX = 8;
 
+// ─── OSC8 hyperlink helpers ─────────────────────────────────────────────
+//
+// v5.8.3 (#91): emit clickable links for memory IDs in OSC8-supporting
+// terminals (iTerm2, Ghostty, Kitty, WezTerm, modern gnome-terminal).
+// The escape sequence is `\x1b]8;;<URI>\x1b\\<text>\x1b]8;;\x1b\\`. A
+// terminal that doesn't understand it ignores the escapes and prints
+// only `<text>`, so this is safe everywhere — but we only emit when
+// stdout is a TTY to keep pipes/CI logs clean.
+//
+// URI scheme: `gnosys://memory/<id>`. No OS-level handler is required
+// for visual underline/click affordance to render; users who want
+// "click → open in gnosys" can register a URL handler later, but the
+// out-of-the-box value is the visual hint + copy-URL menu in the
+// terminal.
+
+const OSC8_START = "\x1b]8;;";
+const OSC8_BREAK = "\x1b\\";
+const OSC8_END = "\x1b]8;;\x1b\\";
+
+export function isTtyStdout(): boolean {
+  return Boolean(process.stdout.isTTY);
+}
+
+/** Build the gnosys:// URI for a memory id. Encodes the id defensively. */
+export function memoryUri(id: string): string {
+  return `gnosys://memory/${encodeURIComponent(id)}`;
+}
+
+/** Wrap `display` in OSC8 escapes pointing at `uri`. Caller decides when to use. */
+export function osc8Wrap(uri: string, display: string): string {
+  return `${OSC8_START}${uri}${OSC8_BREAK}${display}${OSC8_END}`;
+}
+
 /**
  * Format a single memory ID for display.
  *
@@ -48,6 +81,31 @@ export function formatMemoryId(
 
   if (!projectName) return renderedId;
   return `${projectName} · ${renderedId}`;
+}
+
+/**
+ * Same as `formatMemoryId`, but wraps the result in an OSC8 hyperlink
+ * pointing at `gnosys://memory/<id>` when stdout is a TTY.
+ *
+ * In OSC8-aware terminals (iTerm2, Ghostty, Kitty, WezTerm) the citation
+ * renders underlined and the user can click / cmd-click / right-click-copy
+ * the URI. In every other context (pipes, CI logs, `--json` consumers,
+ * `less`) the function returns plain text exactly like `formatMemoryId`.
+ *
+ * Always emits the FULL id in the underlying URI (so right-click-copy
+ * gives back something useful) even when the visible text is the
+ * truncated `short` form.
+ */
+export function formatMemoryIdHyperlink(
+  id: string,
+  projectName: string | null | undefined,
+  format: IdFormat = "short",
+  options?: { tty?: boolean },
+): string {
+  const display = formatMemoryId(id, projectName, format);
+  const tty = options?.tty ?? isTtyStdout();
+  if (!tty) return display;
+  return osc8Wrap(memoryUri(id), display);
 }
 
 /**

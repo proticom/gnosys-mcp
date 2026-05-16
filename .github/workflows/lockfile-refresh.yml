@@ -1,0 +1,87 @@
+# v5.8.3 (#93): scheduled lockfile refresh.
+#
+# Runs `npm update` weekly to bump transitive deps within their existing
+# semver ranges. If the lockfile changes, opens a PR titled
+# "chore: refresh lockfile (npm audit advisories)".
+#
+# Why this exists: between v5.7.1 and v5.8.0, npm published advisories
+# for hono / postcss / xmldom / ip-address / fast-uri / express-rate-limit.
+# Our `package-lock.json` was pinned to versions inside the advisory
+# ranges, so CI's `npm audit` step started failing — even though the
+# packages on disk were newer (just not what `npm ci` resolved).
+# This workflow catches that drift weekly instead of letting it pile up
+# until the next release.
+
+name: Lockfile Refresh
+
+on:
+  schedule:
+    # Mondays 06:00 UTC — early enough that any PR lands before the
+    # workweek starts, but not so early that it competes with other
+    # scheduled jobs.
+    - cron: "0 6 * * 1"
+  workflow_dispatch: {}
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Run npm update
+        run: npm update
+
+      - name: Confirm audit clean
+        run: npm audit --audit-level=moderate
+
+      - name: Skip if no lockfile changes
+        id: diff
+        run: |
+          if git diff --quiet package-lock.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "✓ Lockfile already up to date — nothing to do."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "→ Lockfile changed; will open PR."
+          fi
+
+      - name: Build (sanity check)
+        if: steps.diff.outputs.changed == 'true'
+        run: npm run build
+
+      - name: Run tests
+        if: steps.diff.outputs.changed == 'true'
+        run: npm test
+
+      - name: Open PR
+        if: steps.diff.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: "chore: refresh lockfile (transitive dep bumps)"
+          branch: chore/lockfile-refresh
+          delete-branch: true
+          title: "chore: refresh lockfile (transitive dep bumps)"
+          body: |
+            Automated weekly `npm update` — bumps transitive deps within
+            their existing semver ranges. Catches drift between the
+            committed lockfile and current npm advisories before it
+            hits a release.
+
+            Includes a `npm audit --audit-level=moderate` clean
+            confirmation. If audit failed, this PR would not have
+            been opened — investigate manually instead.
+
+            Tests run on Node 24 against the updated lockfile.
+          labels: |
+            chore
+            dependencies

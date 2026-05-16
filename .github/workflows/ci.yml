@@ -62,6 +62,17 @@ jobs:
             "
           fi
 
+      # v5.8.3 (#92): targeted guardrail — fail when a newly-added
+      # src/lib/**/*.ts(x) file ships with 0% statement coverage. Catches
+      # the regression mode that landed v5.8.0 in three back-to-back CI
+      # failures (new modules without tests dropping the global average
+      # under the 50% threshold).
+      - name: Check coverage of newly-added files
+        if: matrix.node-version == 24
+        run: |
+          git fetch --depth=50 origin master:refs/remotes/origin/master 2>/dev/null || true
+          COVERAGE_BASE_REF=origin/master node scripts/check-new-file-coverage.mjs
+
       - name: Verify build output
         run: |
           test -f dist/index.js

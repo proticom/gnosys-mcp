@@ -19,8 +19,11 @@ import os from "os";
 
 import {
   formatMemoryId,
+  formatMemoryIdHyperlink,
   parseIdFormat,
   buildProjectNameLookup,
+  memoryUri,
+  osc8Wrap,
 } from "../lib/idFormat.js";
 import { filterCommands } from "../lib/chat/SlashPalette.js";
 import { CommandSpec } from "../lib/chat/commands.js";
@@ -88,6 +91,48 @@ describe("idFormat", () => {
     it("handles short ids that don't need truncation gracefully", () => {
       const shortId = "x-1";
       expect(formatMemoryId(shortId, "p", "short")).toBe(`p · ${shortId}`);
+    });
+  });
+
+  describe("memoryUri", () => {
+    it("builds a gnosys://memory/<id> URI", () => {
+      expect(memoryUri("deci-01HXXJK2ABC")).toBe("gnosys://memory/deci-01HXXJK2ABC");
+    });
+    it("encodes characters that would break a URI", () => {
+      expect(memoryUri("foo/bar baz")).toBe("gnosys://memory/foo%2Fbar%20baz");
+    });
+  });
+
+  describe("osc8Wrap", () => {
+    it("wraps display text in the OSC8 escape sequence", () => {
+      const wrapped = osc8Wrap("gnosys://memory/x-1", "x-1");
+      expect(wrapped).toContain("\x1b]8;;gnosys://memory/x-1\x1b\\x-1\x1b]8;;\x1b\\");
+    });
+  });
+
+  describe("formatMemoryIdHyperlink", () => {
+    const id = "deci-01HXXJK2ABCDEFGHIJK";
+
+    it("when tty=false, returns the same string as formatMemoryId", () => {
+      const plain = formatMemoryId(id, "gnosys-ai", "long");
+      const linked = formatMemoryIdHyperlink(id, "gnosys-ai", "long", { tty: false });
+      expect(linked).toBe(plain);
+    });
+
+    it("when tty=true, wraps the display text in OSC8 escapes pointing at the full id", () => {
+      const linked = formatMemoryIdHyperlink(id, "gnosys-ai", "short", { tty: true });
+      // The URI segment should always carry the FULL id, regardless of display format.
+      expect(linked).toContain(`gnosys://memory/${encodeURIComponent(id)}`);
+      // The visible text should still be the short-form display.
+      expect(linked).toContain("…");
+      expect(linked).toContain("gnosys-ai · ");
+    });
+
+    it("works without a projectName (global/personal memories)", () => {
+      const linked = formatMemoryIdHyperlink(id, null, "long", { tty: true });
+      expect(linked).toContain(`gnosys://memory/${encodeURIComponent(id)}`);
+      expect(linked).toContain(id);
+      expect(linked).not.toContain("·");
     });
   });
 

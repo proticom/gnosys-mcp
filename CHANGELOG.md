@@ -5,6 +5,51 @@ All notable changes to Gnosys are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.8.3] — 2026-05-15
+
+Polish patch: clickable citations, two CI guardrails that close the
+holes that produced the v5.8.0→v5.8.2 cascade.
+
+### Added
+
+- **OSC8 hyperlinks on citations.** In `gnosys list` / `gnosys discover`
+  / `gnosys search`, every memory ID is now wrapped in an OSC8 escape
+  sequence pointing at `gnosys://memory/<full-id>` when stdout is a
+  TTY. Modern terminals (iTerm2, Ghostty, Kitty, WezTerm, recent
+  gnome-terminal) render the citation underlined and clickable; older
+  terminals just see the original text — escapes are silently dropped.
+  The URI always carries the full ULID, so `right-click → copy URL`
+  gives back the precise id even when the visible text is the
+  truncated `short` form. New helpers in `src/lib/idFormat.ts`:
+  `formatMemoryIdHyperlink`, `memoryUri`, `osc8Wrap`, `isTtyStdout`. (#91)
+
+### CI hardening
+
+- **Per-file 0%-coverage gate.** New CI step (`scripts/check-new-file-
+  coverage.mjs`) fails when a newly-added `src/lib/**/*.{ts,tsx}` or
+  `src/sandbox/**/*.ts` file ships with 0% statement coverage.
+  Compares the diff against `origin/master`, so only NEW files trip
+  the gate — existing 0%-coverage modules (intentionally excluded
+  via `vitest.config.ts`) are left alone. Catches the exact regression
+  that bit v5.8.0: five new modules (`SlashPalette`, `idFormat`,
+  `heartbeat`, `progress`, `upgrade`) shipped without tests and
+  dragged the global coverage from ~50.5% to 49.69%, just under the
+  threshold. (#92)
+- **Weekly lockfile-refresh workflow.** New `.github/workflows/lockfile-
+  refresh.yml` runs `npm update` every Monday 06:00 UTC, confirms
+  `npm audit --audit-level=moderate` is clean, builds, runs tests,
+  and opens a `chore: refresh lockfile (transitive dep bumps)` PR if
+  the lockfile changed. Catches the drift mode that broke CI between
+  v5.7.1 and v5.8.0 — npm publishes advisories on transitive deps
+  that our committed lockfile pinned to versions inside the
+  vulnerable range. Hand-triggered via Actions UI too. (#93)
+
+### Tests
+
+- **6 new tests** in `src/test/v580-helpers.test.ts` for the OSC8
+  helpers (memoryUri, osc8Wrap, formatMemoryIdHyperlink under TTY /
+  non-TTY / missing-project). Total in that file now 33.
+
 ## [5.8.2] — 2026-05-13
 
 CI hotfix #2 — restore the coverage threshold that v5.8.0's new files
