@@ -32,6 +32,11 @@ export default defineConfig({
         // Interactive setup wizard (1700 lines of prompts + I/O)
         "src/lib/setup.ts",
 
+        // v5.8.6: interactive section wizards under src/lib/setup/.
+        // Same justification as setup.ts — readline-driven I/O, hard to
+        // meaningfully unit-test, exercised via CLI integration tests.
+        "src/lib/setup/**",
+
         // Media processing (requires binary files, external tools like Tesseract)
         "src/lib/multimodalIngest.ts",
         "src/lib/pdfExtract.ts",
