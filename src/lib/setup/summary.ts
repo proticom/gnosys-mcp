@@ -16,7 +16,9 @@ import { stdin, stdout } from "process";
 import {
   loadConfig,
   resolveTaskModel,
+  updateConfig,
   type GnosysConfig,
+  type LLMProviderName,
 } from "../config.js";
 import { GnosysDB } from "../db.js";
 
@@ -24,8 +26,76 @@ import { GnosysDB } from "../db.js";
 const BOLD = "\x1b[1m";
 const DIM = "\x1b[2m";
 const GREEN = "\x1b[32m";
+const YELLOW = "\x1b[33m";
 const RESET = "\x1b[0m";
 const CHECK = `${GREEN}✓${RESET}`;
+
+// ─── Provider-revert repair (v5.8.5) ────────────────────────────────────────
+//
+// Detect the "gnosys.json says anthropic but no Anthropic key exists AND
+// another provider has a key" pattern. This is the fingerprint of the
+// pre-v5.8.4 updateConfig bug that silently seeded `defaultProvider:
+// anthropic` into ~/.gnosys/gnosys.json whenever any setup section was
+// written to a fresh store. Offer one-keystroke repair.
+
+const PROVIDERS_WITH_KEYS: LLMProviderName[] = ["anthropic", "openai", "xai", "groq", "mistral"];
+
+async function maybeOfferProviderRepair(
+  cfg: GnosysConfig,
+  projectDir: string,
+  rl: ReadlineInterface,
+): Promise<void> {
+  if (cfg.llm.defaultProvider !== "anthropic") return;
+  const { getApiKeyForProvider } = await import("../setup.js");
+  const anthropicKey = await getApiKeyForProvider("anthropic");
+  if (anthropicKey) return; // user might really want Anthropic and just hasn't fully set up yet
+
+  const candidates: LLMProviderName[] = [];
+  for (const p of PROVIDERS_WITH_KEYS) {
+    if (p === "anthropic") continue;
+    const key = await getApiKeyForProvider(p);
+    if (key) candidates.push(p);
+  }
+  if (candidates.length === 0) return; // no other provider has a key either
+
+  // Pick the strongest candidate. Order in PROVIDERS_WITH_KEYS is the priority.
+  const suggestion = candidates[0];
+
+  console.log("");
+  console.log(`${YELLOW}⚠${RESET} Your gnosys.json says ${BOLD}defaultProvider: anthropic${RESET},`);
+  console.log(`  but no Anthropic API key is configured (env or keychain).`);
+  console.log(`  Found a key for ${BOLD}${suggestion}${RESET}${candidates.length > 1 ? ` (also: ${candidates.slice(1).join(", ")})` : ""}.`);
+  console.log("");
+  console.log(`  This usually means a pre-v5.8.4 setup wizard seeded anthropic by mistake.`);
+  console.log("");
+  const answer = (await rl.question(`Switch the default to ${BOLD}${suggestion}${RESET}? [Y/n] `)).trim().toLowerCase();
+  if (answer === "n" || answer === "no") {
+    console.log(`${DIM}Left as anthropic. Run option 1 below to change explicitly.${RESET}`);
+    return;
+  }
+
+  try {
+    // Write to the store that actually holds the current config so the
+    // override lands at the right scope.
+    const { getGnosysHome } = await import("../paths.js");
+    const fs = await import("fs/promises");
+    const path = await import("path");
+    // Prefer project-level if it has a gnosys.json, else global.
+    const projectStore = path.join(projectDir, ".gnosys");
+    let storePath = getGnosysHome();
+    try {
+      const stat = await fs.stat(path.join(projectStore, "gnosys.json"));
+      if (stat.isFile()) storePath = projectStore;
+    } catch {
+      // fall back to global
+    }
+    await updateConfig(storePath, { llm: { defaultProvider: suggestion } });
+    console.log(`${CHECK} Switched default to ${BOLD}${suggestion}${RESET}.`);
+  } catch (err) {
+    console.log(`${YELLOW}⚠${RESET} Failed to repair: ${err instanceof Error ? err.message : String(err)}`);
+    console.log(`${DIM}Run 'gnosys setup models' to change manually.${RESET}`);
+  }
+}
 
 // ─── Section handlers ───────────────────────────────────────────────────────
 
@@ -186,12 +256,23 @@ export async function runSummaryWizard(opts: SummaryOptions = {}): Promise<boole
   const sections = buildSections();
   const updated = new Set<string>();
   let anyChange = false;
+  let revertCheckDone = false;
 
   try {
     while (true) {
       // Reload config each iteration so the displayed values reflect any
       // section edit that just happened.
       const cfg = await loadConfig(projectDir);
+
+      // v5.8.5: detect the "config says anthropic but no Anthropic key is
+      // configured anywhere AND another provider has a key" pattern. This
+      // is the fingerprint of the pre-v5.8.4 updateConfig bug that silently
+      // seeded `defaultProvider: anthropic` into ~/.gnosys/gnosys.json when
+      // any section was written to a fresh store. Offer one-keystroke repair.
+      if (!revertCheckDone) {
+        revertCheckDone = true;
+        await maybeOfferProviderRepair(cfg, projectDir, rl);
+      }
 
       console.log("");
       console.log(`${BOLD}┌─────────────────────────────────────────────┐${RESET}`);

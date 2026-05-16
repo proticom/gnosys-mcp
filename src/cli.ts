@@ -194,12 +194,17 @@ Commands by group (alphabetical within group):
 Run 'gnosys <command> --help' for command-specific help.
 `)
   .hook("preAction", async () => {
-    // Check if central DB was upgraded to a newer version on another machine
+    // v5.8.5: warn only when the DB stamp is NEWER than the running binary
+    // (i.e. another machine on the shared brain already upgraded). The old
+    // check fired whenever the versions differed — including the common
+    // "you just installed a newer gnosys but haven't run sync-projects yet"
+    // case, which produced a misleading "Run: npm install -g gnosys"
+    // banner on every command.
     try {
       const centralDb = GnosysDB.openCentral();
       if (centralDb.isAvailable()) {
         const dbVersion = centralDb.getMeta("app_version");
-        if (dbVersion && dbVersion !== pkg.version) {
+        if (dbVersion && compareSemver(dbVersion, pkg.version) > 0) {
           const upgradedBy = centralDb.getMeta("upgraded_by") || "another machine";
           console.error(
             `\n⚠ Gnosys DB was upgraded to v${dbVersion} by ${upgradedBy}.` +
@@ -212,6 +217,24 @@ Run 'gnosys <command> --help' for command-specific help.
       // non-critical — don't block the command
     }
   });
+
+/**
+ * Compare two semver-like strings. Returns -1, 0, 1. Tolerant of suffixes —
+ * compares the dotted-numeric prefix only.
+ */
+function compareSemver(a: string, b: string): number {
+  const parse = (v: string) =>
+    v.replace(/^v/, "").split(/[-+]/)[0].split(".").map((p) => parseInt(p, 10) || 0);
+  const av = parse(a);
+  const bv = parse(b);
+  const len = Math.max(av.length, bv.length);
+  for (let i = 0; i < len; i++) {
+    const ap = av[i] ?? 0;
+    const bp = bv[i] ?? 0;
+    if (ap !== bp) return ap > bp ? 1 : -1;
+  }
+  return 0;
+}
 
 // ─── gnosys read <path> ──────────────────────────────────────────────────
 program
@@ -3833,6 +3856,14 @@ program
       // Best-effort lookup only.
     }
 
+    // v5.8.5: surface the version transition so it's obvious the upgrade
+    // worked, even though this process is still on the old binary in-memory.
+    if (newVersion !== "(see npm output)" && newVersion !== currentVersion) {
+      console.log(`\n✓ Installed gnosys v${newVersion} (was v${currentVersion})`);
+    } else if (newVersion === currentVersion) {
+      console.log(`\n✓ Already on latest: v${currentVersion}`);
+    }
+
     // Write the marker so any running MCP servers exit and respawn.
     const { writeUpgradeMarker } = await import("./lib/upgrade.js");
     try {
@@ -3866,7 +3897,19 @@ program
     }
 
     console.log(``);
-    await syncProjectsAction({});
+    // v5.8.5: shell out to the freshly-installed binary instead of running
+    // syncProjectsAction in-process. The in-process call reuses pkg.version
+    // captured at startup (the OLD version), so the banner said "Gnosys
+    // v5.8.3 — upgrading registered projects" right after installing 5.8.4.
+    // execSync spawns a new process that resolves `gnosys` on PATH to the
+    // upgraded global binary, so the right version banner shows.
+    try {
+      execSync("gnosys setup sync-projects", { stdio: "inherit" });
+    } catch (err) {
+      console.error(`\nSync-projects failed: ${err instanceof Error ? err.message : err}`);
+      console.error(`Run 'gnosys setup sync-projects' manually.`);
+      process.exit(1);
+    }
   });
 
 // ─── gnosys doctor ──────────────────────────────────────────────────────
@@ -6688,28 +6731,32 @@ webCmd
   });
 
 // ─── Post-install upgrade nudge ─────────────────────────────────────────
-// Detects when the CLI version is newer than the last upgrade and shows
-// a one-time message. Clears itself after `gnosys upgrade` stamps the DB.
+// v5.8.5: only nudges when the running binary is NEWER than the DB stamp
+// (i.e. you just installed a fresh version locally and haven't run
+// sync-projects to refresh the stamp yet). The previous version fired on
+// any mismatch — including "another machine bumped the stamp ahead of
+// you" which is a separate concern handled by the preAction warning.
+// Also avoids re-nudging once per command for the same version-pair by
+// honoring a per-session env-var sentinel.
 try {
   const centralDb = GnosysDB.openCentral();
   if (centralDb.isAvailable()) {
     const lastVersion = centralDb.getMeta("app_version");
     const currentVersion = pkg.version;
-    // Show nudge if: version changed AND this isn't the upgrade command itself
     const isUpgradeCmd = process.argv.slice(2).some(a => a === "upgrade");
-    if (lastVersion && lastVersion !== currentVersion && !isUpgradeCmd) {
+    const isSetupSyncCmd = process.argv.slice(2).join(" ").includes("setup sync-projects");
+    const newer = lastVersion && compareSemver(currentVersion, lastVersion) > 0;
+    if (newer && !isUpgradeCmd && !isSetupSyncCmd) {
       console.log("");
       console.log(`  Gnosys updated: v${lastVersion} → v${currentVersion}`);
       console.log("");
-      console.log("  Run now:");
-      console.log("    gnosys upgrade              sync all projects + regenerate dashboard");
+      console.log("  Run now to refresh the central DB stamp and registered projects:");
+      console.log("    gnosys setup sync-projects");
       console.log("");
       console.log("  Then restart MCP servers:");
-      console.log("    Cursor:     Cmd+Shift+P > MCP: Restart All Servers");
+      console.log("    Cursor:      Cmd+Shift+P > MCP: Restart All Servers");
       console.log("    Claude Code: /mcp > restart gnosys (or start new session)");
-      console.log("    Codex:      start new session");
-      console.log("");
-      console.log("    gnosys status --web          open the portfolio dashboard");
+      console.log("    Codex:       start new session");
       console.log("");
     }
     centralDb.close();

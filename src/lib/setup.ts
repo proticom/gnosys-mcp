@@ -680,43 +680,99 @@ export async function setupIDE(
       }
 
       case "codex": {
-        // v5.8.4: write the documented Codex MCP schema
-        //   [mcp.gnosys]
-        //   type = "local"
-        //   command = ["gnosys", "serve"]
+        // v5.8.5: register via `codex mcp add` (the real Codex CLI registration
+        // path), the same pattern Claude Code uses. Two earlier attempts at a
+        // hand-written TOML block — `[gnosys] command/args` (pre-v5.8.4) and
+        // `[mcp.gnosys] type/command` (v5.8.4) — both turned out not to be
+        // recognized by current Codex CLI: `codex mcp list` wouldn't show
+        // gnosys, so agents couldn't call the tools.
         //
-        // The old `[gnosys] command = "gnosys" args = ["serve"]` shape was
-        // never recognized by Codex CLI's current schema, so the install
-        // silently no-op'd from the agent's perspective. Migrate any old
-        // [gnosys] block we previously wrote so users on stale configs get
-        // the fix automatically.
-        const codexDir = path.join(projectDir, ".codex");
-        const configPath = path.join(codexDir, "config.toml");
-        await fs.mkdir(codexDir, { recursive: true });
+        // We also migrate away from those legacy blocks in
+        // `~/.codex/config.toml` so users on stale configs get cleaned up.
+        const os = await import("os");
 
-        let content = "";
+        // 1. Migrate (strip) legacy hand-written blocks in ~/.codex/config.toml.
+        const userCodexConfig = path.join(os.homedir(), ".codex", "config.toml");
         try {
-          content = await fs.readFile(configPath, "utf-8");
-        } catch {
-          // File doesn't exist — start fresh
-        }
-
-        // Strip the legacy [gnosys] block if present (3-line shape we used to write).
-        const legacyBlock = /\n?\[gnosys\][^\[]*?command\s*=\s*"gnosys"[^\[]*?args\s*=\s*\[[^\]]*\]\s*\n?/;
-        if (legacyBlock.test(content)) {
-          content = content.replace(legacyBlock, "\n").replace(/\n{3,}/g, "\n\n");
-        }
-
-        // Add the [mcp.gnosys] block if not already present.
-        if (!/\[mcp\.gnosys\]/.test(content)) {
-          if (content.length > 0 && !content.endsWith("\n")) {
-            content += "\n";
+          let existing = await fs.readFile(userCodexConfig, "utf-8");
+          const before = existing;
+          // Old shape (pre-v5.8.4): [gnosys] command/args
+          existing = existing.replace(
+            /\n?\[gnosys\][^\[]*?command\s*=\s*"gnosys"[^\[]*?args\s*=\s*\[[^\]]*\]\s*\n?/,
+            "\n",
+          );
+          // v5.8.4 shape: [mcp.gnosys] type/command
+          existing = existing.replace(
+            /\n?\[mcp\.gnosys\][^\[]*?type\s*=\s*"local"[^\[]*?command\s*=\s*\[[^\]]*\]\s*\n?/,
+            "\n",
+          );
+          if (existing !== before) {
+            existing = existing.replace(/\n{3,}/g, "\n\n");
+            await fs.writeFile(userCodexConfig, existing, "utf-8");
           }
-          content += `\n[mcp.gnosys]\ntype = "local"\ncommand = ["gnosys", "serve"]\n`;
+        } catch {
+          // No user-level config.toml to clean — fine.
         }
 
-        await fs.writeFile(configPath, content, "utf-8");
-        return { success: true, message: "Codex MCP config updated (.codex/config.toml)" };
+        // 2. Find the absolute path to `gnosys` so Codex can launch it even
+        //    if shell PATH differs from what it has at run time.
+        let gnosysCmd = "gnosys";
+        try {
+          gnosysCmd = execSync("command -v gnosys", { encoding: "utf-8" }).trim() || "gnosys";
+        } catch {
+          // Fall back to `gnosys` on PATH if `command -v` fails.
+        }
+
+        // 3. Check whether gnosys is already registered. If yes and the
+        //    command matches, leave it alone (idempotent). If it differs,
+        //    remove and re-add.
+        let alreadyCorrect = false;
+        try {
+          const existing = execSync("codex mcp get gnosys 2>/dev/null", {
+            encoding: "utf-8",
+          });
+          if (existing && existing.includes(gnosysCmd) && existing.includes("serve")) {
+            alreadyCorrect = true;
+          } else if (existing) {
+            // Different command — remove so we can re-add with the right one.
+            try {
+              execSync("codex mcp remove gnosys", { stdio: "pipe" });
+            } catch {
+              // Non-fatal — `mcp add` below will overwrite or fail loudly.
+            }
+          }
+        } catch {
+          // `codex mcp get` returns non-zero when the server isn't registered —
+          // that's the common case on first install; proceed to add.
+        }
+
+        if (alreadyCorrect) {
+          return {
+            success: true,
+            message:
+              "Codex MCP server already registered. Start a new Codex session for tool changes to take effect.",
+          };
+        }
+
+        // 4. Register via the canonical Codex CLI command.
+        try {
+          execSync(`codex mcp add gnosys -- ${gnosysCmd} serve`, { stdio: "pipe" });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          // Common failure: codex CLI not installed. Don't fail the whole
+          // setup flow; just report so the user can install codex first.
+          return {
+            success: false,
+            message:
+              `Could not run \`codex mcp add\` — is the Codex CLI installed and on PATH? ${msg}`,
+          };
+        }
+
+        return {
+          success: true,
+          message:
+            "Codex MCP server registered. Start a new Codex session for the Gnosys tools to appear.",
+        };
       }
 
       case "gemini-cli": {
@@ -2678,7 +2734,7 @@ function pickStorePath(projectDir: string): string {
  * Best-effort lookup of the API key for a provider. Used by the dream setup
  * wizard to power the validation step. Mirrors the resolveApiKey precedence.
  */
-async function getApiKeyForProvider(provider: string): Promise<string> {
+export async function getApiKeyForProvider(provider: string): Promise<string> {
   if (provider === "ollama" || provider === "lmstudio" || provider === "skip") return "";
   const envVarName = provider === "custom" ? "GNOSYS_CUSTOM_KEY" : `GNOSYS_${provider.toUpperCase()}_KEY`;
   const legacyVars: Record<string, string> = {

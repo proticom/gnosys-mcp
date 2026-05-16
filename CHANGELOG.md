@@ -5,6 +5,89 @@ All notable changes to Gnosys are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.8.5] — 2026-05-16
+
+Upgrade UX + the "anthropic is sticky" repair + a real Codex MCP fix.
+Five fixes that all surfaced while shaking down v5.8.4 on a real machine.
+
+### Fixed
+
+- **Codex MCP install actually works now.** v5.8.4 wrote a
+  `[mcp.gnosys] type = "local" command = ["gnosys", "serve"]` block to
+  `~/.codex/config.toml`. That schema is documented in some Codex
+  references but NOT recognized by the current Codex CLI — `codex mcp
+  list` wouldn't show gnosys and `codex mcp get gnosys` returned "No
+  MCP server named 'gnosys' found." The fix mirrors what Claude Code
+  has always done: shell out to the IDE's own registration command.
+  Now `setupIDE("codex", ...)`:
+  1. Strips both legacy hand-written blocks (`[gnosys]` from pre-5.8.4
+     and `[mcp.gnosys]` from 5.8.4) out of `~/.codex/config.toml` so
+     stale users get cleaned up.
+  2. Resolves the absolute path to `gnosys` via `command -v gnosys`.
+  3. Checks `codex mcp get gnosys` — leaves it alone if already
+     registered correctly; removes + re-adds if the command differs.
+  4. Runs `codex mcp add gnosys -- <absolute-gnosys> serve`.
+  5. Prints: "Start a new Codex session for the Gnosys tools to appear."
+  Acceptance: after `gnosys setup ides` (or `gnosys init` in a project
+  with `.codex/`), `codex mcp list` shows `gnosys` and `codex mcp get
+  gnosys` returns a stdio server with the right command. Failure mode
+  (Codex CLI not on PATH) reports cleanly without breaking the rest
+  of setup.
+- **`gnosys upgrade` now uses the FRESH binary for sync-projects.**
+  Previously the prompted post-install sync-projects call ran
+  `syncProjectsAction({})` in-process — i.e. on the OLD binary that
+  started `gnosys upgrade`, so the banner said "Gnosys v5.8.3 —
+  upgrading registered projects" right after installing 5.8.4. As a
+  side effect, the central DB also got stamped with the OLD version,
+  which then tripped the preAction warning forever. Fix: shell out
+  via `execSync("gnosys setup sync-projects", {stdio: "inherit"})`
+  so a fresh process picks up the upgraded global binary.
+- **Version-mismatch warnings are now direction-aware.** Previously
+  the preAction hook and postinstall nudge both fired whenever the
+  DB stamp ≠ the running pkg.version — including the very common
+  "you just upgraded and haven't re-stamped yet" case. That produced
+  a misleading "DB was upgraded to v5.8.3 by EdsMacStudio. You are
+  running v5.8.4. Run: npm install -g gnosys" banner. Now both
+  hooks use a small semver compare and only fire when meaningful:
+  - preAction: only when `dbVersion > pkg.version` (real cross-machine
+    "another machine is ahead of you" warning).
+  - postinstall nudge: only when `pkg.version > lastVersion` (you just
+    upgraded locally; suggests `gnosys setup sync-projects` to refresh
+    the stamp, NOT `npm install -g gnosys` like before).
+- **Anthropic-revert detection + one-keystroke repair.** When the
+  setup summary loads a config with `defaultProvider: anthropic`
+  AND no Anthropic key is configured anywhere (env / keychain) AND
+  another provider DOES have a key, the wizard now prompts:
+
+      ⚠ Your gnosys.json says defaultProvider: anthropic,
+        but no Anthropic API key is configured (env or keychain).
+        Found a key for xai.
+
+        This usually means a pre-v5.8.4 setup wizard seeded anthropic
+        by mistake.
+
+      Switch the default to xai? [Y/n]
+
+  Hitting Enter writes the corrected provider via the (now-safe)
+  `updateConfig`. No more silently honoring a value the file picked
+  up from a buggy default-seeding write.
+
+### Added
+
+- **Version banner after install.** `gnosys upgrade` now prints
+  "✓ Installed gnosys v5.8.5 (was v5.8.4)" between the npm install
+  output and the marker-write line, so the version transition is
+  obvious even though the rest of the upgrade flow still runs
+  in-process on the OLD binary.
+
+### Internal
+
+- Exported `getApiKeyForProvider(provider)` from `src/lib/setup.ts`
+  so the summary wizard's repair logic can probe env + keychain
+  without re-implementing the lookup.
+- Added a small `compareSemver(a, b)` helper at the bottom of
+  `cli.ts` — tolerant of "v" prefix and `-pre` / `+meta` suffixes.
+
 ## [5.8.4] — 2026-05-16
 
 Four real bugs caught during real-world setup-wizard use, plus a long-
