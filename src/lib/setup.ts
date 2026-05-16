@@ -680,6 +680,16 @@ export async function setupIDE(
       }
 
       case "codex": {
+        // v5.8.4: write the documented Codex MCP schema
+        //   [mcp.gnosys]
+        //   type = "local"
+        //   command = ["gnosys", "serve"]
+        //
+        // The old `[gnosys] command = "gnosys" args = ["serve"]` shape was
+        // never recognized by Codex CLI's current schema, so the install
+        // silently no-op'd from the agent's perspective. Migrate any old
+        // [gnosys] block we previously wrote so users on stale configs get
+        // the fix automatically.
         const codexDir = path.join(projectDir, ".codex");
         const configPath = path.join(codexDir, "config.toml");
         await fs.mkdir(codexDir, { recursive: true });
@@ -691,15 +701,22 @@ export async function setupIDE(
           // File doesn't exist — start fresh
         }
 
-        // Add gnosys section if not already present
-        if (!content.includes("[gnosys]")) {
+        // Strip the legacy [gnosys] block if present (3-line shape we used to write).
+        const legacyBlock = /\n?\[gnosys\][^\[]*?command\s*=\s*"gnosys"[^\[]*?args\s*=\s*\[[^\]]*\]\s*\n?/;
+        if (legacyBlock.test(content)) {
+          content = content.replace(legacyBlock, "\n").replace(/\n{3,}/g, "\n\n");
+        }
+
+        // Add the [mcp.gnosys] block if not already present.
+        if (!/\[mcp\.gnosys\]/.test(content)) {
           if (content.length > 0 && !content.endsWith("\n")) {
             content += "\n";
           }
-          content += `\n[gnosys]\ncommand = "gnosys"\nargs = ["serve"]\n`;
-          await fs.writeFile(configPath, content, "utf-8");
+          content += `\n[mcp.gnosys]\ntype = "local"\ncommand = ["gnosys", "serve"]\n`;
         }
-        return { success: true, message: "Codex config updated (.codex/config.toml)" };
+
+        await fs.writeFile(configPath, content, "utf-8");
+        return { success: true, message: "Codex MCP config updated (.codex/config.toml)" };
       }
 
       case "gemini-cli": {
@@ -1980,6 +1997,12 @@ export interface ModelsSetupOpts {
   model?: string;
   validate?: boolean;
   directory?: string;
+  /**
+   * v5.8.4: accept the caller's readline (e.g. from the summary wizard).
+   * When provided, we don't open or close one of our own — preventing two
+   * readlines from racing for stdin and doubling every keystroke.
+   */
+  rl?: ReadlineInterface;
 }
 
 /**
@@ -1989,7 +2012,8 @@ export interface ModelsSetupOpts {
  */
 export async function runModelsSetup(opts: ModelsSetupOpts = {}): Promise<void> {
   const projectDir = opts.directory ? path.resolve(opts.directory) : process.cwd();
-  const rl = createInterface({ input: stdin, output: stdout });
+  const ownsRl = !opts.rl;
+  const rl = opts.rl ?? createInterface({ input: stdin, output: stdout });
 
   try {
     console.log();
@@ -2132,7 +2156,7 @@ export async function runModelsSetup(opts: ModelsSetupOpts = {}): Promise<void> 
     console.log(`  ${DIM}Provider: ${provider}${RESET}`);
     console.log(`  ${DIM}Model:    ${model}${RESET}`);
   } finally {
-    rl.close();
+    if (ownsRl) rl.close();
   }
 }
 
@@ -2236,6 +2260,8 @@ export async function runModelsCommand(opts: ModelsCommandOpts = {}): Promise<vo
 
 export interface DreamSetupOpts {
   directory?: string;
+  /** v5.8.4: reuse the caller's readline (e.g. summary wizard) to avoid stdin races. */
+  rl?: ReadlineInterface;
 }
 
 /**
@@ -2251,7 +2277,8 @@ export interface DreamSetupOpts {
  */
 export async function runDreamSetup(opts: DreamSetupOpts = {}): Promise<void> {
   const projectDir = opts.directory ? path.resolve(opts.directory) : process.cwd();
-  const rl = createInterface({ input: stdin, output: stdout });
+  const ownsRl = !opts.rl;
+  const rl = opts.rl ?? createInterface({ input: stdin, output: stdout });
 
   try {
     console.log();
@@ -2444,7 +2471,7 @@ export async function runDreamSetup(opts: DreamSetupOpts = {}): Promise<void> {
     console.log();
     console.log(`${DIM}Tip: 'gnosys dream log' shows recent runs once dream starts cycling.${RESET}`);
   } finally {
-    rl.close();
+    if (ownsRl) rl.close();
   }
 }
 
@@ -2462,11 +2489,14 @@ export async function runDreamSetup(opts: DreamSetupOpts = {}): Promise<void> {
 
 interface ChatSetupOpts {
   directory?: string;
+  /** v5.8.4: reuse the caller's readline (e.g. summary wizard) to avoid stdin races. */
+  rl?: ReadlineInterface;
 }
 
 export async function runChatSetup(opts: ChatSetupOpts = {}): Promise<void> {
   const projectDir = opts.directory ? path.resolve(opts.directory) : process.cwd();
-  const rl = createInterface({ input: stdin, output: stdout });
+  const ownsRl = !opts.rl;
+  const rl = opts.rl ?? createInterface({ input: stdin, output: stdout });
 
   try {
     console.log();
@@ -2627,7 +2657,7 @@ export async function runChatSetup(opts: ChatSetupOpts = {}): Promise<void> {
     console.log();
     console.log(`${DIM}Tip: run 'gnosys chat' to start a session.${RESET}`);
   } finally {
-    rl.close();
+    if (ownsRl) rl.close();
   }
 }
 

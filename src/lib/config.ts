@@ -610,16 +610,26 @@ export async function writeConfig(
 
 /**
  * Update specific fields in gnosys.json without overwriting the whole file.
+ *
+ * v5.8.4: writes the RAW merged object, not the schema-validated/defaulted
+ * one. The schema still validates for type safety, but we don't persist
+ * the defaults — only what was already in the file plus what the caller
+ * explicitly passed in `updates`. Otherwise, writing any single section
+ * (e.g. `chat`) to a fresh storePath would silently seed `defaultProvider`
+ * = "anthropic" (the schema default) into the file, clobbering a value
+ * the user had set via env var, keychain, or a prior session.
  */
 export async function updateConfig(
   storePath: string,
   updates: Record<string, unknown>
 ): Promise<GnosysConfig> {
-  const existing = await loadConfig(storePath);
-  const merged = { ...existing, ...updates };
-  const validated = GnosysConfigSchema.parse(merged);
   const configPath = path.join(storePath, "gnosys.json");
-  await fs.writeFile(configPath, JSON.stringify(validated, null, 2) + "\n", "utf-8");
+  const rawExisting = (await readRawConfig(configPath)) ?? {};
+  const merged = deepMergeConfig(rawExisting, updates);
+  // Validate for shape/type errors. The validated object has defaults
+  // applied; we deliberately throw it away and persist `merged` instead.
+  const validated = GnosysConfigSchema.parse(merged);
+  await fs.writeFile(configPath, JSON.stringify(merged, null, 2) + "\n", "utf-8");
   return validated;
 }
 

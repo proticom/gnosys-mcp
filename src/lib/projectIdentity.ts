@@ -283,14 +283,41 @@ export async function configureClaudeCode(projectDir: string): Promise<IdeHookRe
     await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf-8");
   }
 
+  // v5.8.4: also register the MCP server itself (not just the recall hook),
+  // so `gnosys init` is a one-stop shop. Previously the user had to ALSO
+  // run `gnosys setup` for agents to actually call gnosys MCP tools.
+  const mcpResult = await registerMcpServer("claude", projectDir);
+
   return {
     ide: "claude-code",
     configured: true,
     filePath: settingsPath,
-    details: hasGnosysHook
-      ? "SessionStart hook already configured"
-      : "Added SessionStart hook for automatic memory recall",
+    details: [
+      hasGnosysHook ? "SessionStart hook already configured" : "Added SessionStart hook",
+      mcpResult.success ? mcpResult.message : `MCP register skipped: ${mcpResult.message}`,
+    ].join("; "),
   };
+}
+
+/**
+ * v5.8.4: register the gnosys MCP server with the given IDE. Wraps the
+ * `setupIDE` helper from setup.ts so configureClaudeCode/Codex/Cursor can
+ * bundle MCP install into `gnosys init` without duplicating each IDE's
+ * config-file logic.
+ */
+async function registerMcpServer(
+  ide: "claude" | "codex" | "cursor",
+  projectDir: string,
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const { setupIDE } = await import("./setup.js");
+    return await setupIDE(ide, projectDir);
+  } catch (err) {
+    return {
+      success: false,
+      message: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 /**
@@ -360,13 +387,19 @@ export async function configureCodex(projectDir: string): Promise<IdeHookResult>
     await fs.writeFile(configPath, configContent, "utf-8");
   }
 
+  // v5.8.4: also register the MCP server in .codex/config.toml.
+  const mcpResult = await registerMcpServer("codex", projectDir);
+
   return {
     ide: "codex",
     configured: true,
     filePath: hooksPath,
-    details: hasGnosysHook
-      ? "SessionStart hook already configured"
-      : "Added SessionStart hook + enabled hooks feature flag",
+    details: [
+      hasGnosysHook
+        ? "SessionStart hook already configured"
+        : "Added SessionStart hook + enabled hooks feature flag",
+      mcpResult.success ? mcpResult.message : `MCP register skipped: ${mcpResult.message}`,
+    ].join("; "),
   };
 }
 
@@ -424,13 +457,19 @@ This is not optional. Gnosys contains project decisions, architecture, and conte
     await fs.writeFile(rulePath, ruleContent, "utf-8");
   }
 
+  // v5.8.4: also register the MCP server in .cursor/mcp.json.
+  const mcpResult = await registerMcpServer("cursor", projectDir);
+
   return {
     ide: "cursor",
     configured: true,
     filePath: rulePath,
-    details: alreadyExists
-      ? "Cursor rule already exists at .cursor/rules/gnosys.mdc"
-      : "Created alwaysApply rule for automatic memory recall instructions",
+    details: [
+      alreadyExists
+        ? "Cursor rule already exists at .cursor/rules/gnosys.mdc"
+        : "Created alwaysApply rule for automatic memory recall instructions",
+      mcpResult.success ? mcpResult.message : `MCP register skipped: ${mcpResult.message}`,
+    ].join("; "),
   };
 }
 

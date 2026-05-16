@@ -51,9 +51,11 @@ export function buildSections(): SummarySection[] {
       key: "1",
       label: "Provider",
       describe: (cfg) => cfg.llm.defaultProvider,
-      edit: async (_rl, _cfg, projectDir) => {
+      edit: async (rl, _cfg, projectDir) => {
         const { runModelsSetup } = await import("../setup.js");
-        await runModelsSetup({ directory: projectDir });
+        // v5.8.4: pass the summary's readline through so we don't open a
+        // second one and double every keystroke.
+        await runModelsSetup({ directory: projectDir, rl });
         return true;
       },
     },
@@ -64,9 +66,9 @@ export function buildSections(): SummarySection[] {
         const synth = resolveTaskModel(cfg, "synthesis");
         return `${synth.provider} / ${synth.model}`;
       },
-      edit: async (_rl, _cfg, projectDir) => {
+      edit: async (rl, _cfg, projectDir) => {
         const { runModelsSetup } = await import("../setup.js");
-        await runModelsSetup({ directory: projectDir });
+        await runModelsSetup({ directory: projectDir, rl });
         return true;
       },
     },
@@ -124,9 +126,9 @@ export function buildSections(): SummarySection[] {
         const model = cfg.dream.model ?? "default";
         return `${provider} / ${model}`;
       },
-      edit: async (_rl, _cfg, projectDir) => {
+      edit: async (rl, _cfg, projectDir) => {
         const { runDreamSetup } = await import("../setup.js");
-        await runDreamSetup({ directory: projectDir });
+        await runDreamSetup({ directory: projectDir, rl });
         return true;
       },
     },

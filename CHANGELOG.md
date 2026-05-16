@@ -5,6 +5,67 @@ All notable changes to Gnosys are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.8.4] — 2026-05-16
+
+Four real bugs caught during real-world setup-wizard use, plus a long-
+standing Codex MCP install gap.
+
+### Fixed
+
+- **Setup wizard no longer reverts the user's provider to "anthropic"
+  on a fresh gnosys.json.** Root cause: `updateConfig` (used by every
+  setup section — chat, dream, IDEs, etc.) read existing config via
+  `loadConfig`, which fills in `DEFAULT_CONFIG` when the file is
+  missing. The full defaulted object then got persisted, silently
+  seeding `llm.defaultProvider: "anthropic"` into a file the user
+  had previously kept empty (relying on env var / keychain / manual
+  config). Fix: `updateConfig` now reads via `readRawConfig` (raw
+  JSON, no defaults applied) and writes only the raw merged object.
+  Schema still validates for shape — defaults are no longer
+  persisted. Most likely v5.8.0 trigger: `gnosys setup chat` writing
+  a chat section to a directory without an existing gnosys.json. (#94)
+- **Doubled-keypress in `gnosys setup` summary wizard.** Typing "1"
+  showed as "11" inside section editors because each section
+  (`runModelsSetup`, `runDreamSetup`, `runChatSetup`) created its own
+  readline interface while the summary's readline was still active —
+  two readers racing on the same stdin. Fix: section editors now
+  accept an optional `rl` from `opts`; the summary passes its
+  readline through. Standalone invocations (`gnosys setup models`)
+  still open and close their own readline. (#95)
+- **Option 7 ("User Preferences") now actually manages preferences.**
+  Old behaviour: listed ALL user-scope memories regardless of
+  category, and offered no way to set a new preference — so for
+  users with no prior imports it just said "0 stored" and exited.
+  Fix: filters to category=preferences (matching what `gnosys pref
+  set` writes), adds a "[N]ew" option to set a preference inline,
+  shows key + value preview, deletes via `deletePreference`. (#96)
+- **`gnosys setup` Codex MCP install used the wrong schema.**
+  Wrote `[gnosys] command = "gnosys" args = ["serve"]` to
+  `.codex/config.toml`. Current Codex CLI expects
+  `[mcp.gnosys] type = "local" command = ["gnosys", "serve"]`, so
+  the install was a silent no-op. Fix: emit the documented shape.
+  Existing legacy `[gnosys]` blocks (3-line shape we used to write)
+  are detected and stripped before adding the new block — users on
+  stale configs get the fix automatically on next `gnosys setup`. (#97)
+
+### Added
+
+- **`gnosys init` / `gnosys_init` now also registers the MCP server**,
+  not just the SessionStart recall hook. `configureClaudeCode`,
+  `configureCodex`, and `configureCursor` in `projectIdentity.ts`
+  each call `setupIDE(ide, projectDir)` after their hook setup. So a
+  fresh project gets a working agent-callable gnosys in one step —
+  previously you had to also run `gnosys setup` separately. (#97)
+
+### Tests
+
+- **3 new regression tests** in `src/test/v584-updateConfig.test.ts`
+  for the anthropic-revert fix: writing a partial update to a fresh
+  store doesn't seed `llm.defaultProvider`; existing xai config
+  survives an unrelated section write; nested objects deep-merge
+  rather than replacing outright. Total file count: 55, tests:
+  941 (was 938).
+
 ## [5.8.3] — 2026-05-15
 
 Polish patch: clickable citations, two CI guardrails that close the
