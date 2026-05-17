@@ -23,6 +23,10 @@ import Spinner from "ink-spinner";
 import { ChatHeaderInfo, ChatStatus, Turn } from "./types.js";
 import { dispatchCommand, CommandContext, listCommands } from "./commands.js";
 import { SlashPalette, filterCommands } from "./SlashPalette.js";
+import { THEME, ROLES } from "./theme.js";
+import { BootSplash } from "./boot-splash.js";
+import { MarkdownRenderer } from "./components/MarkdownRenderer.js";
+import { ToolCallCard } from "./components/ToolCallCard.js";
 import { appendEvent } from "./session.js";
 import { runTurn, buildProvider } from "./llmTurn.js";
 import { runRecall, reinforceMemory, buildRecallQuery, RecallScope } from "./recall.js";
@@ -677,6 +681,16 @@ export const ChatApp: React.FC<ChatAppProps> = ({ initialHeader, initialBuffer, 
         setStatus({ kind: "streaming", partial });
         lastRenderAt = Date.now();
       };
+      // v5.9.0 (#101 phase δ): collect tool calls into a per-turn record list
+      // so the assistant turn can render them as inline cards instead of
+      // ephemeral system notices.
+      const turnToolCalls: Array<{
+        tool: string;
+        args: Record<string, string>;
+        result?: string;
+        error?: string;
+        ts: string;
+      }> = [];
       const result = await runTurn(configRef.current, {
         buffer: [...buffer, userTurn],
         userInput: text,
@@ -686,21 +700,20 @@ export const ChatApp: React.FC<ChatAppProps> = ({ initialHeader, initialBuffer, 
           if (Date.now() - lastRenderAt >= 16) flushPartial();
         },
         onToolCall: (info) => {
-          if (info.error) {
-            pushSystem(`tool ${info.tool} failed: ${info.error}`);
-          } else {
-            const argSummary = Object.keys(info.args).length > 0
-              ? ` ${Object.entries(info.args).map(([k, v]) => `${k}=${v}`).join(", ")}`
-              : "";
-            pushSystem(`called ${info.tool}${argSummary}`);
-            appendEvent(header.sessionId, {
-              type: "command",
-              ts: nowIso(),
-              name: `tool:${info.tool}`,
-              args: Object.entries(info.args).map(([k, v]) => `${k}=${v}`),
-              result: info.result?.slice(0, 200),
-            });
-          }
+          turnToolCalls.push({
+            tool: info.tool,
+            args: info.args,
+            result: info.error ? undefined : info.result,
+            error: info.error,
+            ts: nowIso(),
+          });
+          appendEvent(header.sessionId, {
+            type: "command",
+            ts: nowIso(),
+            name: `tool:${info.tool}`,
+            args: Object.entries(info.args).map(([k, v]) => `${k}=${v}`),
+            result: info.result?.slice(0, 200),
+          });
         },
       });
 
@@ -741,6 +754,9 @@ export const ChatApp: React.FC<ChatAppProps> = ({ initialHeader, initialBuffer, 
         provider: result.provider,
         model: result.model,
         citedMemoryIds: result.recalledIds,
+        // v5.9.0 (#101 phase δ): attach this turn's tool calls so they
+        // render as inline cards inside ConversationTurn.
+        toolCalls: turnToolCalls.length > 0 ? turnToolCalls : undefined,
       };
       setBuffer((b) => [...b, assistantTurn]);
       appendEvent(header.sessionId, {
@@ -788,14 +804,25 @@ export const ChatApp: React.FC<ChatAppProps> = ({ initialHeader, initialBuffer, 
         branchCount={focusState.branches.length}
       />
 
+      {/* v5.9.0 (#101 phase α): boot splash shows only on truly fresh
+          sessions (empty buffer) — disappears as soon as the first turn
+          lands so it doesn't waste vertical space mid-conversation. */}
+      {buffer.length === 0 && status.kind === "idle" && (
+        <BootSplash
+          subtitle={`memory for ai agents · ${header.provider}/${header.model}`}
+        />
+      )}
+
       <Box flexDirection="column" marginTop={1}>
         {buffer.map((turn, i) => (
           <ConversationTurn key={i} turn={turn} />
         ))}
         {status.kind === "streaming" && (
           <Box flexDirection="column">
-            <Text color="cyan">assistant:</Text>
-            <Text>{status.partial}</Text>
+            <Text color={ROLES.assistant} bold>
+              gnosys
+            </Text>
+            <Text color={THEME.text}>{status.partial}</Text>
           </Box>
         )}
       </Box>
@@ -816,10 +843,10 @@ export const ChatApp: React.FC<ChatAppProps> = ({ initialHeader, initialBuffer, 
 
       {pendingIntent && (
         <Box marginTop={1} flexDirection="column">
-          <Text color="magenta">
+          <Text color={THEME.accentHover}>
             inferred: {describeIntent(pendingIntent)}{isDestructive(pendingIntent.command) ? " (destructive)" : ""}
           </Text>
-          <Text dimColor>[Y]es · [N]o · [E]dit · or type a new message</Text>
+          <Text color={THEME.muted}>[Y]es · [N]o · [E]dit · or type a new message</Text>
         </Box>
       )}
 
@@ -927,7 +954,9 @@ const ChoosePicker: React.FC<{ block: ChooseBlock; onSelect: (opt: ChooseOption)
   }));
   return (
     <Box flexDirection="column" marginTop={1}>
-      <Text color="magenta">{block.prompt}</Text>
+      <Text color={THEME.accent} bold>
+        {block.prompt}
+      </Text>
       <SelectInput
         items={items}
         onSelect={(item) => {
@@ -949,34 +978,36 @@ const ChatHeader: React.FC<{
 }> = ({ info, recallScope, threshold, pinnedCount, focus, branchCount }) => (
   <Box flexDirection="column">
     <Box>
-      <Text color="green">gnosys chat</Text>
-      <Text>  </Text>
-      <Text dimColor>session={info.sessionId.slice(0, 8)}…</Text>
-      <Text>  </Text>
+      <Text color={THEME.accent} bold>
+        gnosys
+      </Text>
+      <Text color={THEME.muted}>  ·  </Text>
+      <Text color={THEME.muted}>session={info.sessionId.slice(0, 8)}…</Text>
+      <Text color={THEME.muted}>  ·  </Text>
       {info.projectName && (
         <>
-          <Text dimColor>project={info.projectName}</Text>
-          <Text>  </Text>
+          <Text color={THEME.muted}>project={info.projectName}</Text>
+          <Text color={THEME.muted}>  ·  </Text>
         </>
       )}
-      <Text dimColor>{info.provider}/{info.model}</Text>
+      <Text color={THEME.muted}>{info.provider}/{info.model}</Text>
     </Box>
     <Box>
-      <Text dimColor>recall: scope={recallScope}</Text>
-      <Text>  </Text>
-      <Text dimColor>threshold={threshold.toFixed(2)}</Text>
-      <Text>  </Text>
-      <Text dimColor>pinned={pinnedCount}</Text>
+      <Text color={THEME.muted}>recall: scope={recallScope}</Text>
+      <Text color={THEME.muted}>  ·  </Text>
+      <Text color={THEME.muted}>threshold={threshold.toFixed(2)}</Text>
+      <Text color={THEME.muted}>  ·  </Text>
+      <Text color={THEME.muted}>pinned={pinnedCount}</Text>
       {focus && (
         <>
-          <Text>  </Text>
-          <Text dimColor>focus={focus}</Text>
+          <Text color={THEME.muted}>  ·  </Text>
+          <Text color={THEME.accentHover}>focus={focus}</Text>
         </>
       )}
       {branchCount > 0 && (
         <>
-          <Text>  </Text>
-          <Text dimColor>branches={branchCount}</Text>
+          <Text color={THEME.muted}>  ·  </Text>
+          <Text color={THEME.muted}>branches={branchCount}</Text>
         </>
       )}
     </Box>
@@ -984,22 +1015,40 @@ const ChatHeader: React.FC<{
 );
 
 const ConversationTurn: React.FC<{ turn: Turn }> = ({ turn }) => {
+  // v5.9.0 (#101 phase α): role-colored turn labels using the brand palette.
+  // - user label: brand red
+  // - assistant label: text primary (de-emphasized so prose carries it)
+  // - system: muted gray
   if (turn.role === "user") {
     return (
       <Box flexDirection="column" marginBottom={1}>
-        <Text color="yellow">you:</Text>
-        <Text>{turn.text}</Text>
+        <Text color={ROLES.user} bold>
+          you
+        </Text>
+        <Text color={THEME.text}>{turn.text}</Text>
       </Box>
     );
   }
   if (turn.role === "assistant") {
     const cited = turn.citedMemoryIds ?? [];
+    const toolCalls = turn.toolCalls ?? [];
     return (
       <Box flexDirection="column" marginBottom={1}>
-        <Text color="cyan">assistant:</Text>
-        <Text>{turn.text}</Text>
+        <Text color={ROLES.assistant} bold>
+          gnosys
+        </Text>
+        {/* v5.9.0 (#101 phase β): full markdown rendering for assistant turns. */}
+        <MarkdownRenderer text={turn.text} />
+        {/* v5.9.0 (#101 phase δ): tool-call cards (collapsed by default). */}
+        {toolCalls.length > 0 && (
+          <Box flexDirection="column" marginTop={1}>
+            {toolCalls.map((call, i) => (
+              <ToolCallCard key={i} call={call} expanded={false} />
+            ))}
+          </Box>
+        )}
         {cited.length > 0 && (
-          <Text dimColor>
+          <Text color={THEME.muted}>
             cited: {cited.map((id) => `[${id}]`).join(" ")}
           </Text>
         )}
@@ -1008,7 +1057,7 @@ const ConversationTurn: React.FC<{ turn: Turn }> = ({ turn }) => {
   }
   return (
     <Box marginBottom={1}>
-      <Text dimColor>· {turn.text}</Text>
+      <Text color={ROLES.system}>· {turn.text}</Text>
     </Box>
   );
 };
@@ -1016,20 +1065,24 @@ const ConversationTurn: React.FC<{ turn: Turn }> = ({ turn }) => {
 const StatusLine: React.FC<{ status: ChatStatus }> = ({ status }) => {
   switch (status.kind) {
     case "idle":
-      return <Text dimColor>ready — type /help for commands, /quit to exit</Text>;
+      return (
+        <Text color={THEME.muted}>
+          ready — type /help for commands, /quit to exit
+        </Text>
+      );
     case "thinking":
       return (
-        <Text color="cyan">
+        <Text color={ROLES.spinner}>
           <Spinner type="dots" /> thinking…
         </Text>
       );
     case "streaming":
       return (
-        <Text color="cyan">
+        <Text color={ROLES.spinner}>
           <Spinner type="dots" /> streaming…
         </Text>
       );
     case "error":
-      return <Text color="red">error: {status.message}</Text>;
+      return <Text color={THEME.error}>error: {status.message}</Text>;
   }
 };

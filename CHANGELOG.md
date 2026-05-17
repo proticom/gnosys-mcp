@@ -5,6 +5,69 @@ All notable changes to Gnosys are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.9.0] — 2026-05-17
+
+Chat TUI rebuild — graphical, branded, fast. The chat interface gets a
+visual overhaul: brand-palette boot splash, full markdown rendering for
+assistant turns, inline OSC8 citation hyperlinks, and tool-call cards.
+
+### Added — graphical chat TUI (phases α-δ of road-009 #101)
+
+- **Brand palette throughout the chat.** New `src/lib/chat/theme.ts`
+  module — single source of truth for colors, pulled directly from the
+  gnosys-site dark theme. Brand red `#C04C4C` is the signature accent;
+  text `#E4E2E8` on `#12141A` bg; muted `#6E6C78` for system notices.
+  Every turn label, status line, spinner, and divider uses these
+  centrally instead of hardcoded `cyan`/`yellow`/`magenta`.
+- **Boot splash on fresh sessions.** Lowercase italic "gnosys" wordmark
+  (figlet Small Slant) with the polygonal `o` letter tinted brand red.
+  Renders only when the buffer is empty — disappears the moment the
+  first turn lands so it doesn't waste vertical space mid-conversation.
+  Subtitle shows the active provider/model.
+  Files: `src/lib/chat/boot-splash.tsx`.
+- **Full markdown rendering for assistant turns.** New
+  `src/lib/chat/components/MarkdownRenderer.tsx` — parses with `marked`
+  (lexer-only, no HTML output), walks the token tree, emits ink
+  components. Supported: h1-h6 headings (red `#` prefix + bold), bullet
+  + numbered lists (nested), code blocks with syntax highlight (via
+  `cli-highlight`, with rounded border + lang label), block quotes
+  (red left-bar), tables (aligned with red header row), horizontal
+  rules, links (underlined hover-red + dim URL), bold/italic/inline-
+  code/strikethrough inline. AST memoized per turn so re-render is
+  free. Dependencies added: `marked@^14`, `cli-highlight@^2`.
+- **Inline citation hyperlinks.** Assistant prose containing memory IDs
+  (`deci-01HXXJK2…`, `pref-code-style`, etc.) renders each match as a
+  brand-red OSC8 hyperlink pointing at `gnosys://memory/<full-id>`.
+  Pattern requires either explicit `pref-` prefix OR at least one
+  uppercase/digit in the suffix, so prose like "test-cases" or
+  "well-known" stays plain. Reuses v5.8.3's `memoryUri` + `osc8Wrap`
+  helpers. Files: `src/lib/chat/components/CitationText.tsx`.
+- **Tool-call cards (inline, collapsed by default).** When the LLM
+  emits a `gnosys-tool` fence and the runtime executes it, the call
+  now renders as a styled card INSIDE the assistant turn — rounded
+  brand-red border, one-line args summary when collapsed, full args +
+  truncated result on expand. Replaces the v5.8.0 transient "called X"
+  system notice. Tool-call records are attached to the assistant turn
+  via a new `toolCalls` field on the `Turn` type. Files:
+  `src/lib/chat/components/ToolCallCard.tsx`, `src/lib/chat/types.ts`.
+
+### Tests
+
+- **10 new tests** in `src/test/v590-chat-tui.test.ts` for the
+  `splitCitations` parser (covers single/multiple matches,
+  start/end-of-string, ULID + pref- prefix, ellipsis preservation,
+  false-positive prevention on plain kebab words). Suite total
+  now 951 tests across 56 files.
+
+### Deferred to v5.9.1 (Phase ε polish)
+
+- Windowing for buffers >40 turns (re-render cost grows with buffer
+  length right now).
+- Smarter line-wrapping with hanging indents on lists.
+- Spinner micro-refinements (subtle pulse on assistant turn while
+  streaming).
+- Mouse scroll support (ink/ink-text-input limitations).
+
 ## [5.8.6] — 2026-05-16
 
 CI hotfix #4 in the v5.8.x cascade — coverage threshold tripped at
