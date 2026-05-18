@@ -18,16 +18,15 @@
  *   - Uses cheap/local LLM (configurable, defaults to Ollama)
  */
 
-import { GnosysDB, DbMemory, DbSummary } from "./db.js";
-import { GnosysConfig, DEFAULT_CONFIG, LLMProviderName } from "./config.js";
+import { GnosysDB, DbMemory } from "./db.js";
+import { GnosysConfig, LLMProviderName } from "./config.js";
 import { LLMProvider, getLLMProvider } from "./llm.js";
-import { GnosysResolver } from "./resolver.js";
-import { GnosysMaintenanceEngine, MaintenanceReport } from "./maintenance.js";
 import { notifyDesktop } from "./desktopNotify.js";
+import { syncConfidenceToDb, auditToDb } from "./dbWrite.js";
 
 /** Layer 4 alert threshold: fire desktop notification at this many consecutive provider failures. */
 const DREAM_FAILURE_NOTIFY_THRESHOLD = 3;
-import { syncConfidenceToDb, auditToDb } from "./dbWrite.js";
+
 // ─── Config Schema ───────────────────────────────────────────────────────
 
 export interface DreamConfig {

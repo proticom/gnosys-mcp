@@ -12,7 +12,7 @@
 
 import fs from "fs";
 import path from "path";
-import { GnosysDB, DbMemory } from "./db.js";
+import { GnosysDB } from "./db.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 

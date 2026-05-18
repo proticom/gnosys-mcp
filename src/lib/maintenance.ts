@@ -21,9 +21,6 @@ import { syncMemoryToDb, syncUpdateToDb, syncConfidenceToDb, syncReinforcementTo
 import { acquireWriteLock } from "./lock.js";
 import { auditLog } from "./audit.js";
 import { execFileSync } from "child_process";
-import path from "path";
-import fs from "fs/promises";
-import matter from "gray-matter";
 
 // ─── Constants ────────────────────────────────────────────────────────────
 
@@ -667,48 +664,6 @@ function jaccardSimilarity(a: string, b: string): number {
 
   const union = wordsA.size + wordsB.size - intersection;
   return union > 0 ? intersection / union : 0;
-}
-
-/**
- * Execute an operation with safe Git commit and rollback on failure.
- */
-async function safeGitOperation(
-  storePath: string,
-  commitMessage: string,
-  operation: () => Promise<void>
-): Promise<void> {
-  // Record the current HEAD for rollback
-  let headBefore: string;
-  try {
-    headBefore = execFileSync("git", ["rev-parse", "HEAD"], { cwd: storePath, stdio: "pipe" }).toString().trim();
-  } catch {
-    // No git or no commits yet — just run the operation
-    await operation();
-    return;
-  }
-
-  try {
-    await operation();
-
-    // Commit the changes
-    try {
-      execFileSync("git", ["add", "-A"], { cwd: storePath, stdio: "pipe" });
-      execFileSync("git", ["commit", "-m", `maintenance: ${commitMessage}`], { cwd: storePath, stdio: "pipe" });
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      if (!errMsg.includes("nothing to commit") && !errMsg.includes("no changes added")) {
-        throw err;
-      }
-    }
-  } catch (err) {
-    // Rollback on failure
-    try {
-      execFileSync("git", ["reset", "--hard", headBefore], { cwd: storePath, stdio: "pipe" });
-    } catch {
-      // If even rollback fails, nothing we can do
-    }
-    throw err;
-  }
 }
 
 /**

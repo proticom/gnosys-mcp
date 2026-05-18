@@ -22,7 +22,6 @@ try {
 import path from "path";
 import fs from "fs/promises";
 import { statSync } from "fs";
-import matter from "gray-matter";
 import { GnosysStore, Memory, MemoryFrontmatter } from "./store.js";
 import { GnosysDB } from "./db.js";
 import { syncMemoryToDb, syncDearchiveToDb } from "./dbWrite.js";
