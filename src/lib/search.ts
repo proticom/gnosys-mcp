@@ -12,7 +12,7 @@ try {
   // better-sqlite3 native module not available — search degrades gracefully
 }
 import path from "path";
-import { GnosysStore, Memory } from "./store.js";
+import { GnosysStore } from "./store.js";
 
 export interface SearchResult {
   relative_path: string;

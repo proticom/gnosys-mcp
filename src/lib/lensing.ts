@@ -5,7 +5,7 @@
  * Compound lenses combine multiple filters with AND/OR logic.
  */
 
-import { Memory, MemoryFrontmatter } from "./store.js";
+import { Memory } from "./store.js";
 
 export interface LensFilter {
   category?: string;

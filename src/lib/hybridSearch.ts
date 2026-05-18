@@ -8,11 +8,10 @@
  *   hybrid   — RRF fusion of both (default when embeddings exist)
  */
 
-import { GnosysSearch, SearchResult } from "./search.js";
+import { GnosysSearch } from "./search.js";
 import { GnosysEmbeddings } from "./embeddings.js";
-import { GnosysStore, Memory } from "./store.js";
 import { GnosysResolver, LayeredMemory } from "./resolver.js";
-import { GnosysArchive, ArchiveSearchResult } from "./archive.js";
+import { GnosysArchive } from "./archive.js";
 import { GnosysDbSearch } from "./dbSearch.js";
 import { GnosysDB } from "./db.js";
 
