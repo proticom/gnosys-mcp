@@ -23,8 +23,6 @@ import { Preference, getAllPreferences } from "./preferences.js";
 
 const MARKER_START_HTML = "<!-- GNOSYS:START -->";
 const MARKER_END_HTML = "<!-- GNOSYS:END -->";
-const MARKER_START_MDC = "<!-- GNOSYS:START -->";
-const MARKER_END_MDC = "<!-- GNOSYS:END -->";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
