@@ -8,7 +8,7 @@
 
 import path from "path";
 import { GnosysDB, fnv1a, MigrationStats } from "./db.js";
-import { GnosysStore, Memory } from "./store.js";
+import { GnosysStore } from "./store.js";
 import { GnosysArchive } from "./archive.js";
 
 // Dynamic import for embeddings DB
