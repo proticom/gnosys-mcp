@@ -44,31 +44,32 @@ import fs from "fs/promises";
 import { MemoryFrontmatter } from "./lib/store.js";
 import { GnosysSearch } from "./lib/search.js";
 import { GnosysTagRegistry } from "./lib/tags.js";
-import { performImport, formatImportSummary, estimateDuration } from "./lib/import.js";
-import { GnosysIngestion } from "./lib/ingest.js";
 import { GnosysResolver } from "./lib/resolver.js";
 import { applyLens, applyCompoundLens, LensFilter, CompoundLens } from "./lib/lensing.js";
 import { getFileHistory, getFileAtCommit, rollbackToCommit, hasGitHistory, getFileDiff } from "./lib/history.js";
 import { groupByPeriod, computeStats, TimePeriod } from "./lib/timeline.js";
 import { buildLinkGraph, getBacklinks, getOutgoingLinks, formatGraphSummary } from "./lib/wikilinks.js";
-import { bootstrap, discoverFiles } from "./lib/bootstrap.js";
 import { loadConfig, GnosysConfig, DEFAULT_CONFIG } from "./lib/config.js";
-import { GnosysEmbeddings } from "./lib/embeddings.js";
-import { GnosysHybridSearch } from "./lib/hybridSearch.js";
-import { GnosysAsk } from "./lib/ask.js";
 import { getLLMProvider, isProviderAvailable, LLMProvider } from "./lib/llm.js";
-import { GnosysMaintenanceEngine, formatMaintenanceReport } from "./lib/maintenance.js";
 import { recall, formatRecall, formatRecallCLI } from "./lib/recall.js";
 import { initAudit, readAuditLog, formatAuditTimeline } from "./lib/audit.js";
 import { GnosysDB } from "./lib/db.js";
 import { syncMemoryToDb, syncUpdateToDb, syncArchiveToDb, syncDearchiveToDb, syncReinforcementToDb, auditToDb } from "./lib/dbWrite.js";
-import { GnosysDreamEngine, DreamScheduler, formatDreamReport } from "./lib/dream.js";
-import { GnosysExporter, formatExportReport } from "./lib/export.js";
 import { createProjectIdentity, readProjectIdentity, findProjectIdentity, checkDirectoryMismatch } from "./lib/projectIdentity.js";
 import { setPreference, getPreference, getAllPreferences, deletePreference, Preference } from "./lib/preferences.js";
 import { syncRules, generateRulesBlock, removeRulesBlock } from "./lib/rulesGen.js";
 import { federatedSearch, federatedDiscover, detectAmbiguity, generateBriefing, generateAllBriefings, getWorkingSet, formatWorkingSet, detectCurrentProject } from "./lib/federated.js";
 import { generatePortfolio, formatPortfolioCompact, formatPortfolioMarkdown, generateStatusPrompt } from "./lib/portfolio.js";
+
+// v5.9.1 (#100): heavy modules — pulled in via dynamic import() inside the
+// handlers that actually use them, so the MCP server's cold-start doesn't
+// pay the ~3-25s import cost for @huggingface/transformers, mammoth,
+// pdf-parse, etc. These are type-only imports — zero runtime cost.
+import type { GnosysIngestion } from "./lib/ingest.js";
+import type { GnosysEmbeddings } from "./lib/embeddings.js";
+import type { GnosysHybridSearch } from "./lib/hybridSearch.js";
+import type { GnosysAsk } from "./lib/ask.js";
+import type { GnosysDreamEngine, DreamScheduler } from "./lib/dream.js";
 
 // Initialize resolver (discovers all layered stores)
 const resolver = new GnosysResolver();
@@ -611,7 +612,11 @@ server.tool(
       };
     }
 
-    // Note: ingestion remains module-level since it's heavy and project-agnostic
+    // v5.9.1 (#100): ingestion is constructed in the background after
+    // server.connect() responds to the MCP handshake. Wait for that to
+    // finish before proceeding — first call after a fresh MCP spawn
+    // may pause here briefly.
+    await ensureHeavyDeps();
     if (!ingestion) {
       return {
         content: [
@@ -996,6 +1001,7 @@ server.tool(
       search = new GnosysSearch(writeTarget.store.getStorePath());
       tagRegistry = new GnosysTagRegistry(writeTarget.store.getStorePath());
       await tagRegistry.load();
+      const { GnosysIngestion } = await import("./lib/ingest.js");
       ingestion = new GnosysIngestion(writeTarget.store, tagRegistry);
       await reindexAllStores();
     }
@@ -1101,7 +1107,8 @@ server.tool(
         search = new GnosysSearch(writeTarget.store.getStorePath());
         tagRegistry = new GnosysTagRegistry(writeTarget.store.getStorePath());
         await tagRegistry.load();
-        ingestion = new GnosysIngestion(writeTarget.store, tagRegistry);
+        const { GnosysIngestion } = await import("./lib/ingest.js");
+      ingestion = new GnosysIngestion(writeTarget.store, tagRegistry);
         await reindexAllStores();
       }
 
@@ -1325,6 +1332,11 @@ server.tool(
     // happens against `ctx.config` (merged project+global) below; if that
     // can't find a provider, getLLMProvider() surfaces a provider-specific
     // error message.
+    //
+    // v5.9.1 (#100): wait for the background heavy-init to populate
+    // `ingestion` if it hasn't yet (first call after a fresh MCP spawn
+    // may pause here while @huggingface/transformers etc. load).
+    await ensureHeavyDeps();
     if (!ingestion) {
       return {
         content: [{ type: "text", text: "Ingestion module not initialized." }],
@@ -1843,6 +1855,8 @@ server.tool(
     }
 
     try {
+      // v5.9.1 (#100): bootstrap pulls in heavy file-walking deps — load lazily.
+      const { bootstrap } = await import("./lib/bootstrap.js");
       const result = await bootstrap(writeTarget.store, {
         sourceDir,
         patterns,
@@ -1950,6 +1964,10 @@ server.tool(
     const effectiveMode = (mode as "llm" | "structured") || "structured";
 
     try {
+      // v5.9.1 (#100): import.js pulls mammoth + pdf-parse + turndown.
+      const { performImport, formatImportSummary, estimateDuration } = await import(
+        "./lib/import.js"
+      );
       const result = await performImport(writeTarget.store, ingestion, {
         format: format as "csv" | "json" | "jsonl",
         data,
@@ -2016,6 +2034,8 @@ server.tool(
   async ({ query, limit, mode, projectRoot }) => {
     // Note: hybridSearch is module-level (heavy) and not scoped per project
     (projectRoot); // quiets unused warning if any
+    // v5.9.1 (#100): wait for the background heavy-init to finish.
+    await ensureHeavyDeps();
     if (!hybridSearch) {
       return {
         content: [{ type: "text", text: "Hybrid search not initialized. No stores found." }],
@@ -2047,6 +2067,8 @@ server.tool(
       // Use default resolver here since hybridSearch operates across all stores
       const writeTarget = resolver.getWriteTarget();
       if (writeTarget) {
+        // v5.9.1 (#100): lazy-load the maintenance module here too.
+        const { GnosysMaintenanceEngine } = await import("./lib/maintenance.js");
         GnosysMaintenanceEngine.reinforceBatch(
           writeTarget.store,
           results.map((r) => r.relativePath)
@@ -2083,6 +2105,7 @@ server.tool(
   async ({ query, limit, projectRoot }) => {
     // Note: hybridSearch is module-level (heavy) and not scoped per project
     (projectRoot); // quiets unused warning if any
+    await ensureHeavyDeps();
     if (!hybridSearch) {
       return {
         content: [{ type: "text", text: "Search not initialized. No stores found." }],
@@ -2126,6 +2149,7 @@ server.tool(
   async ({ projectRoot }) => {
     // Note: reindex operates on all stores, projectRoot is for API consistency
     (projectRoot); // quiets unused warning if any
+    await ensureHeavyDeps();
     if (!hybridSearch) {
       return {
         content: [{ type: "text", text: "No stores found. Initialize a store with gnosys_init first." }],
@@ -2168,6 +2192,7 @@ server.tool(
   async ({ question, limit, mode, projectRoot }) => {
     // Note: askEngine is module-level (heavy) and not scoped per project
     (projectRoot); // quiets unused warning if any
+    await ensureHeavyDeps();
     if (!askEngine) {
       return {
         content: [{ type: "text", text: "Ask engine not initialized. Ensure stores exist and an LLM provider is configured." }],
@@ -2184,6 +2209,8 @@ server.tool(
       // Reinforce used memories (best-effort, non-blocking)
       const writeTarget = resolver.getWriteTarget();
       if (writeTarget && result.sources.length > 0) {
+        // v5.9.1 (#100): lazy-load the maintenance module here too.
+        const { GnosysMaintenanceEngine } = await import("./lib/maintenance.js");
         GnosysMaintenanceEngine.reinforceBatch(
           writeTarget.store,
           result.sources.map((s) => s.relativePath)
@@ -2234,6 +2261,11 @@ server.tool(
   async ({ dryRun, autoApply, projectRoot }) => {
     const ctx = await resolveToolContext(projectRoot);
     try {
+      // v5.9.1 (#100): maintenance engine pulls LLM machinery for the
+      // discoverRelationships / generateSummaries phases — load lazily.
+      const { GnosysMaintenanceEngine, formatMaintenanceReport } = await import(
+        "./lib/maintenance.js"
+      );
       const engine = new GnosysMaintenanceEngine(ctx.resolver, ctx.config);
       const report = await engine.maintain({
         dryRun: dryRun ?? true,
@@ -2389,6 +2421,8 @@ server.tool(
       model: ctx.config?.dream?.model,
     };
 
+    // v5.9.1 (#100): dream engine pulls LLM provider machinery — load lazily.
+    const { GnosysDreamEngine, formatDreamReport } = await import("./lib/dream.js");
     const engine = new GnosysDreamEngine(ctx.centralDb, ctx.config || DEFAULT_CONFIG, dreamConfig);
     const report = await engine.dream((phase, detail) => {
       console.error(`[dream:${phase}] ${detail}`);
@@ -2431,6 +2465,8 @@ server.tool(
       };
     }
 
+    // v5.9.1 (#100): exporter pulls obsidian-flavored markdown gen — lazy.
+    const { GnosysExporter, formatExportReport } = await import("./lib/export.js");
     const exporter = new GnosysExporter(ctx.centralDb);
     const report = await exporter.export({
       targetDir: params.targetDir,
@@ -3521,6 +3557,137 @@ This marks the conversation checkpoint so the next /gnosys-memorize only process
   }
 );
 
+// ─── Heavy module initialization (deferred) ───────────────────────────────
+//
+// v5.9.1 (#100). Constructs GnosysIngestion / GnosysEmbeddings /
+// GnosysHybridSearch / GnosysAsk / GnosysDreamEngine. These modules pull
+// in @huggingface/transformers (80MB), mammoth, pdf-parse, turndown, and
+// LLM provider SDKs — together ~24s of import time on cold disk. By
+// running them AFTER server.connect() responds to the MCP handshake, we
+// avoid the client-side timeout (Grok Build = 10s default).
+
+let heavyDepsReadyResolve: (() => void) | null = null;
+const heavyDepsReady: Promise<void> = new Promise((resolve) => {
+  heavyDepsReadyResolve = resolve;
+});
+
+/**
+ * Returns once the heavy deps have been loaded and module-level vars
+ * (ingestion, hybridSearch, askEngine) are populated. Handlers that
+ * need any of these should `await ensureHeavyDeps()` first.
+ */
+export function ensureHeavyDeps(): Promise<void> {
+  return heavyDepsReady;
+}
+
+async function initHeavyDeps(): Promise<void> {
+  const writeTarget = resolver.getWriteTarget();
+  if (!writeTarget || !tagRegistry || !search) {
+    heavyDepsReadyResolve?.();
+    return;
+  }
+
+  // Ingestion (used by gnosys_add, gnosys_commit_context).
+  const { GnosysIngestion } = await import("./lib/ingest.js");
+  ingestion = new GnosysIngestion(writeTarget.store, tagRegistry, config);
+  console.error(
+    `LLM ingestion: ${ingestion.isLLMAvailable ? `enabled (${ingestion.providerName})` : "disabled (configure LLM provider)"}`,
+  );
+
+  // Hybrid search + ask (used by gnosys_hybrid_search / gnosys_ask).
+  const { GnosysEmbeddings } = await import("./lib/embeddings.js");
+  const { GnosysHybridSearch } = await import("./lib/hybridSearch.js");
+  const { GnosysAsk } = await import("./lib/ask.js");
+  const embeddings = new GnosysEmbeddings(writeTarget.store.getStorePath());
+  hybridSearch = new GnosysHybridSearch(
+    search,
+    embeddings,
+    resolver,
+    writeTarget.store.getStorePath(),
+    gnosysDb || undefined,
+  );
+  askEngine = new GnosysAsk(hybridSearch, config, resolver, writeTarget.store.getStorePath());
+  const embCount = embeddings.hasEmbeddings() ? embeddings.count() : 0;
+  console.error(
+    `Hybrid search: ${embCount > 0 ? `ready (${embCount} embeddings)` : "available (run gnosys_reindex to build embeddings)"}`,
+  );
+  console.error(
+    `Ask engine: ${askEngine.isLLMAvailable ? `ready (${askEngine.providerName}/${askEngine.modelName})` : "disabled (configure LLM provider)"}`,
+  );
+
+  // Dream mode (only constructed if enabled; designation gate inside start()).
+  if (gnosysDb && config.dream?.enabled) {
+    const { GnosysDreamEngine, DreamScheduler } = await import("./lib/dream.js");
+    const dreamEngine = new GnosysDreamEngine(gnosysDb, config, config.dream);
+    dreamScheduler = new DreamScheduler(dreamEngine, config.dream);
+
+    // Layer 3: probe the dream provider if this machine is the dream node.
+    try {
+      const designated = gnosysDb.getDreamMachineId();
+      const localId = gnosysDb.getMeta("machine_id");
+      if (designated && designated === localId) {
+        const dreamProvider = config.dream.provider || "ollama";
+        const dreamModel = config.dream.model || "(default)";
+        const { validateModel } = await import("./lib/modelValidation.js");
+        const envVarName = `GNOSYS_${dreamProvider.toUpperCase()}_KEY`;
+        let apiKey = process.env[envVarName] || "";
+        if (!apiKey && process.platform === "darwin" && dreamProvider !== "ollama" && dreamProvider !== "lmstudio") {
+          try {
+            const { execSync } = await import("child_process");
+            apiKey = execSync(`security find-generic-password -a "$USER" -s "${envVarName}" -w 2>/dev/null`, {
+              stdio: "pipe", encoding: "utf-8", timeout: 2000,
+            }).trim();
+          } catch {
+            // No key in keychain
+          }
+        }
+        if (!apiKey && dreamProvider !== "ollama" && dreamProvider !== "lmstudio") {
+          process.stderr.write(
+            `gnosys: dream provider '${dreamProvider}/${dreamModel}' has no API key configured.\n` +
+            `  This machine is designated to dream, but the LLM cannot be called.\n` +
+            `  Run 'gnosys setup dream' to reconfigure.\n`,
+          );
+        } else {
+          const result = await Promise.race([
+            validateModel(dreamProvider, dreamModel, apiKey),
+            new Promise<{ ok: false; error: string }>((resolve) =>
+              setTimeout(() => resolve({ ok: false, error: "probe timeout (5s)" }), 5000),
+            ),
+          ]);
+          if (!result.ok) {
+            process.stderr.write(
+              `gnosys: dream provider '${dreamProvider}/${dreamModel}' is unreachable at startup.\n` +
+              `  This machine is designated to dream, but the LLM cannot be called.\n` +
+              `  Error: ${("error" in result && result.error) || "unknown"}\n` +
+              `  Run 'gnosys setup dream' to reconfigure.\n`,
+            );
+          }
+        }
+      }
+    } catch {
+      // Probe failed — non-fatal. Continue with scheduler start.
+    }
+
+    dreamScheduler.start();
+    const designated = gnosysDb.getDreamMachineId();
+    const localId = gnosysDb.getMeta("machine_id");
+    if (!designated) {
+      console.error(`Dream Mode: enabled but no machine designated. Run 'gnosys setup dream' on the machine you want to host dreams.`);
+    } else if (designated !== localId) {
+      console.error(`Dream Mode: enabled — designated to '${designated}'. This machine (${localId || "?"}) will not dream.`);
+    } else {
+      console.error(
+        `Dream Mode: enabled on this machine (idle ${config.dream.idleMinutes}min, max ${config.dream.maxRuntimeMinutes}min)`,
+      );
+    }
+  } else {
+    console.error(`Dream Mode: disabled (run 'gnosys setup dream' to configure)`);
+  }
+
+  console.error("Gnosys MCP: heavy modules ready");
+  heavyDepsReadyResolve?.();
+}
+
 // ─── Start the server ────────────────────────────────────────────────────
 async function main() {
   // v5.7.1 (#15): start the upgrade-marker watcher BEFORE anything else.
@@ -3556,7 +3723,12 @@ async function main() {
   console.error("Active stores:");
   console.error(resolver.getSummary());
 
-  // Initialize search from the first writable store
+  // Initialize search from the first writable store. Everything in this
+  // block is FAST — opening the search index + tag registry + loading
+  // gnosys.json. The slow stuff (LLM providers, transformers embeddings,
+  // pdf/docx parsers) is deferred to `initHeavyDeps()` below so the MCP
+  // server can answer the `initialize` handshake within the client's
+  // timeout (Grok Build is 10s, Claude Code is ~15s).
   const writeTarget = resolver.getWriteTarget();
   if (writeTarget) {
     search = new GnosysSearch(writeTarget.store.getStorePath());
@@ -3568,7 +3740,6 @@ async function main() {
     } catch (err) {
       console.error(`Warning: Failed to load gnosys.json: ${err instanceof Error ? err.message : err}`);
     }
-    ingestion = new GnosysIngestion(writeTarget.store, tagRegistry, config);
 
     // Initialize audit logging
     initAudit(writeTarget.store.getStorePath());
@@ -3580,109 +3751,28 @@ async function main() {
     // No local project DB is created or opened.
     gnosysDb = centralDb;
 
-    // Initialize hybrid search + ask engine (embeddings loaded lazily)
-    const embeddings = new GnosysEmbeddings(writeTarget.store.getStorePath());
-    hybridSearch = new GnosysHybridSearch(
-      search, embeddings, resolver, writeTarget.store.getStorePath(),
-      gnosysDb || undefined
-    );
-    askEngine = new GnosysAsk(hybridSearch, config, resolver, writeTarget.store.getStorePath());
-
-    const embCount = embeddings.hasEmbeddings() ? embeddings.count() : 0;
     console.error(
-      `LLM ingestion: ${ingestion.isLLMAvailable ? `enabled (${ingestion.providerName})` : "disabled (configure LLM provider)"}`
+      "Gnosys MCP: light init complete; LLM/embeddings/dream loading in background…",
     );
-    console.error(
-      `Hybrid search: ${embCount > 0 ? `ready (${embCount} embeddings)` : "available (run gnosys_reindex to build embeddings)"}`
-    );
-    console.error(
-      `Ask engine: ${askEngine.isLLMAvailable ? `ready (${askEngine.providerName}/${askEngine.modelName})` : "disabled (configure LLM provider)"}`
-    );
-
-    // v2.0: Initialize Dream Mode (idle-time consolidation)
-    // v5.4.2: Designation gate inside DreamScheduler.start() — only the
-    // machine designated via `gnosys setup dream` arms the timer. Other
-    // machines no-op silently. Layer 3 startup probe surfaces a stderr
-    // warning if this machine is designated but the dream provider is
-    // unreachable.
-    if (gnosysDb && config.dream?.enabled) {
-      const dreamEngine = new GnosysDreamEngine(gnosysDb, config, config.dream);
-      dreamScheduler = new DreamScheduler(dreamEngine, config.dream);
-
-      // Layer 3: probe the dream provider if this machine is the dream node.
-      // Done before scheduler.start() so users see the warning immediately
-      // alongside other startup output.
-      try {
-        const designated = gnosysDb.getDreamMachineId();
-        const localId = gnosysDb.getMeta("machine_id");
-        if (designated && designated === localId) {
-          // Quick reachability probe — 5s timeout to avoid blocking startup.
-          const dreamProvider = config.dream.provider || "ollama";
-          const dreamModel = config.dream.model || "(default)";
-          const { validateModel } = await import("./lib/modelValidation.js");
-          // Resolve API key from env or keychain (mirroring resolveApiKey precedence).
-          const envVarName = `GNOSYS_${dreamProvider.toUpperCase()}_KEY`;
-          let apiKey = process.env[envVarName] || "";
-          if (!apiKey && process.platform === "darwin" && dreamProvider !== "ollama" && dreamProvider !== "lmstudio") {
-            try {
-              const { execSync } = await import("child_process");
-              apiKey = execSync(`security find-generic-password -a "$USER" -s "${envVarName}" -w 2>/dev/null`, {
-                stdio: "pipe", encoding: "utf-8", timeout: 2000,
-              }).trim();
-            } catch {
-              // No key in keychain
-            }
-          }
-          // Skip the network probe if there's clearly no key configured for a
-          // remote provider — surface the obvious config gap instead.
-          if (!apiKey && dreamProvider !== "ollama" && dreamProvider !== "lmstudio") {
-            process.stderr.write(
-              `gnosys: dream provider '${dreamProvider}/${dreamModel}' has no API key configured.\n` +
-              `  This machine is designated to dream, but the LLM cannot be called.\n` +
-              `  Run 'gnosys setup dream' to reconfigure.\n`
-            );
-          } else {
-            const result = await Promise.race([
-              validateModel(dreamProvider, dreamModel, apiKey),
-              new Promise<{ ok: false; error: string }>((resolve) =>
-                setTimeout(() => resolve({ ok: false, error: "probe timeout (5s)" }), 5000)
-              ),
-            ]);
-            if (!result.ok) {
-              process.stderr.write(
-                `gnosys: dream provider '${dreamProvider}/${dreamModel}' is unreachable at startup.\n` +
-                `  This machine is designated to dream, but the LLM cannot be called.\n` +
-                `  Error: ${("error" in result && result.error) || "unknown"}\n` +
-                `  Run 'gnosys setup dream' to reconfigure.\n`
-              );
-            }
-          }
-        }
-      } catch {
-        // Probe failed — non-fatal. Continue with scheduler start.
-      }
-
-      dreamScheduler.start();
-      const designated = gnosysDb.getDreamMachineId();
-      const localId = gnosysDb.getMeta("machine_id");
-      if (!designated) {
-        console.error(`Dream Mode: enabled but no machine designated. Run 'gnosys setup dream' on the machine you want to host dreams.`);
-      } else if (designated !== localId) {
-        console.error(`Dream Mode: enabled — designated to '${designated}'. This machine (${localId || "?"}) will not dream.`);
-      } else {
-        console.error(
-          `Dream Mode: enabled on this machine (idle ${config.dream.idleMinutes}min, max ${config.dream.maxRuntimeMinutes}min)`
-        );
-      }
-    } else {
-      console.error(
-        `Dream Mode: disabled (run 'gnosys setup dream' to configure)`
-      );
-    }
   }
 
+  // v5.9.1 (#100): connect EARLY so the MCP `initialize` handshake responds
+  // before we incur the ~24s heavy-import cost. After connect, kick off
+  // heavy module initialization in the background. Handlers that use the
+  // module-level `ingestion` / `hybridSearch` / `askEngine` vars guard
+  // against null and either await readiness or surface a clear error.
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  console.error("Gnosys MCP: handshake ready (heavy modules still loading)");
+
+  // Kick off heavy deps; fire-and-forget. Errors here are non-fatal —
+  // they're logged to stderr and the affected handlers will report the
+  // failure on first use.
+  void initHeavyDeps().catch((err) => {
+    console.error(
+      `Gnosys MCP: heavy-init failed — ${err instanceof Error ? err.message : err}`,
+    );
+  });
 
   // ─── MCP Roots Support (multi-project awareness) ───────────────────────
   // After connecting, request workspace roots from the host. This lets us

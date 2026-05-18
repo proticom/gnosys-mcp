@@ -19,7 +19,6 @@ import { Interface as ReadlineInterface } from "readline/promises";
 import { GnosysDB, type DbMemory } from "../../db.js";
 import {
   setPreference,
-  getAllPreferences,
   deletePreference,
   KNOWN_PREFERENCE_KEYS,
 } from "../../preferences.js";
@@ -66,10 +65,15 @@ function memoryToUserPreference(m: DbMemory): UserPreference {
 }
 
 /**
- * Load every preference (memories with category=preferences AND scope=user).
+ * Load every user-scope memory — both native preferences (category =
+ * preferences, written by `gnosys pref set`) AND imported notes
+ * (other categories, brought in from a prior tool).
  *
- * v5.8.4: now filters to category=preferences — matches what `setPreference`
- * writes and what `getAllPreferences` reads.
+ * v5.8.4 narrowed this to category=preferences only, which made
+ * imported user-scope memories disappear from the wizard ("0 stored"
+ * even when the user had legitimate imports). v5.9.1 widens it back
+ * to all user-scope memories, but tags each entry's `source` so the
+ * UI can distinguish.
  */
 export async function listUserPreferences(): Promise<UserPreference[]> {
   const db = GnosysDB.openCentral();
@@ -78,16 +82,10 @@ export async function listUserPreferences(): Promise<UserPreference[]> {
     return [];
   }
   try {
-    // getAllPreferences already filters to category=preferences + scope=user.
-    // Walk to raw memories via getMemory so we can build the UserPreference
-    // shape (which includes id, created/modified — fields not on Preference).
-    const refs = getAllPreferences(db);
-    return refs
-      .map((p) => {
-        const mem = db.getMemory(`pref-${p.key}`);
-        return mem ? memoryToUserPreference(mem) : null;
-      })
-      .filter((p): p is UserPreference => p !== null);
+    const mems: DbMemory[] = db
+      .getMemoriesByScope("user")
+      .filter((m) => m.status === "active");
+    return mems.map(memoryToUserPreference);
   } finally {
     db.close();
   }
@@ -140,7 +138,35 @@ async function viewAndMaybeDelete(rl: ReadlineInterface, pref: UserPreference): 
   console.log(pref.value);
   console.log("");
 
-  const action = (await rl.question("[K]eep · [D]elete · [B]ack> ")).trim().toLowerCase();
+  // v5.9.1 (#99): add [E]dit action. Edits use setPreference to overwrite
+  // the existing memory in place (id pref-<key> stays stable, value
+  // replaced, modified bumped to now). For imported memories with
+  // legacy ids (mem-<timestamp>-<rand>), edit isn't available since
+  // setPreference would create a NEW pref-<key> entry rather than
+  // mutating the legacy row.
+  const isEditable = pref.id.startsWith("pref-");
+  const menu = isEditable ? "[E]dit · [D]elete · [K]eep · [B]ack> " : "[D]elete · [K]eep · [B]ack> ";
+  const action = (await rl.question(menu)).trim().toLowerCase();
+
+  if (isEditable && (action === "e" || action === "edit")) {
+    const newValue = (await rl.question(`New value for ${pref.key} (empty = cancel): `)).trim();
+    if (!newValue) {
+      console.log(`${DIM}Cancelled.${RESET}`);
+      return false;
+    }
+    const db = GnosysDB.openCentral();
+    try {
+      setPreference(db, pref.key, newValue);
+      console.log(`${GREEN}✓${RESET} Updated ${pref.key}`);
+      return true;
+    } catch (err) {
+      console.log(`${RED}✗${RESET} Failed: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
+    } finally {
+      db.close();
+    }
+  }
+
   if (action !== "d" && action !== "delete") return false;
 
   const confirm = (await rl.question(`Delete "${pref.title}"? [y/N] `)).trim().toLowerCase();

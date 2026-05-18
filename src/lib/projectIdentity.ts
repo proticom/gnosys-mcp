@@ -113,6 +113,23 @@ export async function createProjectIdentity(
 
   // Register in central DB if available
   if (opts?.centralDb?.isAvailable()) {
+    // v5.9.1 (#98): when an existing project row has a DIFFERENT
+    // working_directory than what we're about to write, log it. This
+    // surfaces silent project moves (e.g. iCloud → NAS) that previously
+    // showed only as a stale dashboard. The actual UPDATE happens
+    // naturally via insertProject() — that statement is INSERT OR
+    // REPLACE keyed on projectId, so the new working_directory always
+    // wins. The fragility was elsewhere (registry de-dup, now fixed
+    // in resolver.registerProject) — but flagging the move here gives
+    // operators a hint.
+    const existingRow = opts.centralDb.getProject(identity.projectId);
+    if (existingRow && existingRow.working_directory !== identity.workingDirectory) {
+      console.error(
+        `gnosys: project ${identity.projectName} moved: ` +
+          `${existingRow.working_directory} → ${identity.workingDirectory}`,
+      );
+    }
+
     const dbProject: DbProject = {
       id: identity.projectId,
       name: identity.projectName,

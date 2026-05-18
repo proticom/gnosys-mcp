@@ -12,6 +12,21 @@ import fs from "fs/promises";
 import path from "path";
 import { GnosysStore, Memory } from "./store.js";
 
+/**
+ * v5.9.1 (#98): read just the projectId from a project's gnosys.json
+ * without parsing the full file. Returns null if the file is missing or
+ * malformed — used for registry de-duplication and never throws.
+ */
+async function readProjectIdSafe(jsonPath: string): Promise<string | null> {
+  try {
+    const raw = await fs.readFile(jsonPath, "utf-8");
+    const parsed = JSON.parse(raw) as { projectId?: string };
+    return typeof parsed.projectId === "string" ? parsed.projectId : null;
+  } catch {
+    return null;
+  }
+}
+
 export type StoreLayer = "project" | "personal" | "global" | "optional";
 
 export interface ResolvedStore {
@@ -282,11 +297,32 @@ export class GnosysResolver {
     }
 
     const resolved = path.resolve(projectDir);
-    if (!projects.includes(resolved)) {
-      projects.push(resolved);
-      await fs.mkdir(path.dirname(configPath), { recursive: true });
-      await fs.writeFile(configPath, JSON.stringify(projects, null, 2), "utf-8");
+
+    // v5.9.1 (#98): de-duplicate by projectId. If the new path has a
+    // .gnosys/gnosys.json with a project id, walk every existing
+    // registered path and drop any that resolve to the SAME id. This
+    // is what was missing when projects got moved (iCloud → NAS): the
+    // registry accumulated both paths, and `gnosys setup sync-projects`
+    // iterated both — whichever ran LAST overwrote the central DB's
+    // working_directory back to the stale location.
+    const newId = await readProjectIdSafe(path.join(resolved, ".gnosys", "gnosys.json"));
+    const kept: string[] = [];
+    for (const p of projects) {
+      if (path.resolve(p) === resolved) continue; // de-dup exact-path match too
+      if (newId) {
+        const otherId = await readProjectIdSafe(path.join(p, ".gnosys", "gnosys.json"));
+        if (otherId === newId) {
+          // Same projectId at a different path — that's a stale entry
+          // from a prior location. Drop it silently.
+          continue;
+        }
+      }
+      kept.push(p);
     }
+    kept.push(resolved);
+
+    await fs.mkdir(path.dirname(configPath), { recursive: true });
+    await fs.writeFile(configPath, JSON.stringify(kept, null, 2), "utf-8");
   }
 
   /**

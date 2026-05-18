@@ -5,6 +5,61 @@ All notable changes to Gnosys are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.9.1] — 2026-05-18
+
+Three pre-existing v5.8.7 patches finally shipped, now under the v5.9
+minor. Two real bugs from the iCloud→NAS migration session, one UX
+gap in the preferences wizard, and a meaningful MCP cold-boot speedup.
+
+### Fixed
+
+- **`gnosys init` from a moved project now actually updates the central
+  DB's `working_directory`.** Old behaviour: when a project was moved
+  (e.g. iCloud → NAS) and `.gnosys/` copied over, the new `gnosys init`
+  would write the right path into the local `.gnosys/gnosys.json` and
+  the central DB row, but `gnosys setup sync-projects` would later
+  process BOTH the old AND new registry entries — whichever ran last
+  overwrote the DB's `working_directory` back to the stale location.
+  Fix: `resolver.registerProject()` is now projectId-aware. When
+  registering a new path, it walks every existing entry and drops any
+  that resolve to the same `projectId` via their `.gnosys/gnosys.json`.
+  Plus a friendly stderr note ("project X moved: from → to") when
+  `createProjectIdentity` detects a path change in the DB row. (#98)
+- **User Preferences wizard now surfaces imported entries.** v5.8.4
+  filtered the list to `category=preferences` only, which hid
+  legitimate user-scope memories imported from prior tools. v5.9.1
+  widens it back to all user-scope memories and labels each entry's
+  `source` (native / imported / unknown). Both the option-7 summary
+  count and the list now show what's actually stored. (#99)
+- **Preferences wizard gained an `[E]dit` action.** Previously the
+  per-entry menu was Keep / Delete / Back. Now native pref entries
+  (id `pref-<key>`) also offer Edit, which prompts for a new value and
+  overwrites in place via `setPreference`. Imported entries with
+  legacy ids skip Edit (no clean way to mutate a non-pref-keyed memory
+  without changing its id). (#99)
+
+### Performance
+
+- **MCP server cold-boot ~32% faster.** Top-level imports of the
+  heaviest modules — `GnosysIngestion`, `GnosysEmbeddings`,
+  `GnosysHybridSearch`, `GnosysAsk`, `GnosysDreamEngine`,
+  `GnosysMaintenanceEngine`, `GnosysExporter`, `bootstrap`,
+  `performImport` — are now `import type`-only (zero runtime cost).
+  Construction happens in a new `initHeavyDeps()` function that runs
+  AFTER `server.connect(transport)` resolves, so the MCP initialize
+  handshake can respond before the heavy module-load cost is paid.
+  Handlers that use these vars `await ensureHeavyDeps()` first —
+  the first call after a fresh spawn may pause briefly while
+  @huggingface/transformers etc. load. Cold-boot benchmark on
+  Edward's setup: 24.6s → 16.8s. (#100)
+
+  **Note**: the MCP SDK itself (`@modelcontextprotocol/sdk`) costs
+  ~9s on cold disk and we can't avoid that. For MCP clients with
+  default 10s timeouts (Grok Build, some others), set
+  `startup_timeout_sec = 30` in their config — the v5.8.5 workaround
+  is still the canonical fix until either the SDK lazy-loads its
+  transitive deps or we move to a forked smaller MCP client.
+
 ## [5.9.0] — 2026-05-17
 
 Chat TUI rebuild — graphical, branded, fast. The chat interface gets a
