@@ -76,8 +76,6 @@ export class GnosysDbSearch {
     mode: SearchMode = "hybrid",
     embedQuery?: (text: string) => Promise<Float32Array>
   ): Promise<HybridSearchResult[]> {
-    const RRF_K = 60;
-
     // Check if we have embeddings for semantic/hybrid
     const hasEmbeddings = this.db.getEmbeddingCount() > 0;
     if ((mode === "hybrid" || mode === "semantic") && !hasEmbeddings) {
