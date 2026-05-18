@@ -6,7 +6,6 @@
 import { GnosysResolver } from "./resolver.js";
 import {
   GnosysConfig,
-  DEFAULT_CONFIG,
   resolveTaskModel,
   ALL_PROVIDERS,
   LLMProviderName,

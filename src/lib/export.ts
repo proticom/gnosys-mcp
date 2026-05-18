@@ -19,7 +19,7 @@
  *       relationships.md   (relationship index)
  */
 
-import { GnosysDB, DbMemory, DbRelationship, DbSummary } from "./db.js";
+import { GnosysDB, DbMemory, DbRelationship } from "./db.js";
 import path from "path";
 import fs from "fs/promises";
 

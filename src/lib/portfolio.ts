@@ -6,7 +6,7 @@
  * open questions, and roadmap status.
  */
 
-import { GnosysDB, DbMemory, DbProject } from "./db.js";
+import { GnosysDB, DbProject } from "./db.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -414,29 +414,6 @@ export function generatePortfolio(db: GnosysDB): PortfolioReport {
 }
 
 // ─── Formatters ─────────────────────────────────────────────────────────
-
-/** Extract a short summary from a status landscape memory's content */
-function extractStatusSummary(content: string, maxLines: number = 8): string {
-  const lines = content.split("\n");
-  const summaryLines: string[] = [];
-
-  let capturing = false;
-  for (const line of lines) {
-    if (/^#+\s*(what'?s?.*(not|left|next|missing|blocking)|to go live|gaps|blockers)/i.test(line)) {
-      capturing = true;
-      summaryLines.push(line);
-      continue;
-    }
-    if (capturing) {
-      if (/^#+\s/.test(line) && summaryLines.length > 1) break;
-      summaryLines.push(line);
-      if (summaryLines.length >= maxLines) break;
-    }
-  }
-
-  if (summaryLines.length > 0) return summaryLines.join("\n").trim();
-  return lines.filter((l) => l.trim()).slice(0, maxLines).join("\n").trim();
-}
 
 /** Format the portfolio as markdown */
 export function formatPortfolioMarkdown(report: PortfolioReport): string {

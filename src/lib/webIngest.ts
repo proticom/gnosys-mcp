@@ -47,13 +47,6 @@ export interface IngestResult {
   duration: number;
 }
 
-interface PageContent {
-  url: string;
-  content: string;
-  contentHash: string;
-  isLocal: boolean;
-}
-
 // ─── Turndown instance ──────────────────────────────────────────────────
 
 function createTurndown(): TurndownService {
