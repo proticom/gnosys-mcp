@@ -240,7 +240,8 @@ export async function performImport(
     duration: 0,
   };
 
-  const batchCommit = options.batchCommit !== false; // Default true
+  // options.batchCommit is retained on the interface for API compat but is a
+  // no-op since DB writes are immediate (see "Phase 5" note below).
   const concurrency = options.concurrency || 5;
   const author = options.author || "ai";
   const authority = options.authority || "imported";
