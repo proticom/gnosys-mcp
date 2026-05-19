@@ -39,8 +39,6 @@ export interface RulesGenResult {
   conventionCount: number;
 }
 
-export type RulesFileFormat = "claude" | "cursor" | "generic";
-
 // ─── Base instructions ──────────────────────────────────────────────────
 
 function getBaseInstructions(): string {
@@ -96,8 +94,7 @@ This project uses **Gnosys** for persistent memory via MCP. Gnosys uses a centra
  */
 export function generateRulesBlock(
   preferences: Preference[],
-  projectConventions: DbMemory[],
-  opts?: { format?: RulesFileFormat }
+  projectConventions: DbMemory[]
 ): string {
   const sections: string[] = [];
 
@@ -212,13 +209,8 @@ export async function syncRules(
     );
   }
 
-  // Determine format from file extension
-  let format: RulesFileFormat = "generic";
-  if (agentRulesTarget.endsWith(".md")) format = "claude";
-  if (agentRulesTarget.endsWith(".mdc")) format = "cursor";
-
   // Generate and inject
-  const block = generateRulesBlock(preferences, projectConventions, { format });
+  const block = generateRulesBlock(preferences, projectConventions);
   const { created } = await injectRules(filePath, block);
 
   return {
