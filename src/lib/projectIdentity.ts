@@ -75,10 +75,27 @@ export async function readProjectIdentity(projectDir: string): Promise<ProjectId
 
 /**
  * Write project identity to .gnosys/gnosys.json.
+ *
+ * v5.9.2 (CRITICAL): merge identity into the existing file instead of
+ * overwriting it. gnosys.json holds BOTH project identity fields AND
+ * user config (llm.defaultProvider, taskModels, dream, recall, etc.).
+ * The pre-v5.9.2 implementation did a flat `fs.writeFile` with only the
+ * identity object, so every `gnosys setup sync-projects` run silently
+ * wiped the user's llm config — and the schema default at
+ * config.ts:65 (`LLMProviderEnum.default("anthropic")`) then resurfaced
+ * "anthropic" as the default on the next loadConfig. See deci-046.
  */
 export async function writeProjectIdentity(projectDir: string, identity: ProjectIdentity): Promise<void> {
   const identityPath = path.join(projectDir, ".gnosys", "gnosys.json");
-  await fs.writeFile(identityPath, JSON.stringify(identity, null, 2) + "\n", "utf-8");
+  let existing: Record<string, unknown> = {};
+  try {
+    const raw = await fs.readFile(identityPath, "utf-8");
+    existing = JSON.parse(raw);
+  } catch {
+    // File missing or unparseable — start fresh.
+  }
+  const merged = { ...existing, ...identity };
+  await fs.writeFile(identityPath, JSON.stringify(merged, null, 2) + "\n", "utf-8");
 }
 
 /**
