@@ -169,33 +169,6 @@ export async function checkDirectoryMismatch(projectDir: string): Promise<{
 }
 
 /**
- * Update the working directory in both local identity and central DB.
- * Called when a directory move is detected.
- */
-export async function updateWorkingDirectory(
-  projectDir: string,
-  centralDb?: GnosysDB
-): Promise<ProjectIdentity | null> {
-  const resolvedDir = path.resolve(projectDir);
-  const identity = await readProjectIdentity(resolvedDir);
-  if (!identity) return null;
-
-  // Update local file
-  identity.workingDirectory = resolvedDir;
-  await writeProjectIdentity(resolvedDir, identity);
-
-  // Update central DB
-  if (centralDb?.isAvailable()) {
-    centralDb.updateProject(identity.projectId, {
-      working_directory: resolvedDir,
-      modified: new Date().toISOString(),
-    });
-  }
-
-  return identity;
-}
-
-/**
  * Find the project identity by walking up from a directory.
  * Returns the identity and project root directory if found.
  */
