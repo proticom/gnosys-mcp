@@ -734,10 +734,6 @@ export class GnosysDB {
     this.db.pragma(`busy_timeout = ${Math.max(0, Math.floor(ms))}`);
   }
 
-  getMemoriesByTier(tier: string): DbMemory[] {
-    return this.db.prepare("SELECT * FROM memories WHERE tier = ?").all(tier) as DbMemory[];
-  }
-
   getMemoriesByCategory(category: string): DbMemory[] {
     return this.db.prepare("SELECT * FROM memories WHERE category = ? AND tier = 'active'").all(category) as DbMemory[];
   }
@@ -932,17 +928,6 @@ export class GnosysDB {
   }
 
   /**
-   * Reassign all memories from one project to another.
-   * Returns the number of memories updated.
-   */
-  reassignMemories(fromProjectId: string, toProjectId: string): number {
-    const result = this.db
-      .prepare("UPDATE memories SET project_id = ? WHERE project_id = ?")
-      .run(toProjectId, fromProjectId);
-    return result.changes;
-  }
-
-  /**
    * Generate the next sequential ID for a category.
    * Format (v5.4.1+): first 4 chars of category + dash + ULID
    * (e.g., "deci-01HZK3MQXYZABCDEFGHJKMNPQR").
@@ -1106,20 +1091,6 @@ export class GnosysDB {
       return this.db
         .prepare(`SELECT * FROM audit_log WHERE timestamp > ? ORDER BY timestamp ASC${cap}`)
         .all(sinceIso) as DbAuditEntry[];
-    });
-  }
-
-  /**
-   * Get the most recent audit timestamp seen in this DB. Used as a high-water
-   * mark for sync: "push entries newer than the most recent timestamp the
-   * remote has already seen". Returns null when the table is empty.
-   */
-  getLatestAuditTimestamp(): string | null {
-    return this.withRecovery(() => {
-      const row = this.db
-        .prepare("SELECT timestamp FROM audit_log ORDER BY timestamp DESC LIMIT 1")
-        .get() as { timestamp: string } | undefined;
-      return row?.timestamp ?? null;
     });
   }
 
@@ -1328,14 +1299,6 @@ export class GnosysDB {
 
   markPendingSyncComplete(id: number): void {
     this.db.prepare("UPDATE pending_sync SET status = 'pushed' WHERE id = ?").run(id);
-  }
-
-  clearOldPendingSync(daysOld: number = 30): number {
-    const cutoff = new Date(Date.now() - daysOld * 24 * 60 * 60 * 1000).toISOString();
-    const result = this.db.prepare(
-      "DELETE FROM pending_sync WHERE status = 'pushed' AND timestamp < ?"
-    ).run(cutoff);
-    return result.changes as number;
   }
 
   /** Track a conflict for AI-mediated resolution */
