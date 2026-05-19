@@ -36,11 +36,6 @@ export function getCentralDbPath(): string {
   return path.join(getGnosysHome(), "gnosys.db");
 }
 
-/** Path to the global gnosys.json config file. */
-export function getGlobalConfigPath(): string {
-  return path.join(getGnosysHome(), "gnosys.json");
-}
-
 /** Path to the sandbox runtime directory (socket + helper template live here). */
 export function getSandboxDir(): string {
   return path.join(getGnosysHome(), "sandbox");
