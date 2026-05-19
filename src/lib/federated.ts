@@ -79,13 +79,17 @@ const REINFORCEMENT_BOOST_PER = 0.05; // per reinforcement, capped at 0.25
 // ─── Federated Search ───────────────────────────────────────────────────
 
 /**
- * Search across all scopes with tier boosting and recency awareness.
- * Results from the current project rank highest, then user-scoped, then global.
+ * Score and rank a raw FTS result set with tier + recency + reinforcement
+ * boosts. Shared by federatedSearch (uses searchFts → r.snippet, pushes a
+ * reinforced:N boost label) and federatedDiscover (uses discoverFts →
+ * r.relevance, omits the reinforced label).
  */
-export function federatedSearch(
+function buildFederatedResults<T extends { id: string }>(
   db: GnosysDB,
-  query: string,
-  opts: FederatedSearchOptions = {}
+  rawResults: T[],
+  getSnippet: (r: T) => string,
+  opts: FederatedSearchOptions,
+  pushReinforcedBoostLabel: boolean,
 ): FederatedResult[] {
   const {
     limit = 20,
@@ -95,8 +99,6 @@ export function federatedSearch(
     scopeFilter,
   } = opts;
 
-  // Run FTS5 search across ALL memories (no scope filter at query time)
-  const rawResults = db.searchFts(query, limit * 3);
   if (rawResults.length === 0) return [];
 
   // Build a project name lookup
@@ -109,7 +111,6 @@ export function federatedSearch(
   const now = Date.now();
   const recencyThreshold = now - recencyWindowHours * 60 * 60 * 1000;
 
-  // Score each result with tier boosting
   const scored: FederatedResult[] = [];
 
   for (let i = 0; i < rawResults.length; i++) {
@@ -151,7 +152,11 @@ export function federatedSearch(
     if (mem.reinforcement_count > 0) {
       const rBoost = 1 + Math.min(mem.reinforcement_count * REINFORCEMENT_BOOST_PER, 0.25);
       score *= rBoost;
-      boosts.push(`reinforced:${mem.reinforcement_count}`);
+      // discoverFts path intentionally omits this label (preserved from
+      // the pre-dedup behavior — discover tests don't assert on it).
+      if (pushReinforcedBoostLabel) {
+        boosts.push(`reinforced:${mem.reinforcement_count}`);
+      }
     }
 
     // 4. Confidence factor
@@ -161,7 +166,7 @@ export function federatedSearch(
       id: mem.id,
       title: mem.title,
       category: mem.category,
-      snippet: r.snippet,
+      snippet: getSnippet(r),
       score,
       scope,
       projectId: mem.project_id,
@@ -177,85 +182,32 @@ export function federatedSearch(
 }
 
 /**
+ * Search across all scopes with tier boosting and recency awareness.
+ * Results from the current project rank highest, then user-scoped, then global.
+ */
+export function federatedSearch(
+  db: GnosysDB,
+  query: string,
+  opts: FederatedSearchOptions = {},
+): FederatedResult[] {
+  const limit = opts.limit ?? 20;
+  // Run FTS5 search across ALL memories (no scope filter at query time)
+  const rawResults = db.searchFts(query, limit * 3);
+  return buildFederatedResults(db, rawResults, (r) => r.snippet, opts, true);
+}
+
+/**
  * Discover across all scopes — lightweight metadata search
  * with the same tier boosting logic.
  */
 export function federatedDiscover(
   db: GnosysDB,
   query: string,
-  opts: FederatedSearchOptions = {}
+  opts: FederatedSearchOptions = {},
 ): FederatedResult[] {
-  const {
-    limit = 20,
-    projectId = null,
-    includeGlobal = true,
-    recencyWindowHours = 24,
-  } = opts;
-
+  const limit = opts.limit ?? 20;
   const rawResults = db.discoverFts(query, limit * 3);
-  if (rawResults.length === 0) return [];
-
-  const projects = db.getAllProjects();
-  const projectMap = new Map<string, string>();
-  for (const p of projects) {
-    projectMap.set(p.id, p.name);
-  }
-
-  const now = Date.now();
-  const recencyThreshold = now - recencyWindowHours * 60 * 60 * 1000;
-  const scopeFilter = opts.scopeFilter;
-
-  const scored: FederatedResult[] = [];
-
-  for (let i = 0; i < rawResults.length; i++) {
-    const r = rawResults[i];
-    const mem = db.getMemory(r.id);
-    if (!mem || mem.status !== "active") continue;
-
-    const scope = (mem.scope || "project") as MemoryScope;
-    if (scopeFilter && scopeFilter.length > 0 && !scopeFilter.includes(scope)) continue;
-    if (!scopeFilter && !includeGlobal && scope === "global") continue;
-
-    let score = 1 / (60 + i + 1);
-    const boosts: string[] = [];
-
-    const scopeBoost = SCOPE_BOOST[scope];
-    if (scope === "project" && projectId && mem.project_id === projectId) {
-      score *= scopeBoost * 1.2;
-      boosts.push("current-project");
-    } else {
-      score *= scopeBoost;
-    }
-    boosts.push(`scope:${scope}`);
-
-    const modifiedMs = new Date(mem.modified).getTime();
-    if (modifiedMs > recencyThreshold) {
-      score *= RECENCY_BOOST;
-      boosts.push("recent");
-    }
-
-    if (mem.reinforcement_count > 0) {
-      const rBoost = 1 + Math.min(mem.reinforcement_count * REINFORCEMENT_BOOST_PER, 0.25);
-      score *= rBoost;
-    }
-
-    score *= mem.confidence;
-
-    scored.push({
-      id: mem.id,
-      title: mem.title,
-      category: mem.category,
-      snippet: r.relevance,
-      score,
-      scope,
-      projectId: mem.project_id,
-      projectName: mem.project_id ? (projectMap.get(mem.project_id) || null) : null,
-      boosts,
-    });
-  }
-
-  scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, limit);
+  return buildFederatedResults(db, rawResults, (r) => r.relevance, opts, false);
 }
 
 // ─── Multi-Project Ambiguity Detection ──────────────────────────────────
