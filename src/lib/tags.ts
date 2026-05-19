@@ -102,19 +102,8 @@ export class GnosysTagRegistry {
     return [...new Set(Object.values(this.registry).flat())].sort();
   }
 
-  getTagsByCategory(category: string): string[] {
-    return this.registry[category] || [];
-  }
-
   hasTag(tag: string): boolean {
     return Object.values(this.registry).some((tags) => tags.includes(tag));
-  }
-
-  findTagCategory(tag: string): string | null {
-    for (const [category, tags] of Object.entries(this.registry)) {
-      if (tags.includes(tag)) return category;
-    }
-    return null;
   }
 
   async addTag(category: string, tag: string): Promise<boolean> {
