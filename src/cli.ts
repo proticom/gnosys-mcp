@@ -20,7 +20,7 @@ import { GnosysResolver } from "./lib/resolver.js";
 import { getGnosysHome } from "./lib/paths.js";
 import { GnosysSearch } from "./lib/search.js";
 import { GnosysTagRegistry } from "./lib/tags.js";
-import { applyLens, applyCompoundLens, LensFilter } from "./lib/lensing.js";
+import { applyLens, LensFilter } from "./lib/lensing.js";
 import { getFileHistory, getFileAtCommit, rollbackToCommit, hasGitHistory, getFileDiff } from "./lib/history.js";
 import { groupByPeriod, computeStats, TimePeriod } from "./lib/timeline.js";
 import { buildLinkGraph, getBacklinks, getOutgoingLinks, formatGraphSummary } from "./lib/wikilinks.js";

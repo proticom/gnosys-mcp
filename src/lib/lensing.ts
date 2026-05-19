@@ -22,40 +22,11 @@ export interface LensFilter {
   modifiedBefore?: string;
 }
 
-export type CompoundOperator = "AND" | "OR";
-
-export interface CompoundLens {
-  filters: LensFilter[];
-  operator: CompoundOperator;
-}
-
 /**
  * Apply a single lens filter to an array of memories.
  */
 export function applyLens(memories: Memory[], lens: LensFilter): Memory[] {
   return memories.filter((m) => matchesLens(m, lens));
-}
-
-/**
- * Apply a compound lens (multiple filters combined with AND/OR).
- */
-export function applyCompoundLens(
-  memories: Memory[],
-  compound: CompoundLens
-): Memory[] {
-  if (compound.filters.length === 0) return memories;
-
-  if (compound.operator === "AND") {
-    // AND: memory must match ALL filters
-    return memories.filter((m) =>
-      compound.filters.every((f) => matchesLens(m, f))
-    );
-  } else {
-    // OR: memory must match ANY filter
-    return memories.filter((m) =>
-      compound.filters.some((f) => matchesLens(m, f))
-    );
-  }
 }
 
 /**

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { applyLens, applyCompoundLens, LensFilter, CompoundLens } from "../lib/lensing.js";
+import { applyLens, LensFilter } from "../lib/lensing.js";
 import { Memory, MemoryFrontmatter } from "../lib/store.js";
 
 function makeMem(overrides: Partial<MemoryFrontmatter> & { content?: string } = {}): Memory {
@@ -104,71 +104,3 @@ describe("applyLens — single filters", () => {
   });
 });
 
-describe("applyCompoundLens", () => {
-  it("AND: all filters must match", () => {
-    const compound: CompoundLens = {
-      operator: "AND",
-      filters: [
-        { category: "decisions" },
-        { minConfidence: 0.88 },
-      ],
-    };
-    const result = applyCompoundLens(memories, compound);
-    expect(result).toHaveLength(1);
-    expect(result[0].frontmatter.id).toBe("d1");
-  });
-
-  it("OR: any filter can match", () => {
-    const compound: CompoundLens = {
-      operator: "OR",
-      filters: [
-        { category: "concepts" },
-        { category: "architecture" },
-      ],
-    };
-    const result = applyCompoundLens(memories, compound);
-    expect(result).toHaveLength(3); // a1, c1, a2
-  });
-
-  it("AND with no overlap returns empty", () => {
-    const compound: CompoundLens = {
-      operator: "AND",
-      filters: [
-        { category: "decisions" },
-        { category: "architecture" },
-      ],
-    };
-    const result = applyCompoundLens(memories, compound);
-    expect(result).toHaveLength(0);
-  });
-
-  it("OR deduplicates results", () => {
-    const compound: CompoundLens = {
-      operator: "OR",
-      filters: [
-        { status: ["active"] },
-        { category: "decisions" }, // d1 and d2 are already in active
-      ],
-    };
-    const result = applyCompoundLens(memories, compound);
-    expect(result).toHaveLength(3); // d1, d2, a1 — no duplicates
-  });
-
-  it("empty filters array returns all", () => {
-    const result = applyCompoundLens(memories, { operator: "AND", filters: [] });
-    expect(result).toHaveLength(5);
-  });
-
-  it("complex compound: decisions AND high-confidence AND recent", () => {
-    const compound: CompoundLens = {
-      operator: "AND",
-      filters: [
-        { category: "decisions" },
-        { minConfidence: 0.85 },
-        { createdAfter: "2026-01-01" },
-      ],
-    };
-    const result = applyCompoundLens(memories, compound);
-    expect(result).toHaveLength(2); // d1 and d2
-  });
-});
