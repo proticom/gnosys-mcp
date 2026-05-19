@@ -5,6 +5,58 @@ All notable changes to Gnosys are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.9.2] — 2026-05-19
+
+Two critical upgrade-path bugs fixed. Both made gnosys silently misbehave
+after every `npm install -g gnosys@latest` — one broke MCP hosts (Grok,
+Codex, Cursor, Claude Code) outright, the other quietly wiped user llm
+config and reverted everyone back to the Anthropic default on each
+sync-projects pass. Together they explain why upgrades have felt fragile.
+
+### Fixed
+
+- **MCP stdout corruption in `gnosys serve` mode (CRITICAL).** The
+  post-upgrade nag block in `src/cli.ts` printed plain text to **stdout**
+  when the DB-stamped `app_version` was older than `pkg.version`. The
+  block was guarded against the `upgrade` and `setup sync-projects`
+  commands but not against `serve` — so the moment any MCP host
+  spawned `gnosys serve` after `npm install -g gnosys@latest`, the
+  banner corrupted the JSON-RPC channel and the host marked gnosys
+  `[unavailable]` with no tools. Fix: add `isServeCmd` to the guard
+  with an explicit comment about why. New regression test
+  `src/test/v592-serve-stdout-clean.test.ts` spawns the real built
+  `node dist/cli.js serve` with a deliberately-stale `app_version`
+  stamp and asserts stdout is byte-for-byte empty for 1.5s — catches
+  this bug AND any future `console.log` creeping into the serve boot
+  path. Diagnosed independently by Grok Build itself. See decision
+  memory deci-045 for the load-bearing rule: **`gnosys serve` MUST
+  emit zero stdout bytes before the host's first `initialize`
+  message.**
+
+- **`writeProjectIdentity` no longer clobbers user config (CRITICAL).**
+  The pre-fix implementation did a flat `fs.writeFile` of just the
+  identity object. But `.gnosys/gnosys.json` holds BOTH project
+  identity AND user config (`llm.defaultProvider`, `taskModels`,
+  `dream`, `recall`, etc.). So every `gnosys setup sync-projects`
+  run (triggered by every `gnosys upgrade`) iterated registered
+  projects, called `createProjectIdentity` →
+  `writeProjectIdentity`, and silently **wiped llm config**. The
+  Zod schema default at `config.ts:65`
+  (`LLMProviderEnum.default("anthropic")`) then re-seeded
+  "anthropic" on the next `loadConfig` — so users who had set
+  `defaultProvider=xai` (or any non-Anthropic provider) saw their
+  setting revert on every upgrade. The pre-v5.8.4 detection in
+  `gnosys setup` ("found anthropic but no anthropic key") was
+  treating the symptom; v5.9.2 removes the cause.
+  `writeProjectIdentity` now reads-then-merges. Identity fields
+  update; all other config fields survive. New regression test
+  `src/test/v592-identity-preserves-config.test.ts` creates a
+  gnosys.json with both identity and `llm.defaultProvider: xai`,
+  calls `writeProjectIdentity`, asserts the llm field is preserved.
+  See decision memory deci-046 for the load-bearing rule:
+  **`.gnosys/gnosys.json` is a shared file. Any writer must
+  read-then-merge, never clobber.**
+
 ## [5.9.1] — 2026-05-18
 
 Three pre-existing v5.8.7 patches finally shipped, now under the v5.9
