@@ -69,10 +69,29 @@ describe("v5.9.2 regression: gnosys serve stdout must stay clean", () => {
       await sleep(1500);
       proc.kill("SIGKILL");
 
+      // The MCP server is allowed to emit valid JSON-RPC framed messages
+      // (e.g. server-initiated `roots/list` request after server.connect).
+      // What we MUST NOT see is non-JSON garbage — banners, prompts,
+      // console.log output. Parse every non-empty line and assert each is
+      // valid JSON-RPC (has jsonrpc:"2.0"). The original v5.9.1 bug emitted
+      // "Gnosys updated: v5.7.0 → v5.9.1" which fails this check immediately.
+      const lines = stdout.split("\n").filter((l) => l.length > 0);
+      const nonJsonRpc: string[] = [];
+      for (const line of lines) {
+        try {
+          const parsed = JSON.parse(line);
+          if (parsed?.jsonrpc !== "2.0") {
+            nonJsonRpc.push(line);
+          }
+        } catch {
+          nonJsonRpc.push(line);
+        }
+      }
+
       expect(
-        stdout,
-        `gnosys serve wrote ${stdout.length} bytes to stdout before any MCP handshake — this corrupts the JSON-RPC transport. First 200 bytes: ${JSON.stringify(stdout.slice(0, 200))}`,
-      ).toBe("");
+        nonJsonRpc,
+        `gnosys serve wrote non-JSON-RPC bytes to stdout — these corrupt the MCP transport. Offending lines: ${JSON.stringify(nonJsonRpc.slice(0, 3))}`,
+      ).toEqual([]);
     } finally {
       fs.rmSync(tmpHome, { recursive: true, force: true });
     }
