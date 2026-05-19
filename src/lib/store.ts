@@ -173,13 +173,6 @@ export class GnosysStore {
   }
 
   /**
-   * Batch commit all pending changes (used after bulk imports).
-   */
-  async batchCommit(message: string): Promise<void> {
-    await this.autoCommit(message);
-  }
-
-  /**
    * Update an existing memory.
    */
   async updateMemory(
