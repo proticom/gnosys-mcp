@@ -6745,8 +6745,12 @@ try {
     const currentVersion = pkg.version;
     const isUpgradeCmd = process.argv.slice(2).some(a => a === "upgrade");
     const isSetupSyncCmd = process.argv.slice(2).join(" ").includes("setup sync-projects");
+    // CRITICAL: `serve` writes JSON-RPC to stdout for MCP transport. Any
+    // console.log during boot corrupts the protocol and the host (Grok, Codex,
+    // etc.) sees the server as [unavailable]. Suppress the nag in serve mode.
+    const isServeCmd = process.argv.slice(2).some(a => a === "serve");
     const newer = lastVersion && compareSemver(currentVersion, lastVersion) > 0;
-    if (newer && !isUpgradeCmd && !isSetupSyncCmd) {
+    if (newer && !isUpgradeCmd && !isSetupSyncCmd && !isServeCmd) {
       console.log("");
       console.log(`  Gnosys updated: v${lastVersion} → v${currentVersion}`);
       console.log("");
