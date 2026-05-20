@@ -3619,7 +3619,22 @@ program
 
 async function syncProjectsAction(opts: { skipDashboard?: boolean }): Promise<void> {
     const currentVersion = pkg.version;
-    console.log(`Gnosys v${currentVersion} — upgrading registered projects...\n`);
+    // v5.9.3 Screen 10 — Header + leading spinner + hierarchical sections.
+    const {
+      renderSyncHeader,
+      renderUpgradedSection,
+      renderSkippedSection,
+      renderFailedSection,
+      renderMachinesSection,
+      renderDivider,
+      renderDoneLine,
+      renderDashboardSummary,
+    } = await import("./lib/setup/syncProjectsRender.js");
+    const { Spinner } = await import("./lib/setup/ui/spinner.js");
+
+    console.log("");
+    console.log(renderSyncHeader(currentVersion));
+    console.log("");
 
     // 1. Read registered projects from file registry AND central DB
     const home = process.env.HOME || process.env.USERPROFILE || "/tmp";
@@ -3631,13 +3646,17 @@ async function syncProjectsAction(opts: { skipDashboard?: boolean }): Promise<vo
       // No file registry yet
     }
 
-    // Also check central DB for projects not in the file registry
+    // Also check central DB for projects not in the file registry. Also
+    // capture project titles so the Screen 10 row labels can use the
+    // human-readable name where available.
     let dbProjects: string[] = [];
+    const titleByDir = new Map<string, string>();
     try {
       const centralDb = GnosysDB.openCentral();
       if (centralDb.isAvailable()) {
         const allProjects = centralDb.getAllProjects();
         dbProjects = allProjects.map((p) => p.working_directory);
+        for (const p of allProjects) titleByDir.set(p.working_directory, p.name);
         centralDb.close();
       }
     } catch {
@@ -3656,9 +3675,14 @@ async function syncProjectsAction(opts: { skipDashboard?: boolean }): Promise<vo
     }
 
     if (projects.length === 0) {
-      console.log("No registered projects found. Run 'gnosys init' in each project first.");
+      console.log(" no registered projects found");
+      console.log(" run `gnosys init` in each project first");
       return;
     }
+
+    // Lead-in spinner: shows we're churning through the registry. Resolves
+    // to ✓ summary after the iteration loop completes (or fail on hard error).
+    const syncSpinner = Spinner(`syncing ${projects.length} registered projects…`);
 
     // Sync the merged list back to file registry
     try {
@@ -3729,6 +3753,13 @@ async function syncProjectsAction(opts: { skipDashboard?: boolean }): Promise<vo
       }
     }
 
+    // Stop the lead-in spinner now that the iteration is done. Resolved
+    // before any per-section output so the cursor is on a fresh line.
+    syncSpinner.ok(
+      `synced ${projects.length} registered projects`,
+      `${upgraded.length} upgraded · ${skipped.length} skipped · ${failed.length} failed`,
+    );
+
     // 3. Update global agent rules
     try {
       let centralDb: GnosysDB | null = null;
@@ -3742,10 +3773,12 @@ async function syncProjectsAction(opts: { skipDashboard?: boolean }): Promise<vo
         const { syncToTarget } = await import("./lib/rulesGen.js");
         await syncToTarget(centralDb, process.cwd(), "global", null);
         centralDb.close();
-        console.log(`  ✓ Global agent rules updated (~/.claude/CLAUDE.md)`);
+        const { printStatus } = await import("./lib/setup/ui/status.js");
+        printStatus("ok", "global agent rules updated", "~/.claude/CLAUDE.md");
       }
     } catch {
-      console.log(`  ⚠ Could not update global agent rules`);
+      const { printStatus } = await import("./lib/setup/ui/status.js");
+      printStatus("warn", "could not update global agent rules");
     }
 
     // 4. Stamp the central DB with current version and machine info
@@ -3772,23 +3805,35 @@ async function syncProjectsAction(opts: { skipDashboard?: boolean }): Promise<vo
       // non-critical
     }
 
-    // 5. Report
-    console.log("");
-    if (upgraded.length > 0) {
-      console.log(`Upgraded (${upgraded.length}):`);
-      for (const p of upgraded) console.log(`  ✓ ${path.basename(p)} — ${p}`);
+    // 5. Report — v5.9.3 Screen 10 hierarchical layout. Section helpers
+    // turn the raw path arrays into ProjectRow lists (title + fullPath)
+    // and emit dividers between groups.
+    function rowFor(p: string): { title: string; fullPath: string } {
+      const title = titleByDir.get(p) ?? titleByDir.get(path.resolve(p)) ?? path.basename(p);
+      return { title, fullPath: p };
     }
-    if (skipped.length > 0) {
-      console.log(`\nSkipped — no .gnosys directory (${skipped.length}):`);
-      for (const p of skipped) console.log(`  ○ ${path.basename(p)} — ${p}  (run 'gnosys init' in this directory)`);
-    }
-    if (failed.length > 0) {
-      console.log(`\nFailed (${failed.length}):`);
-      for (const f of failed) console.log(`  ✗ ${f}`);
-    }
-    console.log(`\nDone. Central DB stamped with v${currentVersion}.`);
+    const upgradedRows = upgraded.map(rowFor);
+    const skippedRows = skipped.map(rowFor);
+    const failedRows = failed.map((f) => {
+      // failed entries are "<path> (<err>)" — extract path for the title.
+      const match = f.match(/^(.+?)\s\((.+)\)$/);
+      const projectPath = match ? match[1] : f;
+      return { title: titleByDir.get(projectPath) ?? path.basename(projectPath), fullPath: f };
+    });
 
-    // Show machine status from shared DB
+    console.log("");
+    for (const line of renderUpgradedSection(upgradedRows)) console.log(line);
+    if (upgradedRows.length > 0 && (skippedRows.length > 0 || failedRows.length > 0)) {
+      console.log("");
+    }
+    for (const line of renderSkippedSection(skippedRows)) console.log(line);
+    if (failedRows.length > 0) {
+      console.log("");
+      for (const line of renderFailedSection(failedRows)) console.log(line);
+    }
+
+    // Connected-machines callout (separate divider per design spec).
+    let machineLines: string[] = [];
     try {
       const centralDb = GnosysDB.openCentral();
       if (centralDb.isAvailable()) {
@@ -3796,18 +3841,14 @@ async function syncProjectsAction(opts: { skipDashboard?: boolean }): Promise<vo
         if (raw) {
           const machines = JSON.parse(raw) as Record<string, { version: string; lastSeen: string }>;
           const entries = Object.entries(machines);
-          if (entries.length > 1) {
-            console.log(`\nConnected machines:`);
-            for (const [host, info] of entries) {
-              const isCurrent = host === os.hostname();
-              const status = info.version === currentVersion ? "✓" : `⚠ v${info.version}`;
-              console.log(`  ${status} ${host}${isCurrent ? " (this machine)" : ""} — last seen ${info.lastSeen.split("T")[0]}`);
-            }
-            const behind = entries.filter(([, info]) => info.version !== currentVersion);
-            if (behind.length > 0) {
-              console.log(`\n  ${behind.length} machine(s) need upgrading. Run 'npm install -g gnosys && gnosys upgrade' on each.`);
-            }
-          }
+          const currentHost = os.hostname();
+          const machineRows = entries.map(([host, info]) => ({
+            hostname: host,
+            version: info.version,
+            lastSeen: info.lastSeen,
+            isCurrent: host === currentHost,
+          }));
+          machineLines = renderMachinesSection(machineRows, currentVersion);
         }
         centralDb.close();
       }
@@ -3815,21 +3856,34 @@ async function syncProjectsAction(opts: { skipDashboard?: boolean }): Promise<vo
       // non-critical
     }
 
-    if (skipped.length > 0) {
-      console.log(`\nNote: ${skipped.length} project(s) skipped — no .gnosys directory found.`);
-      console.log(`Run 'gnosys init' in each directory to set them up, or remove them from the registry.`);
+    if (machineLines.length > 0) {
+      console.log("");
+      console.log(renderDivider());
+      console.log("");
+      for (const line of machineLines) console.log(line);
+    }
+
+    console.log("");
+    console.log(renderDivider());
+    console.log("");
+    console.log(renderDoneLine(currentVersion));
+
+    if (skippedRows.length > 0) {
       // v5.9.3 Phase H: offer one-keystroke cleanup. Stays interactive
       // by default; users on a TTY get the prompt, non-TTY runs silently
       // (sync-projects is sometimes invoked from CI).
+      console.log("");
       if (process.stdout.isTTY) {
         try {
           const { cleanupRegistry } = await import("./lib/cleanup.js");
           await cleanupRegistry({ interactive: true });
         } catch (err) {
-          console.log(`  ⚠ Cleanup skipped: ${err instanceof Error ? err.message : String(err)}`);
+          const { printStatus } = await import("./lib/setup/ui/status.js");
+          printStatus("warn", "cleanup skipped", err instanceof Error ? err.message : String(err));
         }
       } else {
-        console.log(`  Tip: run 'gnosys cleanup' to remove them in one keystroke.`);
+        const { printStatus } = await import("./lib/setup/ui/status.js");
+        printStatus("progress", "tip", "run `gnosys cleanup` to remove stale entries");
       }
     }
 
@@ -3846,12 +3900,15 @@ async function syncProjectsAction(opts: { skipDashboard?: boolean }): Promise<vo
           await fs.writeFile(dashboardPath, generatePortfolioHtml(report, dashboardPath), "utf-8");
           await fs.writeFile(dashboardMdPath, formatPortfolioMarkdown(report), "utf-8");
           centralDb.close();
-          console.log(`\nPortfolio dashboard regenerated:`);
-          console.log(`  HTML: ${dashboardPath}`);
-          console.log(`  MD:   ${dashboardMdPath}`);
+          console.log("");
+          for (const line of renderDashboardSummary(dashboardPath, dashboardMdPath)) {
+            console.log(line);
+          }
         }
       } catch {
-        console.log(`\n  Could not regenerate portfolio dashboard`);
+        const { printStatus } = await import("./lib/setup/ui/status.js");
+        console.log("");
+        printStatus("warn", "could not regenerate portfolio dashboard");
       }
     }
 }

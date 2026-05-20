@@ -1,0 +1,34 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Screen 10 — sync-projects render > renders machines section with older-version warning 1`] = `
+[
+  " connected machines",
+  "",
+  "   ✓  EdsMacStudio   v5.9.3       last seen 2026-05-19",
+  "   ⚠  EdsMBP         v5.7.1       last seen 2026-05-12   ← older",
+  "   ✓  this-mac                    this machine",
+]
+`;
+
+exports[`Screen 10 — sync-projects render > renders the header with version 1`] = `
+[
+  " ⬢ gnosys ▸ upgrading registered projects                                 v5.9.3",
+  " ───────────────────────────────────────────────────────────────────────────────",
+]
+`;
+
+exports[`Screen 10 — sync-projects render > renders the skipped section with no .gnosys directory hint 1`] = `
+[
+  " skipped    1 projects · no .gnosys directory",
+  "   ○  defrag-me                     ~/Library/dead-proj",
+]
+`;
+
+exports[`Screen 10 — sync-projects render > renders the upgraded section with full project list 1`] = `
+[
+  " upgraded   3 projects",
+  "   ✓  edward                        ~",
+  "   ✓  squat-counter                 /Volumes/Dev/projects/squat-counter",
+  "   ✓  agent-first-site              /Volumes/Dev/projects/agent-first-site",
+]
+`;
