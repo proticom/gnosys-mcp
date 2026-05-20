@@ -32,16 +32,6 @@ import {
 const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 
-export const TASK_DESCRIPTIONS: Record<string, string> = {
-  structuring: "adding memories, tagging",
-  synthesis: "Q&A answers, ask",
-  // v5.8.0 (#2): chat is its own task — was lumped under synthesis before.
-  chat: "interactive chat TUI",
-  vision: "images, PDFs",
-  transcription: "audio files",
-  dream: "idle consolidation",
-};
-
 type TaskName = "structuring" | "synthesis" | "chat" | "vision" | "transcription";
 const TASKS: TaskName[] = ["structuring", "synthesis", "chat", "vision", "transcription"];
 
