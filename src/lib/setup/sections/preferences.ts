@@ -195,36 +195,55 @@ async function viewAndMaybeDelete(rl: ReadlineInterface, pref: UserPreference): 
 /**
  * Run the interactive preferences review. Returns true if anything was
  * changed (added, edited, or deleted).
+ *
+ * v5.9.3 redesign (Screen 9):
+ *   - Header() + breadcrumb with `N stored` suffix.
+ *   - Two source dots: ● (filled, accent) = gnosys-native, ○ (hollow,
+ *     text-dim) = imported/unknown (collapsed from 3 source colors per
+ *     design §9.1).
+ *   - Footer atom for the action hint.
+ *   - One preview line per row, no truncation marker.
  */
 export async function runPreferencesReview(rl: ReadlineInterface): Promise<boolean> {
+  const { Header } = await import("../ui/header.js");
+  const { Footer } = await import("../ui/footer.js");
+  const { Status } = await import("../ui/status.js");
+  const { c, color, glyph } = await import("../ui/tokens.js");
+
   let anyChange = false;
 
   while (true) {
     const current = await listUserPreferences();
 
     console.log("");
-    console.log(`${BOLD}User Preferences${RESET}`);
+    console.log(Header(["gnosys", "setup", "preferences"], { version: `${current.length} stored` }));
+    console.log("");
     if (current.length === 0) {
-      console.log(`${DIM}No preferences set. Pick [N] to add one.${RESET}`);
+      console.log(`   ${color(c.text, "User preferences")}`);
+      console.log(`   ${color(c.textMid, "things you've told gnosys to remember about how you work")}`);
+      console.log("");
+      console.log(`   ${color(c.textDim, "nothing stored yet.")}`);
     } else {
       current.forEach((p, i) => {
-        const tag =
-          p.source === "imported"
-            ? `${YELLOW}imported${RESET}`
-            : p.source === "gnosys-native"
-              ? `${GREEN}native${RESET}`
-              : `${YELLOW}unknown${RESET}`;
-        const preview = p.value.replace(/\s+/g, " ").trim().slice(0, 60);
-        console.log(`  ${i + 1}. [${tag}] ${BOLD}${p.key}${RESET} — ${p.title}`);
-        console.log(`       ${DIM}${preview}${preview.length === 60 ? "..." : ""}${RESET}`);
+        const isNative = p.source === "gnosys-native";
+        const dot = isNative ? color(c.accent, glyph.dotFilled) : color(c.textDim, glyph.dotHollow);
+        const num = color(c.textDim, String(i + 1).padStart(2, " "));
+        const key = color(c.text, p.key.padEnd(14));
+        // Hard-truncate at col 80 without a marker per design §9.2.
+        const preview = p.value.replace(/\s+/g, " ").trim();
+        const previewColored = color(c.textMid, preview);
+        console.log(`   ${num}  ${dot} ${key}  ${previewColored}`);
       });
+      console.log("");
+      console.log(`   ${color(c.accent, glyph.dotFilled)} ${color(c.textDim, "added by you")}           ${color(c.textDim, glyph.dotHollow)} ${color(c.textDim, "imported / unknown")}`);
     }
     console.log("");
-    console.log(
-      `  [${BOLD}N${RESET}]ew · [${BOLD}1-${current.length || "N"}${RESET}] view/delete · [${BOLD}B${RESET}]ack`,
-    );
+    const hint = current.length === 0
+      ? "n · new    b · back"
+      : `1–${current.length} · open    n · new    b · back`;
+    console.log(Footer(hint));
 
-    const answer = (await safeQuestion(rl,"> ")).trim().toLowerCase();
+    const answer = (await safeQuestion(rl, ` ${color(c.accent, glyph.prompt)} `)).trim().toLowerCase();
     if (!answer || answer === "b" || answer === "back") return anyChange;
 
     if (answer === "n" || answer === "new") {
@@ -234,7 +253,7 @@ export async function runPreferencesReview(rl: ReadlineInterface): Promise<boole
 
     const idx = parseInt(answer, 10) - 1;
     if (Number.isNaN(idx) || idx < 0 || idx >= current.length) {
-      console.log(`${DIM}Unknown choice: ${answer}${RESET}`);
+      console.log(Status("warn", `unknown choice: ${answer}`));
       continue;
     }
 
