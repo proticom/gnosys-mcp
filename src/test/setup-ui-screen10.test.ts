@@ -5,10 +5,21 @@
  * Column width pinned at 80 so output is deterministic across machines.
  */
 
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+
+const ORIGINAL_HOME = process.env.HOME;
 
 beforeAll(() => {
   Object.defineProperty(process.stdout, "columns", { value: 80, configurable: true });
+  // Pin HOME so os.homedir() inside collapsePath is deterministic across
+  // dev / CI. Without this the snapshot captures "/Users/edward" → "~" on
+  // the dev machine but stays "/Users/edward" on Linux CI runners.
+  process.env.HOME = "/Users/edward";
+});
+
+afterAll(() => {
+  if (ORIGINAL_HOME === undefined) delete process.env.HOME;
+  else process.env.HOME = ORIGINAL_HOME;
 });
 
 function strip(s: string): string {

@@ -6,8 +6,43 @@
  * spawning a child process.
  */
 
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, vi } from "vitest";
 import { DEFAULT_CONFIG, type GnosysConfig } from "../lib/config.js";
+
+// Mock the two environment-dependent reads that the section describe()
+// functions perform — without this, the test reads the real user's
+// ~/.gnosys/gnosys.db (multi-machine sync remote_path) and the real
+// process.cwd() filesystem (IDE detection), producing snapshots that
+// only pass on the dev machine.
+vi.mock("../lib/setup.js", async () => {
+  const actual = await vi.importActual<typeof import("../lib/setup.js")>("../lib/setup.js");
+  return {
+    ...actual,
+    detectIDEs: vi.fn(async () =>
+      ["claude-code", "claude-desktop", "cursor", "codex", "gemini-cli", "antigravity"]
+    ),
+  };
+});
+
+vi.mock("../lib/db.js", async () => {
+  const actual = await vi.importActual<typeof import("../lib/db.js")>("../lib/db.js");
+  const localStub = {
+    isAvailable: () => true,
+    getMeta: (key: string) => (key === "remote_path" ? "/Volumes/Dev/gnosys" : null),
+    close: () => {},
+  };
+  const centralStub = {
+    isAvailable: () => true,
+    getMemoriesByScope: () => [],
+    close: () => {},
+  };
+  // Spread on a class doesn't reliably copy static methods — assign explicitly.
+  const MockedDB = function MockedDB() { /* never constructed in this test */ } as unknown as typeof actual.GnosysDB;
+  Object.assign(MockedDB, actual.GnosysDB);
+  (MockedDB as unknown as { openLocal: () => typeof localStub }).openLocal = () => localStub;
+  (MockedDB as unknown as { openCentral: () => typeof centralStub }).openCentral = () => centralStub;
+  return { ...actual, GnosysDB: MockedDB };
+});
 
 beforeAll(() => {
   Object.defineProperty(process.stdout, "columns", { value: 80, configurable: true });
