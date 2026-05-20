@@ -2544,173 +2544,38 @@ interface ChatSetupOpts {
   rl?: ReadlineInterface;
 }
 
+/**
+ * v5.9.3 (deci-050): `gnosys setup chat` is deprecated. Chat config
+ * moves into the chat TUI's own settings panel in v6.0 (road-014). This
+ * stub renders a deprecation notice and exits. The function signature
+ * is preserved so existing callers (cli.ts subcommand registration)
+ * continue to compile.
+ */
 export async function runChatSetup(opts: ChatSetupOpts = {}): Promise<void> {
-  const projectDir = opts.directory ? path.resolve(opts.directory) : process.cwd();
-  const ownsRl = !opts.rl;
-  const rl = opts.rl ?? createInterface({ input: stdin, output: stdout });
+  void opts; // signature preserved; opts unused in deprecation notice
+  // Use atom-based render so the notice matches the rest of v5.9.3.
+  const { Header } = await import("./setup/ui/header.js");
+  const { Status } = await import("./setup/ui/status.js");
+  const { Footer } = await import("./setup/ui/footer.js");
+  const { c, color } = await import("./setup/ui/tokens.js");
+  const v = `v${getVersion()}`;
 
-  try {
-    console.log();
-    console.log(`${BOLD}${CYAN}Gnosys${RESET} ${DIM}— Chat Setup${RESET}`);
-    console.log();
-
-    const existingConfig = await loadExistingConfig(projectDir);
-    const existingChat = existingConfig?.chat;
-    const existingRecall = existingConfig?.recall;
-    const existingChatTask = existingConfig?.taskModels?.chat;
-    const defaultLLMProvider = existingConfig?.llm.defaultProvider || "anthropic";
-
-    // ── Current state ────────────────────────────────────────────────
-    console.log(`${DIM}Current state${RESET}`);
-    const currentProvider = existingChatTask?.provider || defaultLLMProvider;
-    const currentModel = existingChatTask?.model || "(default for provider)";
-    console.log(`  Provider:          ${currentProvider}${existingChatTask ? "" : ` ${DIM}(inherited from default)${RESET}`}`);
-    console.log(`  Model:             ${currentModel}`);
-    console.log(`  Recall mode:       ${existingRecall?.aggressive ? "aggressive" : "filtered"} (max ${existingRecall?.maxMemories ?? 8}, threshold ${existingRecall?.minRelevance ?? 0.4})`);
-    console.log(`  Tools fence:       ${existingChat?.toolsEnabled !== false ? GREEN + "on" + RESET : DIM + "off" + RESET}`);
-    console.log(`  Auto-summarize:    ${existingChat?.autoSummarizeAfterTurns && existingChat.autoSummarizeAfterTurns > 0 ? `after ${existingChat.autoSummarizeAfterTurns} turns` : DIM + "off" + RESET}`);
-    console.log(`  System prefix:     ${existingChat?.systemPromptPrefix ? `${DIM}"${existingChat.systemPromptPrefix.slice(0, 50)}${existingChat.systemPromptPrefix.length > 50 ? "…" : ""}"${RESET}` : DIM + "none" + RESET}`);
-    console.log();
-
-    // ── Step 1: provider/model override ──────────────────────────────
-    const overrideProvider = await askYesNo(
-      rl,
-      existingChatTask
-        ? `Currently routing chat to ${currentProvider}. Change it?`
-        : `Chat currently uses the default provider (${defaultLLMProvider}). Route chat to a different LLM?`,
-      false,
-    );
-
-    let chatProvider: string | undefined;
-    let chatModel: string | undefined;
-
-    if (overrideProvider) {
-      console.log();
-      console.log(`${DIM}Fetching latest model pricing...${RESET}`);
-      const dynamicModels = await fetchDynamicModels();
-      console.log();
-
-      chatProvider = await pickProvider(
-        rl,
-        dynamicModels,
-        `${BOLD}Step 1${RESET} ${DIM}—${RESET} Choose chat LLM provider`,
-        currentProvider,
-      );
-
-      if (chatProvider === "custom" || chatProvider === "skip") {
-        chatModel = await askInput(rl, "Enter model name");
-      } else {
-        const tiers = dynamicModels[chatProvider] ?? PROVIDER_TIERS[chatProvider] ?? [];
-        if (tiers.length === 0) {
-          chatModel = await askInput(rl, "Enter model name");
-        } else {
-          chatModel = await pickModel(
-            rl,
-            chatProvider,
-            dynamicModels,
-            `${BOLD}Step 2${RESET} ${DIM}—${RESET} Choose chat model`,
-            existingChatTask?.model,
-          );
-        }
-      }
-
-      // Validate
-      const apiKey = await getApiKeyForProvider(chatProvider);
-      if (apiKey || chatProvider === "ollama" || chatProvider === "lmstudio") {
-        console.log();
-        console.log(`${DIM}Testing ${chatProvider}/${chatModel}...${RESET}`);
-        try {
-          const customBaseUrl = chatProvider === "custom" ? process.env.GNOSYS_LLM_BASE_URL : undefined;
-          const result = await validateModel(chatProvider, chatModel, apiKey, { customBaseUrl });
-          if (result.ok) {
-            console.log(`  ${CHECK} Validated (${result.latencyMs}ms)`);
-          } else {
-            console.log(`  ${WARN} Could not reach ${chatProvider}/${chatModel}: ${result.error}`);
-            const proceed = await askYesNo(rl, "  Continue saving config anyway?", true);
-            if (!proceed) {
-              console.log(`  ${DIM}Setup cancelled. No changes saved.${RESET}`);
-              return;
-            }
-          }
-        } catch (err) {
-          console.log(`  ${DIM}Validation skipped: ${err instanceof Error ? err.message : err}${RESET}`);
-        }
-      } else {
-        console.log(`  ${WARN} No API key configured for ${chatProvider}. Set one via 'gnosys setup models'.`);
-      }
-    }
-
-    // ── Step 2: recall tuning ─────────────────────────────────────────
-    console.log();
-    console.log(`${BOLD}Recall${RESET} ${DIM}—${RESET} how aggressively to inject memories into chat`);
-    const recallAggressive = await askYesNo(
-      rl,
-      "Aggressive (more memories, lower threshold) vs filtered (fewer, higher quality)?",
-      existingRecall?.aggressive ?? true,
-    );
-    const maxMemAns = await askInput(rl, "Max memories per chat turn", {
-      default: String(existingRecall?.maxMemories ?? 8),
-    });
-    const maxMemories = Math.max(1, Math.min(20, parseInt(maxMemAns) || 8));
-    const thresholdAns = await askInput(rl, "Min relevance score (0.0-1.0, lower returns more)", {
-      default: String(existingRecall?.minRelevance ?? 0.4),
-    });
-    const minRelevance = Math.max(0, Math.min(1, parseFloat(thresholdAns) || 0.4));
-
-    // ── Step 3: chat-only knobs ───────────────────────────────────────
-    console.log();
-    console.log(`${BOLD}Chat options${RESET}`);
-    const toolsEnabled = await askYesNo(
-      rl,
-      "Allow LLM to call gnosys tools via gnosys-tool fences?",
-      existingChat?.toolsEnabled ?? true,
-    );
-
-    const autoSumAns = await askInput(
-      rl,
-      "Auto-summarize nudge after N turns (0 to disable)",
-      { default: String(existingChat?.autoSummarizeAfterTurns ?? 0) },
-    );
-    const autoSummarizeAfterTurns = Math.max(0, parseInt(autoSumAns) || 0);
-
-    const prefixDefault = existingChat?.systemPromptPrefix ?? "";
-    const systemPromptPrefix = await askInput(
-      rl,
-      `System prompt prefix (persona/style/domain — Enter for ${prefixDefault ? "current" : "none"})`,
-      { default: prefixDefault },
-    );
-
-    // ── Save ──────────────────────────────────────────────────────────
-    const storePath = pickStorePath(projectDir);
-    const updates: Record<string, unknown> = {
-      recall: { aggressive: recallAggressive, maxMemories, minRelevance },
-      chat: { toolsEnabled, autoSummarizeAfterTurns, systemPromptPrefix },
-    };
-    if (overrideProvider && chatProvider && chatProvider !== "skip" && chatModel) {
-      const existingTaskModels = existingConfig?.taskModels || {};
-      updates.taskModels = {
-        ...existingTaskModels,
-        chat: { provider: chatProvider, model: chatModel },
-      };
-    }
-    await updateConfig(storePath, updates);
-
-    console.log();
-    console.log(`  ${CHECK} Chat config saved: ${storePath}/gnosys.json`);
-    if (overrideProvider && chatProvider && chatModel) {
-      console.log(`  ${DIM}Provider:    ${chatProvider}/${chatModel}${RESET}`);
-    } else {
-      console.log(`  ${DIM}Provider:    (inherits default → ${defaultLLMProvider})${RESET}`);
-    }
-    console.log(`  ${DIM}Recall:      ${recallAggressive ? "aggressive" : "filtered"} (max ${maxMemories}, threshold ${minRelevance})${RESET}`);
-    console.log(`  ${DIM}Tools:       ${toolsEnabled ? "on" : "off"}${RESET}`);
-    console.log(`  ${DIM}Auto-summarize: ${autoSummarizeAfterTurns > 0 ? `after ${autoSummarizeAfterTurns} turns` : "off"}${RESET}`);
-    console.log();
-    console.log(`${DIM}Tip: run 'gnosys chat' to start a session.${RESET}`);
-  } finally {
-    if (ownsRl) rl.close();
-  }
+  console.log();
+  console.log(Header(["gnosys", "setup", "chat"], { version: v }));
+  console.log();
+  console.log(Status("warn", "chat settings have moved"));
+  console.log();
+  console.log(`   ${color(c.text, "chat is now configured from inside the TUI itself.")}`);
+  console.log(`   ${color(c.textDim, "open it with")}                            ${color(c.text, "gnosys chat")}`);
+  console.log(`   ${color(c.textDim, "then press")}                              ${color(c.text, "⌃, (settings)")}`);
+  console.log();
+  console.log(Footer("v6.0 will retire this command entirely"));
 }
+
+// ─── runChatSetup body removed in v5.9.3 (deci-050) ─────────────────
+// Provider/model override + recall tuning + tools fence + auto-summarize
+// + system prompt prefix all move to the v6.0 chat TUI's settings panel
+// (road-014). The exported stub above renders a deprecation notice.
 
 /** Resolve where to write gnosys.json — project store if exists, else global store. */
 function pickStorePath(projectDir: string): string {
