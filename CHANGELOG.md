@@ -5,6 +5,134 @@ All notable changes to Gnosys are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.9.3] — 2026-05-20
+
+The "make the CLI feel like one product" release. A unified visual
+language for every `gnosys setup` / `gnosys config` screen, a fix for
+the test-pollution that was stamping `last_seen_version` into the user's
+real central DB on every test run, `gnosys chat` now fails fast on
+missing API keys instead of crashing mid-conversation, a new
+`gnosys cleanup` command for stale registry entries, and consolidation
+of the two upgrade-nag mechanisms into one downgrade-aware helper on
+stderr.
+
+### Added
+
+- **Atom-based CLI vocabulary (`src/lib/setup/ui/`).** Ten new component
+  atoms — `tokens`, `header`, `title`, `menu`, `prompt`, `status`, `diff`,
+  `panel`, `spinner`, `footer` — implement the design handoff in
+  `/Volumes/Dev/projects/gnosys-ai/design_handoff_cli_redesign/`. Both
+  truecolor and 256-color palettes export the same names; detection is
+  via `COLORTERM=truecolor|24bit`. 13 snapshot tests pin the rendering
+  at 80 cols for stability.
+
+- **`gnosys cleanup` subcommand.** Removes dead and temp-dir entries
+  from `~/.config/gnosys/projects.json`. Interactive by default (lists
+  alive / dead / temp, prompts before writing); `--yes` writes without
+  prompting; `--dry-run` shows the diff. The end of `setup sync-projects`
+  now also offers one-keystroke cleanup when the skipped block is
+  non-empty AND stdout is a TTY. New file: `src/lib/cleanup.ts`. 8
+  tests cover classification and write paths.
+
+- **`gnosys config show --json`.** The default `config show` output is
+  the existing human-friendly view; `--json` dumps the raw effective
+  config for scripts and agents.
+
+### Changed
+
+- **Settings panel (`gnosys setup` with existing config) rewritten.**
+  Replaces the sharp-ASCII box with the rounded `Panel()` atom in
+  accent-dim, uses `Header()` for the breadcrumb + version, menu-shaped
+  rows inside the panel, single `done` action (Enter or `done`)
+  replacing the `[D]one`/`[E]xit` distinction. Trailing `✓` markers
+  appear next to sections edited this sitting.
+
+- **Cold-start splash (`gnosys setup` with no config).** The legacy
+  ASCII-box banner is replaced by `renderColdStartSplash()` — Header
+  + Title + step preview + Footer. The internal sub-flow (provider,
+  model, key, ides) is unchanged in v5.9.3 and inherits clean SIGINT
+  handling through the safeQuestion migration.
+
+- **`gnosys config init` is now deprecated.** Without `--force` it
+  prints a deprecation notice pointing at `gnosys setup` and exits 0.
+  With `--force` it writes the template. The template itself no longer
+  hard-codes `defaultProvider: "anthropic"` — that key is omitted so
+  the Zod default applies on load (per design handoff §14.2).
+
+- **Upgrade-nag consolidation.** The two competing nag mechanisms
+  (`maybePrintUpgradeNudge` at cli.ts:92 and the post-install block at
+  cli.ts:6740) are now ONE block:
+    * fires on any version mismatch (was: only upgrades)
+    * uses `upgraded` vs `reverted` based on direction
+    * emits to **stderr** (was stdout — safer per deci-045)
+    * MCP-restart instructions only on major-or-minor jumps
+    * preserves all original guards (`upgrade`, `setup sync-projects`,
+      `serve`, plus the new `isTestEnv()` short-circuit)
+  4 regression tests cover all three direction cases + stderr-only.
+
+- **`gnosys setup chat` is deprecated.** Per deci-050 + road-014, chat
+  config moves into the v6.0 chat TUI's own settings panel. The
+  command now prints an atom-rendered deprecation notice pointing at
+  `gnosys chat` + `⌃,` and exits. ~180 lines of legacy logic removed.
+
+### Fixed
+
+- **Stale settings display after auto-switch (CRITICAL).** The
+  summary loop used to call `loadConfig(projectDir)` where `projectDir`
+  was the working directory. `loadConfig` joins `storePath + "gnosys.json"`,
+  so it was reading `<cwd>/gnosys.json` — which never exists — and
+  silently falling through to the GLOBAL config. The section editors
+  write to `<cwd>/.gnosys/gnosys.json` (project scope) when present.
+  Result: switching provider via the panel wrote project-scope but the
+  re-render read global-scope, leaving the old value on screen. The new
+  `resolveActiveStorePath(projectDir)` prefers `<projectDir>/.gnosys/`
+  when its gnosys.json exists, else falls back to `~/.gnosys/`.
+
+- **`Ctrl+C` no longer crashes the wizard.** Every `rl.question()` call
+  in `setup.ts`, `setup/summary.ts`, `setup/sections/*`, and
+  `remoteWizard.ts` now routes through `safeQuestion()`. The helper
+  installs a single `rl.on("SIGINT", …)` handler that prints
+  `cancelled · no changes written` in `text-dim`, closes the readline,
+  and exits 130 — no more raw `AbortError` traces on stderr. 3 regression
+  tests in `setup-ctrlc.test.ts` spawn each subcommand and SIGINT it.
+
+- **Test isolation: `gnosys --version` no longer writes to the user's
+  central DB.** Pre-v5.9.3, every CLI invocation called
+  `maybePrintUpgradeNudge()` which opened the local DB (auto-creating
+  `~/.gnosys/gnosys.db`) AND wrote `last_seen_version`. That fired
+  even from inside vitest, so tests that shelled the CLI stamped the
+  developer's real DB with version state from in-progress builds. The
+  preAction hook and the post-install nag both touched the central DB
+  too. Phase F adds `isTestEnv()` (true when VITEST / NODE_ENV=test / CI
+  is set) and short-circuits all three sites before any DB open. New
+  regression test `v593-no-central-db-pollution.test.ts` spawns
+  `gnosys --version` and `--help` with isolated HOME and asserts the
+  HOME tree stays empty.
+
+- **`gnosys chat` fails fast on missing API key.** Pre-v5.9.3, chat
+  rendered the TUI and crashed on the first message when the configured
+  provider had no key. v5.9.3 checks the key BEFORE the resolver loads
+  (so the bail-out is fast — no React/ink imports) and exits 1 with
+  an actionable Status.fail on stderr pointing at `gnosys setup` and
+  the `<PROVIDER>_API_KEY` env var. Ollama and LM Studio (local) are
+  exempt. New test: `v593-chat-failfast.test.ts`.
+
+### Removed
+
+- `maybePrintUpgradeNudge()` at cli.ts:92-118 (replaced by the
+  consolidated post-install block).
+- The body of `runChatSetup()` in `src/lib/setup.ts:2552` (~180 lines)
+  per deci-050; the function now renders the deprecation notice only.
+
+### Internal
+
+- `src/lib/paths.ts` gains `getConfigDir()` and `getProjectRegistryPath()`
+  so the project-registry location is no longer hardcoded across cli.ts
+  and cleanup.ts.
+- `safeQuestion()` (src/lib/setup/ui/safePrompt.ts) is the single
+  SIGINT shim for every legacy readline-question call. `Prompt()`
+  (the atom) delegates to it internally.
+
 ## [5.9.2] — 2026-05-19
 
 Two critical upgrade-path bugs fixed. Both made gnosys silently misbehave
