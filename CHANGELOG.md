@@ -16,6 +16,20 @@ missing API keys instead of crashing mid-conversation, a new
 of the two upgrade-nag mechanisms into one downgrade-aware helper on
 stderr.
 
+All 14 screens from the design handoff
+(`/Volumes/Dev/projects/gnosys-ai/design_handoff_cli_redesign/`) are
+now refactored against the atom vocabulary. The first pass landed
+eight screens (2, 5, 8, 9, 10 partial, 11, 12, 14) plus the bug
+fixes; the completion pass added the remaining six screens — Screens
+1.1–1.3 cold-start sub-screens (provider / model / key chrome),
+Screen 3 (models setup spinner + diff), Screen 4 (routing cost-tier
+table + diff), Screen 6 (remote spinner + hierarchical mode picker),
+Screen 7 (dream's three grouped sub-screens), Screen 10 (sync-projects
+hierarchical output), and Screen 13 (config set diff + did-you-mean).
+Every screen now has its own snapshot test pinned at 80 cols; the
+underlying picker helpers (pickProvider, pickModel) were intentionally
+left unchanged since they're called from multiple sites.
+
 ### Added
 
 - **Atom-based CLI vocabulary (`src/lib/setup/ui/`).** Ten new component
