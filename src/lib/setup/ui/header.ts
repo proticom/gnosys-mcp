@@ -6,7 +6,7 @@
  * is responsible for following with one blank line via the normal flow.
  */
 
-import { c, color, glyph, width, RESET } from "./tokens.js";
+import { c, color, glyph, width } from "./tokens.js";
 
 export interface HeaderOptions {
   /** Version label, right-aligned. Pass `undefined` to omit. */
@@ -48,19 +48,13 @@ export function Header(crumbs: string[], opts: HeaderOptions = {}): string {
   return `${line1}\n${line2}`;
 }
 
-/** Strip ANSI escapes so we can measure printable width. */
-function stripAnsi(s: string): string {
+/** Strip ANSI escapes so we can measure printable width. Exported for callers/tests that need printable measurement. */
+export function stripAnsi(s: string): string {
   // eslint-disable-next-line no-control-regex
   return s.replace(/\x1b\[[0-9;]*m/g, "");
 }
-
-/** Public re-export for callers/tests that need printable measurement. */
-export { stripAnsi };
 
 /** Convenience: print header + trailing blank line to stdout. */
 export function printHeader(crumbs: string[], opts: HeaderOptions = {}): void {
   process.stdout.write(`${Header(crumbs, opts)}\n\n`);
 }
-
-// Unused export to keep tree-shakers from yelling.
-void RESET;

@@ -39,12 +39,12 @@ export function Menu(items: MenuItem[]): string {
 
   const lines: string[] = [];
   for (const it of items) {
-    const numColor = it.dim ? c.textDim : c.textDim;
+    // Numbers are always text-dim per design §3 (numbered-menu spec).
     const labelColor = it.dim ? c.textDim : c.text;
     const metaColor = it.dim ? c.textDim : c.textMid;
     const tagColor = c.accentHi;
 
-    const num = color(numColor, it.n.padStart(2, " "));
+    const num = color(c.textDim, it.n.padStart(2, " "));
     const label = color(labelColor, it.label);
     const meta = it.meta ? color(metaColor, it.meta) : "";
     const tag = it.tag ? color(tagColor, `${glyph.tag} ${it.tag}`) : "";

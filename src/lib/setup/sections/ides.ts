@@ -165,9 +165,8 @@ export async function runIdesSetup(opts: IdesSetupOptions): Promise<boolean> {
   }
 
   // v5.9.3 — summary line per design §5.
-  const { c: cTok, color: colorize } = await import("../ui/tokens.js");
   console.log("");
-  console.log(`   ${colorize(cTok.textDim, `${configured} ides configured · ${errors} errors`)}`);
+  console.log(`   ${color(c.textDim, `${configured} ides configured · ${errors} errors`)}`);
 
   return configured > 0;
 }

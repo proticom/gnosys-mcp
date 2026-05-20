@@ -32,7 +32,6 @@ export function Panel(title: string, rows: string[], opts: PanelOptions = {}): s
 
   // Top border: `╭─ title ──────╮`
   const titleStyled = color(c.textHi, title);
-  const titlePrintable = stripAnsi(titleStyled);
   const topHead = `${color(border, `${glyph.boxTL}${glyph.boxH} `)}${titleStyled} `;
   const topHeadBare = stripAnsi(topHead);
   const topPadLen = Math.max(1, innerW + 2 - topHeadBare.length);
@@ -56,8 +55,6 @@ export function Panel(title: string, rows: string[], opts: PanelOptions = {}): s
   // Bottom border: `╰──────────────╯`
   const bottom = `${indent}${color(border, `${glyph.boxBL}${glyph.boxH.repeat(innerW + 2)}${glyph.boxBR}`)}`;
 
-  // Silence unused warning for titlePrintable (used for tests).
-  void titlePrintable;
   return [top, ...middle, bottom].join("\n");
 }
 
