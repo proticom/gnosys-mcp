@@ -100,7 +100,7 @@ async function setNewPreference(rl: ReadlineInterface): Promise<boolean> {
   console.log(`${DIM}You can also use any custom key — just keep it kebab-case.${RESET}`);
   console.log("");
 
-  const key = (await safeQuestion(rl,"Key (e.g. code-style): ")).trim();
+  const key = (await safeQuestion(rl, "Key (e.g. code-style): ")).trim();
   if (!key) {
     console.log(`${DIM}Cancelled.${RESET}`);
     return false;
@@ -110,7 +110,7 @@ async function setNewPreference(rl: ReadlineInterface): Promise<boolean> {
     return false;
   }
 
-  const value = (await safeQuestion(rl,"Value (one line or short paragraph): ")).trim();
+  const value = (await safeQuestion(rl, "Value (one line or short paragraph): ")).trim();
   if (!value) {
     console.log(`${DIM}Cancelled.${RESET}`);
     return false;
@@ -146,10 +146,10 @@ async function viewAndMaybeDelete(rl: ReadlineInterface, pref: UserPreference): 
   // mutating the legacy row.
   const isEditable = pref.id.startsWith("pref-");
   const menu = isEditable ? "[E]dit · [D]elete · [K]eep · [B]ack> " : "[D]elete · [K]eep · [B]ack> ";
-  const action = (await safeQuestion(rl,menu)).trim().toLowerCase();
+  const action = (await safeQuestion(rl, menu)).trim().toLowerCase();
 
   if (isEditable && (action === "e" || action === "edit")) {
-    const newValue = (await safeQuestion(rl,`New value for ${pref.key} (empty = cancel): `)).trim();
+    const newValue = (await safeQuestion(rl, `New value for ${pref.key} (empty = cancel): `)).trim();
     if (!newValue) {
       console.log(`${DIM}Cancelled.${RESET}`);
       return false;
@@ -169,7 +169,7 @@ async function viewAndMaybeDelete(rl: ReadlineInterface, pref: UserPreference): 
 
   if (action !== "d" && action !== "delete") return false;
 
-  const confirm = (await safeQuestion(rl,`Delete "${pref.title}"? [y/N] `)).trim().toLowerCase();
+  const confirm = (await safeQuestion(rl, `Delete "${pref.title}"? [y/N] `)).trim().toLowerCase();
   if (confirm !== "y" && confirm !== "yes") return false;
 
   const db = GnosysDB.openCentral();
