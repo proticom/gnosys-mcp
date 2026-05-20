@@ -635,12 +635,18 @@ export async function updateConfig(
 
 /**
  * Generate a default gnosys.json with the new llm config structure.
+ *
+ * v5.9.3 (design handoff §14.2 / deci-049 follow-on): the template no
+ * longer hard-codes `defaultProvider: "anthropic"`. The key is omitted
+ * so the first `gnosys setup` run is the source of truth. Until the
+ * v6.0 Zod-default removal lands, the schema's `.default("anthropic")`
+ * still applies on load — but the template-as-shipped no longer
+ * commits to a choice.
  */
 export function generateConfigTemplate(): string {
   return JSON.stringify(
     {
       llm: {
-        defaultProvider: "anthropic",
         anthropic: { model: "claude-sonnet-4-6" },
         ollama: { model: "llama3.2", baseUrl: "http://localhost:11434" },
         groq: { model: "llama-3.3-70b-versatile" },

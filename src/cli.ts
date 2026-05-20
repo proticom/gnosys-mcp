@@ -3207,7 +3207,8 @@ const configCmd = program
 configCmd
   .command("show")
   .description("Show current LLM configuration")
-  .action(async () => {
+  .option("--json", "Dump the raw effective config as JSON")
+  .action(async (opts: { json?: boolean }) => {
     const resolver = await getResolver();
     const stores = resolver.getStores();
     if (stores.length === 0) {
@@ -3216,6 +3217,13 @@ configCmd
     }
 
     const cfg = await loadConfig(stores[0].path);
+
+    if (opts.json) {
+      // v5.9.3 (design §12): --json keeps the old machine-readable
+      // dump for scripts. Default output is the human-friendly view.
+      process.stdout.write(`${JSON.stringify(cfg, null, 2)}\n`);
+      return;
+    }
 
     console.log("System of Cognition (SOC) — LLM Configuration:");
     console.log(`  Default provider: ${cfg.llm.defaultProvider}`);
@@ -3431,8 +3439,29 @@ configCmd
 
 configCmd
   .command("init")
-  .description("Generate a default gnosys.json with LLM settings")
-  .action(async () => {
+  .description("Generate a blank gnosys.json template (deprecated — prefer `gnosys setup`)")
+  .option("--force", "Skip the deprecation warning and write the template")
+  .action(async (opts: { force?: boolean }) => {
+    // v5.9.3 (design handoff §14, deci-050): `config init` is being
+    // folded into `gnosys setup`. Without --force we print a warning
+    // pointing to `gnosys setup` and exit. With --force we write the
+    // (now-blank-provider) template anyway for muscle-memory use.
+    if (!opts.force) {
+      const { Header } = await import("./lib/setup/ui/header.js");
+      const { Status } = await import("./lib/setup/ui/status.js");
+      const { Footer } = await import("./lib/setup/ui/footer.js");
+      console.log("");
+      console.log(Header(["gnosys", "config", "init"], { version: `v${pkg.version}` }));
+      console.log("");
+      console.log(Status("warn", "writing a blank template means the next run of `gnosys setup`"));
+      console.log(Status("warn", "will walk you through the same choices anyway"));
+      console.log("");
+      console.log("   try   gnosys setup        interactive walkthrough (recommended)");
+      console.log("");
+      console.log(Footer("re-run with --force to write the template anyway"));
+      process.exit(0);
+    }
+
     const resolver = await getResolver();
     const writeTarget = resolver.getWriteTarget();
     if (!writeTarget) {
