@@ -2067,8 +2067,17 @@ export async function runModelsSetup(opts: ModelsSetupOpts = {}): Promise<void> 
   const rl = opts.rl ?? createInterface({ input: stdin, output: stdout });
 
   try {
+    // v5.9.3 Screen 3 — Header + Title at the top.
+    const { Header } = await import("./setup/ui/header.js");
+    const { Title } = await import("./setup/ui/title.js");
+    const { Spinner } = await import("./setup/ui/spinner.js");
+    const { printDiff } = await import("./setup/ui/diff.js");
+    const { printStatus } = await import("./setup/ui/status.js");
+
     console.log();
-    console.log(`${BOLD}${CYAN}Gnosys${RESET} ${DIM}— Model Configuration${RESET}`);
+    console.log(Header(["gnosys", "setup", "models"]));
+    console.log();
+    console.log(Title("Model configuration", "pick a provider and model — we'll validate it before saving"));
     console.log();
 
     const existingConfig = await loadExistingConfig(projectDir);
@@ -2077,23 +2086,31 @@ export async function runModelsSetup(opts: ModelsSetupOpts = {}): Promise<void> 
       ? getProviderModel(existingConfig, existingConfig.llm.defaultProvider)
       : undefined;
 
-    // Step 1: provider (or use --provider flag)
-    console.log(`${DIM}Fetching latest model pricing...${RESET}`);
+    // Step 1: provider (or use --provider flag). v5.9.3: animate the
+    // OpenRouter pricing fetch under a Spinner so the user gets feedback
+    // on what would otherwise feel like a hang.
+    const pricingSpin = Spinner("fetching latest pricing from openrouter…");
+    const fetchStart = Date.now();
     const dynamicModels = await fetchDynamicModels();
+    const fetchMs = Date.now() - fetchStart;
+    const modelCount = Object.values(dynamicModels).reduce((n, tiers) => n + tiers.length, 0);
     if (Object.keys(dynamicModels).length > 0) {
-      console.log(`${DIM}${CHECK} Live pricing loaded from OpenRouter${RESET}`);
+      pricingSpin.ok(`pricing loaded · ${modelCount} models cached`, `${fetchMs} ms`);
+    } else {
+      // No-op fallback (cache miss + network fail) — keep the hardcoded
+      // tiers but signal that we're running offline.
+      pricingSpin.fail("pricing fetch failed", "using bundled tiers");
     }
     console.log();
 
     let provider: string;
     if (opts.provider) {
       if (!PROVIDER_ORDER.includes(opts.provider)) {
-        console.log(`${CROSS} Unknown provider: ${opts.provider}`);
-        console.log(`  Valid: ${PROVIDER_ORDER.join(", ")}`);
+        printStatus("fail", `unknown provider \`${opts.provider}\``, `valid: ${PROVIDER_ORDER.join(", ")}`);
         return;
       }
       provider = opts.provider;
-      console.log(`Provider: ${GREEN}${provider}${RESET}`);
+      printStatus("ok", "provider", provider);
     } else {
       provider = await pickProvider(rl, dynamicModels, "Choose your LLM provider", currentProvider);
     }
@@ -2102,7 +2119,7 @@ export async function runModelsSetup(opts: ModelsSetupOpts = {}): Promise<void> 
     let model: string;
     if (opts.model) {
       model = opts.model;
-      console.log(`Model: ${GREEN}${model}${RESET}`);
+      printStatus("ok", "model", model);
     } else {
       const tiers = dynamicModels[provider] ?? PROVIDER_TIERS[provider];
       if (provider === "custom" || !tiers || tiers.length === 0) {
@@ -2114,7 +2131,7 @@ export async function runModelsSetup(opts: ModelsSetupOpts = {}): Promise<void> 
     }
 
     if (!model) {
-      console.log(`${CROSS} No model selected. Aborting.`);
+      printStatus("fail", "no model selected · aborting");
       return;
     }
 
@@ -2148,23 +2165,24 @@ export async function runModelsSetup(opts: ModelsSetupOpts = {}): Promise<void> 
       // Continue anyway — user might just want to update the model in config
     }
 
-    // Step 4: validate (default: true)
+    // Step 4: validate (default: true) — v5.9.3 Screen 3: animated
+    // Spinner with latency reported on success.
     const shouldValidate = opts.validate !== false;
     const isLocalProvider = provider === "ollama" || provider === "lmstudio";
     if (shouldValidate && (apiKey || isLocalProvider)) {
       console.log();
-      console.log(`${DIM}Testing ${provider}/${model}...${RESET}`);
+      const validateSpin = Spinner(`validating ${provider} / ${model}…`);
       const customBaseUrl = provider === "custom"
         ? process.env.GNOSYS_LLM_BASE_URL
         : undefined;
       const result = await validateModel(provider, model, apiKey, { customBaseUrl });
       if (result.ok) {
-        console.log(`  ${CHECK} Model validated (${result.latencyMs}ms)`);
+        validateSpin.ok("model validated", `${result.latencyMs} ms · ${provider} / ${model}`);
       } else {
-        console.log(`  ${WARN} Model test failed: ${result.error}`);
-        const proceed = await askYesNo(rl, "  Save config anyway?", false);
+        validateSpin.fail("model test failed", result.error);
+        const proceed = await askYesNo(rl, "Save config anyway?", false);
         if (!proceed) {
-          console.log(`  ${DIM}Cancelled.${RESET}`);
+          printStatus("warn", "cancelled · no changes written");
           return;
         }
       }
@@ -2202,10 +2220,12 @@ export async function runModelsSetup(opts: ModelsSetupOpts = {}): Promise<void> 
       },
     });
 
+    // v5.9.3 Screen 3 — Diff() before the saved confirmation. Shows what
+    // landed in gnosys.json.
+    const { buildModelsDiffRows } = await import("./setup/modelsRender.js");
     console.log();
-    console.log(`  ${CHECK} Config saved: ${storePath}/gnosys.json`);
-    console.log(`  ${DIM}Provider: ${provider}${RESET}`);
-    console.log(`  ${DIM}Model:    ${model}${RESET}`);
+    printDiff(buildModelsDiffRows(currentProvider, currentModel, provider, model));
+    printStatus("ok", `saved · ${storePath}/gnosys.json`);
   } finally {
     if (ownsRl) rl.close();
   }
