@@ -1,0 +1,25 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Phase C — settings panel (summary) > renders panel rows after a switch to xai 1`] = `
+[
+  " 1   provider             xai",
+  " 2   models               xai / grok-4.20",
+  " 3   task routing         all xai",
+  " 4   ide integrations     6 configured",
+  " 5   multi-machine sync   /Volumes/Dev/gnosys",
+  " 6   dream mode           disabled",
+  " 7   user preferences     0 stored",
+]
+`;
+
+exports[`Phase C — settings panel (summary) > renders panel rows for a fresh anthropic config 1`] = `
+[
+  " 1   provider             anthropic",
+  " 2   models               anthropic / claude-sonnet-4-6",
+  " 3   task routing         all anthropic",
+  " 4   ide integrations     6 configured",
+  " 5   multi-machine sync   /Volumes/Dev/gnosys",
+  " 6   dream mode           disabled",
+  " 7   user preferences     0 stored",
+]
+`;
