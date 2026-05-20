@@ -13,7 +13,6 @@ import path from "path";
 import { detectIDEs, setupIDE } from "../../setup.js";
 import { safeQuestion } from "../ui/safePrompt.js";
 
-const BOLD = "\x1b[1m";
 const DIM = "\x1b[2m";
 const GREEN = "\x1b[32m";
 const RED = "\x1b[31m";
