@@ -11,6 +11,7 @@ import { Interface as ReadlineInterface } from "readline/promises";
 import fs from "fs/promises";
 import path from "path";
 import { detectIDEs, setupIDE } from "../../setup.js";
+import { safeQuestion } from "../ui/safePrompt.js";
 
 const BOLD = "\x1b[1m";
 const DIM = "\x1b[2m";
@@ -40,7 +41,7 @@ export interface IdesSetupOptions {
 }
 
 async function ask(rl: ReadlineInterface, prompt: string): Promise<string> {
-  return (await rl.question(prompt)).trim();
+  return (await safeQuestion(rl, prompt)).trim();
 }
 
 async function askChoice(

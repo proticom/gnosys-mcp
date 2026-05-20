@@ -12,6 +12,7 @@ import * as path from "path";
 import { createInterface, Interface } from "readline/promises";
 import { GnosysDB } from "./db.js";
 import { RemoteSync, validateLocation } from "./remote.js";
+import { safeQuestion } from "./setup/ui/safePrompt.js";
 
 const REMOTE_PATH_KEY = "remote_path";
 
@@ -46,7 +47,7 @@ function detectVolumeCandidates(): string[] {
 }
 
 async function ask(rl: Interface, prompt: string): Promise<string> {
-  return (await rl.question(prompt)).trim();
+  return (await safeQuestion(rl, prompt)).trim();
 }
 
 async function askChoice(

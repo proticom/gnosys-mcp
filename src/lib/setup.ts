@@ -26,6 +26,7 @@ import {
 } from "./config.js";
 import { validateModel } from "./modelValidation.js";
 import { getGnosysHome } from "./paths.js";
+import { safeQuestion } from "./setup/ui/safePrompt.js";
 
 // ─── ANSI Colors ────────────────────────────────────────────────────────────
 
@@ -882,7 +883,7 @@ async function askChoice(
   console.log();
 
   while (true) {
-    const answer = await rl.question(`${DIM}>${RESET} `);
+    const answer = await safeQuestion(rl, `${DIM}>${RESET} `);
     const num = parseInt(answer.trim(), 10);
     if (num >= 1 && num <= options.length) {
       return num - 1;
@@ -900,7 +901,7 @@ async function askInput(
   opts?: { default?: string }
 ): Promise<string> {
   const suffix = opts?.default ? ` ${DIM}(${opts.default})${RESET}` : "";
-  const answer = await rl.question(`${prompt}${suffix}: `);
+  const answer = await safeQuestion(rl, `${prompt}${suffix}: `);
   const trimmed = answer.trim();
   return trimmed || opts?.default || "";
 }
@@ -914,7 +915,7 @@ async function askYesNo(
   defaultYes = true
 ): Promise<boolean> {
   const hint = defaultYes ? "Y/n" : "y/N";
-  const answer = await rl.question(`${question} [${hint}] `);
+  const answer = await safeQuestion(rl, `${question} [${hint}] `);
   const trimmed = answer.trim().toLowerCase();
   if (trimmed === "") return defaultYes;
   return trimmed === "y" || trimmed === "yes";
@@ -1993,7 +1994,7 @@ export async function runSetup(opts: {
       console.log(`Your local DB stays fast, the remote is the source of truth.`);
       console.log();
 
-      const setUpRemote = (await rl.question(`Configure remote sync now? [y/N] `)).trim().toLowerCase();
+      const setUpRemote = (await safeQuestion(rl, `Configure remote sync now? [y/N] `)).trim().toLowerCase();
       if (setUpRemote === "y" || setUpRemote === "yes") {
         console.log();
         try {

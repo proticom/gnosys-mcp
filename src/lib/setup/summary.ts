@@ -21,6 +21,7 @@ import {
   type LLMProviderName,
 } from "../config.js";
 import { GnosysDB } from "../db.js";
+import { safeQuestion } from "./ui/safePrompt.js";
 
 // ─── ANSI ───────────────────────────────────────────────────────────────────
 const BOLD = "\x1b[1m";
@@ -68,7 +69,7 @@ async function maybeOfferProviderRepair(
   console.log("");
   console.log(`  This usually means a pre-v5.8.4 setup wizard seeded anthropic by mistake.`);
   console.log("");
-  const answer = (await rl.question(`Switch the default to ${BOLD}${suggestion}${RESET}? [Y/n] `)).trim().toLowerCase();
+  const answer = (await safeQuestion(rl,`Switch the default to ${BOLD}${suggestion}${RESET}? [Y/n] `)).trim().toLowerCase();
   if (answer === "n" || answer === "no") {
     console.log(`${DIM}Left as anthropic. Run option 1 below to change explicitly.${RESET}`);
     return;
@@ -288,7 +289,7 @@ export async function runSummaryWizard(opts: SummaryOptions = {}): Promise<boole
       console.log("");
       console.log(`  Pick a number to edit · ${BOLD}D${RESET}one · ${BOLD}E${RESET}xit`);
 
-      const answer = (await rl.question("> ")).trim().toLowerCase();
+      const answer = (await safeQuestion(rl,"> ")).trim().toLowerCase();
       if (!answer || answer === "d" || answer === "done") {
         return anyChange;
       }
