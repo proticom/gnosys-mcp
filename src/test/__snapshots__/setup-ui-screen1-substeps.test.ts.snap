@@ -1,0 +1,39 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Screens 1.1 / 1.2 / 1.3 — cold-start sub-screen headers > renderKeySourceRows tags the env-var row with \`◂ found\` when detected 1`] = `
+[
+  "     1   environment variable  ANTHROPIC_API_KEY   ◂ found",
+  "     2   macos keychain        (will store securely)",
+  "     3   paste inline          (we'll move it to keychain)",
+  "     4   skip for now          (configure later)",
+]
+`;
+
+exports[`Screens 1.1 / 1.2 / 1.3 — cold-start sub-screen headers > renders the key sub-screen header (Screen 1.3) 1`] = `
+[
+  " ⬢ gnosys ▸ setup ▸ key                                    step 3 of 4    v5.9.3",
+  " ───────────────────────────────────────────────────────────────────────────────",
+  "",
+  " API key for anthropic",
+  " we'll validate it before saving anything",
+]
+`;
+
+exports[`Screens 1.1 / 1.2 / 1.3 — cold-start sub-screen headers > renders the model sub-screen header (Screen 1.2) 1`] = `
+[
+  " ⬢ gnosys ▸ setup ▸ provider ▸ model                       step 2 of 4    v5.9.3",
+  " ───────────────────────────────────────────────────────────────────────────────",
+  "",
+  " Choose a model for anthropic",
+]
+`;
+
+exports[`Screens 1.1 / 1.2 / 1.3 — cold-start sub-screen headers > renders the provider sub-screen header (Screen 1.1) 1`] = `
+[
+  " ⬢ gnosys ▸ setup ▸ provider                               step 1 of 4    v5.9.3",
+  " ───────────────────────────────────────────────────────────────────────────────",
+  "",
+  " Choose your LLM provider",
+  " prices are per-1M-tokens (input – output)",
+]
+`;

@@ -1248,10 +1248,15 @@ export async function runSetup(opts: {
       ? ` ${DIM}(current: ${currentProvider})${RESET}`
       : "";
 
+    // v5.9.3 Screen 1.1 chrome \u2014 Header + Title + step counter wrap.
+    const { renderProviderStepHeader, renderModelStepHeader, renderKeyStepHeader } = await import("./setup/coldStart.js");
+    console.log();
+    console.log(renderProviderStepHeader(version));
+    console.log();
     const providerIndex = await askChoice(
       rl,
-      `${BOLD}Step 1/5${RESET} ${DIM}\u2014${RESET} Choose your LLM provider${currentProviderHint}`,
-      providerOptions
+      `Choose your LLM provider${currentProviderHint}`,
+      providerOptions,
     );
 
     const isSkip = providerIndex === PROVIDER_ORDER.length; // last option
@@ -1277,10 +1282,14 @@ export async function runSetup(opts: {
         });
         tierOptions.push(`Custom ${DIM}(enter model name)${RESET}`);
 
+        // v5.9.3 Screen 1.2 chrome \u2014 Header + Title + step counter wrap.
+        console.log();
+        console.log(renderModelStepHeader(provider, version));
+        console.log();
         const tierIndex = await askChoice(
           rl,
-          `${BOLD}Step 2/5${RESET} ${DIM}\u2014${RESET} Choose model tier${currentModelHint}`,
-          tierOptions
+          `Choose model tier${currentModelHint}`,
+          tierOptions,
         );
 
         if (tierIndex === tiers.length) {
@@ -1359,8 +1368,9 @@ export async function runSetup(opts: {
     const legacyEnvVar = legacyEnvVars[provider] ?? "";
 
     if (needsKey) {
+      // v5.9.3 Screen 1.3 chrome \u2014 Header + Title + step counter wrap.
       console.log();
-      console.log(`${BOLD}Step 3/5${RESET} ${DIM}\u2014${RESET} API Key`);
+      console.log(renderKeyStepHeader(provider, version));
       console.log();
 
       // Check where the key currently lives
