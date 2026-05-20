@@ -15,7 +15,6 @@ import { RemoteSync, validateLocation } from "./remote.js";
 import { safeQuestion } from "./setup/ui/safePrompt.js";
 import { Spinner } from "./setup/ui/spinner.js";
 import { printStatus } from "./setup/ui/status.js";
-import { printDiff } from "./setup/ui/diff.js";
 import { Footer } from "./setup/ui/footer.js";
 import {
   renderRemoteIntro,
