@@ -1150,16 +1150,10 @@ export async function runSetup(opts: {
 
   try {
     // ─── Banner ───────────────────────────────────────────────────────
-    const tagline = "Persistent Memory for AI Agents";
-    const versionStr = `Gnosys v${version}`;
-    const bannerContentWidth = Math.max(versionStr.length, tagline.length);
-    const bannerInner = bannerContentWidth + 4;
-    const bannerBorder = "\u2500".repeat(bannerInner);
+    // v5.9.3 redesign: atom-based splash replaces the old ASCII box banner.
+    const { renderColdStartSplash } = await import("./setup/coldStart.js");
     console.log();
-    console.log(`\u250C${bannerBorder}\u2510`);
-    console.log(`\u2502  ${BOLD}${CYAN}Gnosys${RESET} v${version}${" ".repeat(bannerInner - versionStr.length - 2)}\u2502`);
-    console.log(`\u2502  ${DIM}${tagline}${RESET}${" ".repeat(bannerInner - tagline.length - 2)}\u2502`);
-    console.log(`\u2514${bannerBorder}\u2518`);
+    console.log(renderColdStartSplash(version));
     console.log();
 
     // ─── Load existing config for defaults ───────────────────────────

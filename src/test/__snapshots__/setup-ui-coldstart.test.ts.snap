@@ -1,0 +1,33 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Phase D — cold-start wizard renderers > renderColdStartSplash includes brand mark, version, and step preview 1`] = `
+" ⬢ gnosys ▸ setup                                                         v5.9.3
+ ───────────────────────────────────────────────────────────────────────────────
+
+ Welcome.
+
+ gnosys gives your AI agents persistent memory — a centralized brain
+ they keep across sessions. This wizard takes about 90 seconds.
+
+   step 1   pick a default LLM provider
+   step 2   validate the API key
+   step 3   wire up MCP for detected IDEs
+   step 4   (optional) task routing & dream mode
+
+                                                   ^C exits cleanly at any time"
+`;
+
+exports[`Phase D — cold-start wizard renderers > renderDonePanelRows aligns labels and shows full summary 1`] = `
+[
+  "provider          anthropic",
+  "model             claude-sonnet-4-6",
+  "api key           ANTHROPIC_API_KEY (env)",
+  "ides              claude-code, cursor",
+  "dream mode        disabled · enable later with \`gnosys setup\`",
+]
+`;
+
+exports[`Phase D — cold-start wizard renderers > renderStepHeader includes step counter 1`] = `
+" ⬢ gnosys ▸ setup ▸ provider                               step 1 of 4    v5.9.3
+ ───────────────────────────────────────────────────────────────────────────────"
+`;
