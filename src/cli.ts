@@ -73,49 +73,24 @@ const pkg = JSON.parse(await fs.readFile(pkgPath, "utf-8"));
 const program = new Command();
 
 /**
- * v5.4.3 upgrade nudge — runs once per CLI invocation. If the installed
- * version differs from the last-seen one stored in central DB meta, print
- * a one-line stderr nudge so the user knows to run `gnosys upgrade`.
- *
- * Why stderr: doesn't pollute stdout consumers (agents parsing JSON, scripts
- * piping the output). Visible to humans, invisible to most parsers.
- *
- * Why central DB meta: survives across CLI invocations and works whether
- * gnosys is installed globally, locally, or via npx. Single source of truth
- * for "what was the last version this user saw."
- *
- * Skipped when:
- *   - GNOSYS_SKIP_UPGRADE_NUDGE=1
- *   - Running `gnosys upgrade` itself (would be redundant)
- *   - Central DB unavailable (graceful — never blocks the actual command)
+ * Phase F: True if the CLI process is running inside a test harness.
+ * Any code path that would otherwise OPEN the central DB (which
+ * implicitly creates ~/.gnosys/gnosys.db) MUST short-circuit on this.
  */
-function maybePrintUpgradeNudge(): void {
-  if (process.env.GNOSYS_SKIP_UPGRADE_NUDGE === "1") return;
-  // Avoid printing the nudge when the user is already running upgrade.
-  if (process.argv[2] === "upgrade") return;
-
-  try {
-    const db = GnosysDB.openLocal();
-    if (!db.isAvailable() || !db.isMigrated()) {
-      db.close();
-      return;
-    }
-    const seen = db.getMeta("last_seen_version");
-    const current = pkg.version;
-    if (seen !== current) {
-      const prefix = seen ? `upgraded to v${current} (from v${seen})` : `installed v${current}`;
-      process.stderr.write(
-        `gnosys: ${prefix}. Run 'gnosys upgrade' to sync registered projects.\n`
-      );
-      db.setMeta("last_seen_version", current);
-    }
-    db.close();
-  } catch {
-    // Never block actual commands — silently skip on any error.
-  }
+function isTestEnv(): boolean {
+  return (
+    process.env.VITEST === "true" ||
+    process.env.NODE_ENV === "test" ||
+    process.env.CI === "true"
+  );
 }
 
-maybePrintUpgradeNudge();
+// v5.9.3 Phase H: `maybePrintUpgradeNudge` (cli.ts:92-118 in v5.9.2) was
+// the second of two upgrade-nag mechanisms — both fired on every CLI
+// invocation and both opened the central DB. It is now deleted; the
+// post-install block at the BOTTOM of this file is the single source of
+// truth, runs on stderr only, and is downgrade-aware (`reverted`/
+// `upgraded`).
 
 /**
  * v5.6.0 back-compat shim: rewrite `gnosys export --to <dir>` →
@@ -200,6 +175,9 @@ Run 'gnosys <command> --help' for command-specific help.
     // "you just installed a newer gnosys but haven't run sync-projects yet"
     // case, which produced a misleading "Run: npm install -g gnosys"
     // banner on every command.
+    //
+    // v5.9.3 (Phase F): skip in tests so we don't auto-create the central DB.
+    if (isTestEnv()) return;
     try {
       const centralDb = GnosysDB.openCentral();
       if (centralDb.isAvailable()) {
@@ -1823,6 +1801,28 @@ program
       cliConfig = await loadConfig(storePath);
     } catch {
       cliConfig = (await import("./lib/config.js")).DEFAULT_CONFIG;
+    }
+
+    // v5.9.3 Phase G: fail-fast on missing API key BEFORE any TUI render.
+    // Done here so we exit before ink + react + the chat renderer pull in
+    // 100+ ms of dependencies. Provider for the chat task may be the
+    // default provider OR an explicit chat override in taskModels.chat.
+    {
+      const { resolveTaskModel: resolveTask } = await import("./lib/config.js");
+      const chatTask = resolveTask(cliConfig, "chat");
+      const provider = opts.provider ?? chatTask.provider;
+      if (provider !== "ollama" && provider !== "lmstudio") {
+        const { getApiKeyForProvider } = await import("./lib/setup.js");
+        const key = await getApiKeyForProvider(provider);
+        if (!key) {
+          const { Status } = await import("./lib/setup/ui/status.js");
+          const envVar = `${provider.toUpperCase()}_API_KEY`;
+          process.stderr.write(`${Status("fail", `no API key for ${provider} (the configured chat provider)`)}\n`);
+          process.stderr.write(`   fix:  gnosys setup           pick a provider with a key, or add one\n`);
+          process.stderr.write(`         export ${envVar}=...\n`);
+          process.exit(1);
+        }
+      }
     }
 
     await chat.startChat({
@@ -3818,6 +3818,19 @@ async function syncProjectsAction(opts: { skipDashboard?: boolean }): Promise<vo
     if (skipped.length > 0) {
       console.log(`\nNote: ${skipped.length} project(s) skipped — no .gnosys directory found.`);
       console.log(`Run 'gnosys init' in each directory to set them up, or remove them from the registry.`);
+      // v5.9.3 Phase H: offer one-keystroke cleanup. Stays interactive
+      // by default; users on a TTY get the prompt, non-TTY runs silently
+      // (sync-projects is sometimes invoked from CI).
+      if (process.stdout.isTTY) {
+        try {
+          const { cleanupRegistry } = await import("./lib/cleanup.js");
+          await cleanupRegistry({ interactive: true });
+        } catch (err) {
+          console.log(`  ⚠ Cleanup skipped: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      } else {
+        console.log(`  Tip: run 'gnosys cleanup' to remove them in one keystroke.`);
+      }
     }
 
     // 6. Regenerate portfolio dashboard
@@ -3850,6 +3863,26 @@ setupCmd
   .description("Re-initialize all registered projects after upgrading gnosys: refresh agent rules, project registry, central DB stamp, and portfolio dashboard.")
   .option("--skip-dashboard", "Skip regenerating the portfolio dashboard")
   .action(syncProjectsAction);
+
+// `gnosys cleanup` — prune dead/temp entries from the project registry.
+// Standalone top-level command per Phase H. Also reusable from inside
+// `setup sync-projects` when the skipped list is non-empty (see
+// road-015).
+program
+  .command("cleanup")
+  .description("Remove dead and temp-dir entries from the project registry")
+  .option("--yes", "Non-interactive, remove without prompting")
+  .option("--dry-run", "Show what would be removed without writing")
+  .action(async (opts: { yes?: boolean; dryRun?: boolean }) => {
+    const { cleanupRegistry } = await import("./lib/cleanup.js");
+    const result = await cleanupRegistry({
+      interactive: !opts.yes && !opts.dryRun,
+      yes: opts.yes,
+    });
+    if (opts.yes || opts.dryRun) {
+      console.log(JSON.stringify(result, null, 2));
+    }
+  });
 
 // `gnosys upgrade` — upgrade the gnosys CLI/MCP itself, then prompt the
 // user to run sync-projects. Writes ~/.gnosys/last-upgrade-at so running
@@ -6767,35 +6800,55 @@ webCmd
 // you" which is a separate concern handled by the preAction warning.
 // Also avoids re-nudging once per command for the same version-pair by
 // honoring a per-session env-var sentinel.
-try {
-  const centralDb = GnosysDB.openCentral();
-  if (centralDb.isAvailable()) {
-    const lastVersion = centralDb.getMeta("app_version");
-    const currentVersion = pkg.version;
-    const isUpgradeCmd = process.argv.slice(2).some(a => a === "upgrade");
-    const isSetupSyncCmd = process.argv.slice(2).join(" ").includes("setup sync-projects");
-    // CRITICAL: `serve` writes JSON-RPC to stdout for MCP transport. Any
-    // console.log during boot corrupts the protocol and the host (Grok, Codex,
-    // etc.) sees the server as [unavailable]. Suppress the nag in serve mode.
-    const isServeCmd = process.argv.slice(2).some(a => a === "serve");
-    const newer = lastVersion && compareSemver(currentVersion, lastVersion) > 0;
-    if (newer && !isUpgradeCmd && !isSetupSyncCmd && !isServeCmd) {
-      console.log("");
-      console.log(`  Gnosys updated: v${lastVersion} → v${currentVersion}`);
-      console.log("");
-      console.log("  Run now to refresh the central DB stamp and registered projects:");
-      console.log("    gnosys setup sync-projects");
-      console.log("");
-      console.log("  Then restart MCP servers:");
-      console.log("    Cursor:      Cmd+Shift+P > MCP: Restart All Servers");
-      console.log("    Claude Code: /mcp > restart gnosys (or start new session)");
-      console.log("    Codex:       start new session");
-      console.log("");
+//
+// v5.9.3 Phase H consolidation lives BELOW this block; Phase F guards us
+// from touching the DB at all in tests.
+if (!isTestEnv()) {
+  try {
+    const centralDb = GnosysDB.openCentral();
+    if (centralDb.isAvailable()) {
+      const lastVersion = centralDb.getMeta("app_version");
+      const currentVersion = pkg.version;
+      const isUpgradeCmd = process.argv.slice(2).some(a => a === "upgrade");
+      const isSetupSyncCmd = process.argv.slice(2).join(" ").includes("setup sync-projects");
+      // CRITICAL: `serve` writes JSON-RPC to stdout for MCP transport. Any
+      // console.log during boot corrupts the protocol and the host (Grok, Codex,
+      // etc.) sees the server as [unavailable]. Suppress the nag in serve mode.
+      const isServeCmd = process.argv.slice(2).some(a => a === "serve");
+      // v5.9.3 Phase H: fire on any mismatch (upgrade OR downgrade).
+      const mismatch =
+        lastVersion !== null && lastVersion !== undefined &&
+        compareSemver(currentVersion, lastVersion) !== 0;
+      if (mismatch && !isUpgradeCmd && !isSetupSyncCmd && !isServeCmd) {
+        // v5.9.3 Phase H: emit on STDERR (was stdout). Safer invariant per
+        // deci-045 — stdout is reserved for command output.
+        const isMajorOrMinor = (() => {
+          if (!lastVersion) return false;
+          const oldParts = lastVersion.split(".").map(Number);
+          const newParts = currentVersion.split(".").map(Number);
+          return (oldParts[0] ?? 0) !== (newParts[0] ?? 0) || (oldParts[1] ?? 0) !== (newParts[1] ?? 0);
+        })();
+        const direction = compareSemver(currentVersion, lastVersion ?? "0.0.0") > 0 ? "upgraded" : "reverted";
+        process.stderr.write("\n");
+        process.stderr.write(` ⬢ gnosys ${direction} · v${lastVersion} → v${currentVersion}\n`);
+        process.stderr.write("\n");
+        if (direction === "upgraded") {
+          process.stderr.write("   sync registered projects        gnosys upgrade\n");
+          if (isMajorOrMinor) {
+            process.stderr.write("   restart mcp                     cursor → MCP: restart all servers\n");
+            process.stderr.write("                                   claude code → /mcp → restart gnosys\n");
+            process.stderr.write("                                   codex → start new session\n");
+          }
+        } else {
+          process.stderr.write("   if this was unintentional, run  gnosys upgrade\n");
+        }
+        process.stderr.write("\n");
+      }
+      centralDb.close();
     }
-    centralDb.close();
+  } catch {
+    // non-critical — don't block CLI startup
   }
-} catch {
-  // non-critical — don't block CLI startup
 }
 
 program.parse();

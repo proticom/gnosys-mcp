@@ -40,3 +40,19 @@ export function getCentralDbPath(): string {
 export function getSandboxDir(): string {
   return path.join(getGnosysHome(), "sandbox");
 }
+
+/**
+ * Path to the user-level config directory: `~/.config/gnosys/`. Holds
+ * the project registry, .env, and other per-user CLI metadata that
+ * lives OUTSIDE the central data store at `~/.gnosys/`.
+ */
+export function getConfigDir(): string {
+  if (process.env.GNOSYS_CONFIG_DIR) return process.env.GNOSYS_CONFIG_DIR;
+  const home = process.env.HOME || process.env.USERPROFILE || "/tmp";
+  return path.join(home, ".config", "gnosys");
+}
+
+/** Path to the project registry file (~/.config/gnosys/projects.json). */
+export function getProjectRegistryPath(): string {
+  return path.join(getConfigDir(), "projects.json");
+}

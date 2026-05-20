@@ -82,6 +82,11 @@ export async function startChat(opts: StartChatOptions): Promise<void> {
   // v5.8.0 (#2): resolve chat-specific task model. resolveTaskModel falls
   // through to defaultProvider when no `chat` override is set, so existing
   // installs see no change.
+  //
+  // v5.9.3 Phase G: the fail-fast on missing API key now lives in
+  // cli.ts's chat command action, BEFORE the resolver / config load.
+  // That keeps the bail-out fast and gives users an actionable error
+  // without paying for React/ink imports first.
   const chatTask = resolveTaskModel(opts.config, "chat");
   const provider = opts.providerName ?? chatTask.provider;
   const model = opts.modelName ?? chatTask.model;
