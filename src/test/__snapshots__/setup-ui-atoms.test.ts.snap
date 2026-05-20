@@ -1,0 +1,59 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`setup/ui atoms — Phase A > Diff renders before/after rows 1`] = `
+"   provider   anthropic           →   xai
+   model      claude-sonnet-4-6   →   grok-4.20
+   api key    ANTHROPIC_API_KEY   →   keychain (xai)"
+`;
+
+exports[`setup/ui atoms — Phase A > Footer renders right-aligned hint 1`] = `"                                            q · quit anytime · ^C exits cleanly"`;
+
+exports[`setup/ui atoms — Phase A > Header renders breadcrumb + version + rule 1`] = `
+" ⬢ gnosys ▸ setup ▸ models                                                v5.9.3
+ ───────────────────────────────────────────────────────────────────────────────"
+`;
+
+exports[`setup/ui atoms — Phase A > Header without version 1`] = `
+" ⬢ gnosys ▸ setup                                                               
+ ───────────────────────────────────────────────────────────────────────────────"
+`;
+
+exports[`setup/ui atoms — Phase A > Menu renders numbered items with meta + tag 1`] = `
+"     1  anthropic (Claude)                                    $1.00 – 150.00 /M
+     2  openai  (GPT-5.4)                                     $0.20 – 180.00 /M
+     3  ollama  (local)                                      free ◂ recommended
+     4  groq    (fast)                                         $0.05 – 0.79  /M
+     5  back"
+`;
+
+exports[`setup/ui atoms — Phase A > Menu with only labels (no meta, no tag) 1`] = `
+"     1  first
+     2  second"
+`;
+
+exports[`setup/ui atoms — Phase A > Panel renders rounded box with title and rows 1`] = `
+" ╭─ gnosys settings ─────────────────────────────────────────────────╮
+ │   1   provider            anthropic                                │
+ │   2   models              anthropic / claude-sonnet-4-6            │
+ │   3   task routing        all anthropic                            │
+ │   4   ide integrations    6 configured                             │
+ │   5   multi-machine sync  /Volumes/Dev/gnosys                      │
+ │   6   dream mode          disabled                                 │
+ │   7   user preferences    0 stored                                 │
+ ╰────────────────────────────────────────────────────────────────────╯"
+`;
+
+exports[`setup/ui atoms — Phase A > Status — fail 1`] = `" ✗ validation failed · 401 unauthorized"`;
+
+exports[`setup/ui atoms — Phase A > Status — ok with meta 1`] = `" ✓ model validated                                                       847 ms"`;
+
+exports[`setup/ui atoms — Phase A > Status — progress 1`] = `" ◌ fetching latest pricing…"`;
+
+exports[`setup/ui atoms — Phase A > Status — warn with meta 1`] = `" ⚠ no anthropic key in env or keychain                               found: xai"`;
+
+exports[`setup/ui atoms — Phase A > Title with subtitle 1`] = `
+" Configure your LLM provider
+ currently anthropic · last validated 2m ago"
+`;
+
+exports[`setup/ui atoms — Phase A > Title without subtitle 1`] = `" Choose a model"`;
