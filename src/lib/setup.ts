@@ -2370,7 +2370,6 @@ export async function runDreamSetup(opts: DreamSetupOpts = {}): Promise<void> {
     const { Spinner } = await import("./setup/ui/spinner.js");
     const { printDiff } = await import("./setup/ui/diff.js");
     const { printStatus } = await import("./setup/ui/status.js");
-    const v = `step 1 of 3`;
 
     const existingConfig = await loadExistingConfig(projectDir);
     const existingDream = existingConfig?.dream;
@@ -2391,7 +2390,7 @@ export async function runDreamSetup(opts: DreamSetupOpts = {}): Promise<void> {
 
     // ─── 7.0  Overview & enable ────────────────────────────────────────
     console.log();
-    console.log(Header(["gnosys", "setup", "dream"], { version: v }));
+    console.log(Header(["gnosys", "setup", "dream"], { version: "step 1 of 3" }));
     console.log();
     console.log(
       Title(

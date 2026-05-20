@@ -16,7 +16,6 @@
 import { Header } from "./ui/header.js";
 import { Title } from "./ui/title.js";
 import { Footer } from "./ui/footer.js";
-import { Status } from "./ui/status.js";
 import { c, color, glyph } from "./ui/tokens.js";
 
 /**
@@ -55,26 +54,6 @@ export function renderStepHeader(
 ): string {
   const v = version.startsWith("v") ? version : `v${version}`;
   return Header([...crumbs], { version: `step ${step} of ${total}    ${v}` });
-}
-
-/**
- * Done screen (Screen 1.5 — Panel-based summary plus three curated next
- * steps).
- */
-export function renderColdStartDone(summary: {
-  provider: string;
-  model: string;
-  keySource: string;
-  ides: string[];
-  dreamEnabled: boolean;
-}): string {
-  const lines: string[] = [];
-  lines.push(Status("ok", "setup complete"));
-  lines.push("");
-  // The Panel is rendered by the caller via the atom; here we just
-  // return the rows since `runSetup()` will pass them to Panel().
-  // (Tests call renderDonePanelRows directly.)
-  return lines.join("\n");
 }
 
 /**
