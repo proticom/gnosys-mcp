@@ -1,0 +1,40 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Screen 7 — dream render > builds the diff rows for a first-time enable 1`] = `
+[
+  {
+    "from": "—",
+    "label": "provider",
+    "to": "ollama / llama3.2",
+  },
+  {
+    "from": "—",
+    "label": "machine",
+    "to": "EdsMacStudio",
+  },
+  {
+    "from": "—",
+    "label": "idle threshold",
+    "to": "10 min",
+  },
+  {
+    "from": "—",
+    "label": "max runtime",
+    "to": "30 min",
+  },
+]
+`;
+
+exports[`Screen 7 — dream render > renders the thresholds block with default values inside [N ] fields 1`] = `
+[
+  "   when to run",
+  "     idle threshold    [10 ] minutes      wait this long before starting",
+  "     max runtime       [30 ] minutes      cap each cycle to avoid runaway",
+  "     min memories      [10 ]              only run if there's enough new material",
+  "",
+  "   what to do",
+  "     ✓  self-critique         review and re-rank existing memories",
+  "     ✓  generate summaries    produce a "what changed today" digest",
+  "     ✓  discover relationships  link related memories explicitly",
+]
+`;

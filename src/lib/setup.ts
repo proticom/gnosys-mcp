@@ -2352,9 +2352,15 @@ export async function runDreamSetup(opts: DreamSetupOpts = {}): Promise<void> {
   const rl = opts.rl ?? createInterface({ input: stdin, output: stdout });
 
   try {
-    console.log();
-    console.log(`${BOLD}${CYAN}Gnosys${RESET} ${DIM}— Dream Mode Setup${RESET}`);
-    console.log();
+    // v5.9.3 Screen 7 — three grouped sub-screens (7.0 enable, 7.1
+    // machine+model, 7.2 thresholds+sub-tasks). Each sub-screen renders
+    // its own Header with `step N of 3` so the progress is always visible.
+    const { Header } = await import("./setup/ui/header.js");
+    const { Title } = await import("./setup/ui/title.js");
+    const { Spinner } = await import("./setup/ui/spinner.js");
+    const { printDiff } = await import("./setup/ui/diff.js");
+    const { printStatus } = await import("./setup/ui/status.js");
+    const v = `step 1 of 3`;
 
     const existingConfig = await loadExistingConfig(projectDir);
     const existingDream = existingConfig?.dream;
@@ -2372,27 +2378,25 @@ export async function runDreamSetup(opts: DreamSetupOpts = {}): Promise<void> {
       }
       return id;
     })();
-    const recentRuns = localDb.getRecentDreamRuns(1);
-    const lastRun = recentRuns[0];
 
-    console.log(`${DIM}Current state${RESET}`);
-    console.log(`  Enabled:           ${existingDream?.enabled ? GREEN + "yes" + RESET : DIM + "no" + RESET}`);
-    console.log(`  Designated:        ${designatedMachine ? designatedMachine + (designatedMachine === localMachine ? ` ${GREEN}(this machine)${RESET}` : ` ${DIM}(other machine)${RESET}`) : DIM + "none" + RESET}`);
-    console.log(`  This machine ID:   ${DIM}${localMachine}${RESET}`);
-    if (existingDream) {
-      console.log(`  Provider:          ${existingDream.provider}${existingDream.model ? "/" + existingDream.model : ""}`);
-      console.log(`  Idle threshold:    ${existingDream.idleMinutes} min`);
-      console.log(`  Max runtime:       ${existingDream.maxRuntimeMinutes} min`);
-    }
-    if (lastRun) {
-      console.log(`  Last run:          ${DIM}${lastRun.completed}${RESET}`);
-    } else {
-      console.log(`  Last run:          ${DIM}never${RESET}`);
-    }
+    // ─── 7.0  Overview & enable ────────────────────────────────────────
+    console.log();
+    console.log(Header(["gnosys", "setup", "dream"], { version: v }));
+    console.log();
+    console.log(
+      Title(
+        "Dream Mode",
+        "gnosys runs background consolidation while you're idle — merging related memories, generating summaries, surfacing relationships.",
+      ),
+    );
+    console.log();
+    const currentStateLine = existingDream?.enabled
+      ? `enabled · ${designatedMachine ? designatedMachine === localMachine ? `${localMachine} (this machine)` : designatedMachine : "no designated machine"}`
+      : "disabled · no designated machine";
+    printStatus("progress", "current", currentStateLine);
     console.log();
 
-    // Step 1: Enable
-    const enabled = await askYesNo(rl, "Enable dream mode?", existingDream?.enabled ?? true);
+    const enabled = await askYesNo(rl, "enable Dream Mode?", existingDream?.enabled ?? true);
     if (!enabled) {
       // Persist disabled state and clear designation
       const storePath = pickStorePath(projectDir);
@@ -2400,35 +2404,48 @@ export async function runDreamSetup(opts: DreamSetupOpts = {}): Promise<void> {
         dream: { ...(existingDream ?? {}), enabled: false },
       });
       localDb.clearDreamMachineId();
-      console.log(`${CHECK} Dream mode disabled. Designation cleared.`);
+      console.log();
+      printStatus("ok", "dream mode disabled · designation cleared");
       localDb.close();
       return;
     }
 
-    // Step 2: Designate this machine
+    // ─── 7.1  Designated machine + model ───────────────────────────────
+    console.log();
+    console.log(Header(["gnosys", "setup", "dream", "machine"], { version: "step 2 of 3" }));
+    console.log();
+    console.log(Title("Only one machine dreams at a time — we'll designate one now."));
+    console.log();
+    printStatus("progress", "this machine", localMachine);
+    console.log();
+
     const designate = await askYesNo(
       rl,
       designatedMachine === localMachine
-        ? "This machine is currently the dream node. Keep it that way?"
-        : `Designate THIS machine (${localMachine}) to run dream cycles?`,
-      true
+        ? "this machine is currently the dreamer — keep it?"
+        : `designate THIS machine (${localMachine}) as the dreamer?`,
+      true,
     );
     if (designate) {
       localDb.setDreamMachineId(localMachine);
-      console.log(`  ${CHECK} ${localMachine} is now the dream node.`);
+      printStatus("ok", `${localMachine} is the dreamer`);
     } else if (designatedMachine === localMachine) {
       localDb.clearDreamMachineId();
-      console.log(`  ${WARN} Designation cleared. No machine will dream until you re-run this on another machine.`);
+      printStatus("warn", "designation cleared", "no machine will dream until you re-run on another");
     } else {
-      console.log(`  ${DIM}Keeping current designation: ${designatedMachine || "none"}${RESET}`);
+      printStatus("progress", "keeping current designation", designatedMachine || "none");
     }
 
-    // Step 3: Provider
+    // Pricing fetch — animated Spinner.
     console.log();
-    console.log(`${DIM}Fetching latest model pricing...${RESET}`);
+    const pricingSpin = Spinner("fetching latest pricing from openrouter…");
+    const fetchStart = Date.now();
     const dynamicModels = await fetchDynamicModels();
+    const fetchMs = Date.now() - fetchStart;
     if (Object.keys(dynamicModels).length > 0) {
-      console.log(`${DIM}${CHECK} Live pricing loaded from OpenRouter${RESET}`);
+      pricingSpin.ok("pricing loaded", `${fetchMs} ms`);
+    } else {
+      pricingSpin.fail("pricing fetch failed", "using bundled tiers");
     }
     console.log();
 
@@ -2436,11 +2453,10 @@ export async function runDreamSetup(opts: DreamSetupOpts = {}): Promise<void> {
     const dreamProvider = await pickProvider(
       rl,
       dynamicModels,
-      `${BOLD}Step 3${RESET} ${DIM}—${RESET} Choose dream LLM provider`,
-      defaultProvider
+      "Choose dream LLM provider — local is recommended (dream runs a lot)",
+      defaultProvider,
     );
 
-    // Step 4: Model
     let dreamModel = "";
     if (dreamProvider === "custom" || dreamProvider === "skip") {
       dreamModel = await askInput(rl, "Enter model name");
@@ -2453,65 +2469,85 @@ export async function runDreamSetup(opts: DreamSetupOpts = {}): Promise<void> {
           rl,
           dreamProvider,
           dynamicModels,
-          `${BOLD}Step 4${RESET} ${DIM}—${RESET} Choose dream model`,
-          existingDream?.model
+          "Choose dream model",
+          existingDream?.model,
         );
       }
     }
 
-    // Step 5: Validate (Layer 1 alert)
+    // Validate — animated Spinner with the model latency reported.
     if (dreamProvider !== "skip") {
       const apiKey = await getApiKeyForProvider(dreamProvider);
-      if (apiKey || dreamProvider === "ollama" || dreamProvider === "lmstudio") {
+      const isLocalProvider = dreamProvider === "ollama" || dreamProvider === "lmstudio";
+      if (apiKey || isLocalProvider) {
         console.log();
-        console.log(`${DIM}Testing ${dreamProvider}/${dreamModel}...${RESET}`);
+        const validateSpin = Spinner(`validating ${dreamProvider} / ${dreamModel}…`);
         try {
           const customBaseUrl = dreamProvider === "custom" ? process.env.GNOSYS_LLM_BASE_URL : undefined;
           const result = await validateModel(dreamProvider, dreamModel, apiKey, { customBaseUrl });
           if (result.ok) {
-            console.log(`  ${CHECK} Validated (${result.latencyMs}ms)`);
+            validateSpin.ok("model validated", `${result.latencyMs} ms · ${dreamProvider} / ${dreamModel}`);
           } else {
-            console.log(`  ${WARN} Could not reach ${dreamProvider}/${dreamModel}: ${result.error}`);
-            console.log(`  ${DIM}Dream is configured but won't run useful work until this is fixed.${RESET}`);
-            const proceed = await askYesNo(rl, "  Continue saving config anyway?", true);
+            validateSpin.fail("could not reach model", result.error);
+            const proceed = await askYesNo(rl, "save config anyway?", true);
             if (!proceed) {
-              console.log(`  ${DIM}Setup cancelled. No changes saved.${RESET}`);
+              printStatus("warn", "setup cancelled · no changes written");
               localDb.close();
               return;
             }
           }
         } catch (err) {
-          console.log(`  ${DIM}Validation skipped: ${err instanceof Error ? err.message : err}${RESET}`);
+          printStatus("warn", "validation skipped", err instanceof Error ? err.message : String(err));
         }
       } else {
-        console.log(`  ${WARN} No API key configured for ${dreamProvider}. Set one via 'gnosys setup models'.`);
+        printStatus("warn", `no API key for ${dreamProvider}`, "set one via `gnosys setup models`");
       }
     }
 
-    // Step 6-8: schedule
+    // ─── 7.2  Thresholds + sub-tasks ───────────────────────────────────
     console.log();
-    console.log(`${BOLD}Step 6${RESET} ${DIM}—${RESET} Schedule`);
-    const idleAns = await askInput(rl, `Idle minutes before triggering`, {
-      default: String(existingDream?.idleMinutes ?? 10),
-    });
-    const idleMinutes = Math.max(1, parseInt(idleAns) || 10);
-
-    const runtimeAns = await askInput(rl, `Max runtime minutes`, {
-      default: String(existingDream?.maxRuntimeMinutes ?? 30),
-    });
-    const maxRuntimeMinutes = Math.max(1, parseInt(runtimeAns) || 30);
-
-    const minMemAns = await askInput(rl, `Minimum memories before activating`, {
-      default: String(existingDream?.minMemories ?? 10),
-    });
-    const minMemories = Math.max(1, parseInt(minMemAns) || 10);
-
-    // Step 9: sub-tasks
+    console.log(Header(["gnosys", "setup", "dream", "when & what"], { version: "step 3 of 3" }));
     console.log();
-    console.log(`${BOLD}Step 9${RESET} ${DIM}—${RESET} Dream sub-tasks`);
-    const selfCritique = await askYesNo(rl, "Self-critique (rule + LLM-based review flagging)", existingDream?.selfCritique ?? true);
-    const generateSummaries = await askYesNo(rl, "Generate summaries (LLM)", existingDream?.generateSummaries ?? true);
-    const discoverRelationships = await askYesNo(rl, "Discover relationships (LLM)", existingDream?.discoverRelationships ?? true);
+    console.log(Title("Thresholds & sub-tasks", "press enter to accept defaults, or `e` to edit"));
+    console.log();
+
+    // Defaults pulled from the existing config (or the global defaults).
+    const dIdle = existingDream?.idleMinutes ?? 10;
+    const dRuntime = existingDream?.maxRuntimeMinutes ?? 30;
+    const dMinMem = existingDream?.minMemories ?? 10;
+    const dSelfCritique = existingDream?.selfCritique ?? true;
+    const dGenSummaries = existingDream?.generateSummaries ?? true;
+    const dDiscover = existingDream?.discoverRelationships ?? true;
+
+    const { renderThresholdsBlock } = await import("./setup/dreamRender.js");
+    for (const line of renderThresholdsBlock(dIdle, dRuntime, dMinMem, {
+      selfCritique: dSelfCritique,
+      generateSummaries: dGenSummaries,
+      discoverRelationships: dDiscover,
+    })) {
+      console.log(line);
+    }
+    console.log();
+
+    const editChoice = (await askInput(rl, "press enter to accept defaults, or e to edit")).trim().toLowerCase();
+    let idleMinutes = dIdle;
+    let maxRuntimeMinutes = dRuntime;
+    let minMemories = dMinMem;
+    let selfCritique = dSelfCritique;
+    let generateSummaries = dGenSummaries;
+    let discoverRelationships = dDiscover;
+
+    if (editChoice === "e") {
+      const idleAns = await askInput(rl, "idle minutes before triggering", { default: String(dIdle) });
+      idleMinutes = Math.max(1, parseInt(idleAns) || dIdle);
+      const runtimeAns = await askInput(rl, "max runtime minutes", { default: String(dRuntime) });
+      maxRuntimeMinutes = Math.max(1, parseInt(runtimeAns) || dRuntime);
+      const minMemAns = await askInput(rl, "minimum memories before activating", { default: String(dMinMem) });
+      minMemories = Math.max(1, parseInt(minMemAns) || dMinMem);
+      selfCritique = await askYesNo(rl, "self-critique (rule + LLM-based review flagging)", dSelfCritique);
+      generateSummaries = await askYesNo(rl, "generate summaries (LLM)", dGenSummaries);
+      discoverRelationships = await askYesNo(rl, "discover relationships (LLM)", dDiscover);
+    }
 
     // Save
     const storePath = pickStorePath(projectDir);
@@ -2534,13 +2570,38 @@ export async function runDreamSetup(opts: DreamSetupOpts = {}): Promise<void> {
     localDb.resetDreamConsecutiveFailures();
     localDb.close();
 
+    // Final Diff block per the design — provider/machine + the two
+    // threshold fields most users actually care about.
     console.log();
-    console.log(`  ${CHECK} Dream config saved: ${storePath}/gnosys.json`);
-    console.log(`  ${DIM}Provider:    ${dreamProvider}${dreamModel ? "/" + dreamModel : ""}${RESET}`);
-    console.log(`  ${DIM}Schedule:    idle ${idleMinutes}m / max ${maxRuntimeMinutes}m / min ${minMemories} memories${RESET}`);
-    console.log(`  ${DIM}Designated:  ${designate ? localMachine + " (this machine)" : (designatedMachine || "none")}${RESET}`);
+    printStatus("ok", "dream mode enabled");
     console.log();
-    console.log(`${DIM}Tip: 'gnosys dream log' shows recent runs once dream starts cycling.${RESET}`);
+    const { buildDreamDiffRows } = await import("./setup/dreamRender.js");
+    printDiff(
+      buildDreamDiffRows(
+        existingDream
+          ? {
+              provider: existingDream.provider,
+              model: existingDream.model,
+              machine: designatedMachine ?? "—",
+              idleMinutes: existingDream.idleMinutes,
+              maxRuntimeMinutes: existingDream.maxRuntimeMinutes,
+            }
+          : null,
+        {
+          provider: dreamProvider,
+          model: dreamModel || undefined,
+          machine: designate ? localMachine : (designatedMachine ?? "none"),
+          idleMinutes,
+          maxRuntimeMinutes,
+          selfCritique,
+          generateSummaries,
+          discoverRelationships,
+        },
+      ),
+    );
+    const dreamerName = designate ? localMachine : (designatedMachine ?? "the designated machine");
+    printStatus("progress", `first cycle runs after ${dreamerName} is idle for ${idleMinutes} min`);
+    printStatus("progress", "check status anytime with", "gnosys dashboard");
   } finally {
     if (ownsRl) rl.close();
   }
