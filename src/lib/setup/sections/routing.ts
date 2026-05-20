@@ -17,12 +17,20 @@ import {
   type LLMProviderName,
 } from "../../config.js";
 import { safeQuestion } from "../ui/safePrompt.js";
+import { Header } from "../ui/header.js";
+import { Title } from "../ui/title.js";
+import { Footer } from "../ui/footer.js";
+import { printStatus } from "../ui/status.js";
+import {
+  classifyCost,
+  renderRoutingTable,
+  renderRoutingDiff,
+  type TaskRow,
+  type DiffEntry,
+} from "../routingRender.js";
 
-const BOLD = "\x1b[1m";
 const DIM = "\x1b[2m";
-const GREEN = "\x1b[32m";
 const RESET = "\x1b[0m";
-const CHECK = `${GREEN}✓${RESET}`;
 
 export const TASK_DESCRIPTIONS: Record<string, string> = {
   structuring: "adding memories, tagging",
@@ -88,18 +96,26 @@ function buildEffectiveRouting(cfg: GnosysConfig): Record<string, { provider: st
   return out;
 }
 
-function printTable(routing: Record<string, { provider: string; model: string }>, dreamEnabled: boolean): void {
-  const taskNameWidth = 16;
-  const routingWidth = 38;
-  console.log(`  ${BOLD}${"Task".padEnd(taskNameWidth)}${"Current Routing".padEnd(routingWidth)}${RESET}`);
-  console.log(`  ${"─".repeat(taskNameWidth + routingWidth)}`);
+/**
+ * Build the table-row payload from current routing data. Marks any
+ * task whose effective provider/model differs from the snapshot as
+ * `changed` so the renderer can highlight it (▶ in accent-hi).
+ */
+function buildTaskRows(
+  routing: Record<string, { provider: string; model: string }>,
+  baseline: Record<string, { provider: string; model: string }>,
+  dreamEnabled: boolean,
+): TaskRow[] {
+  const rows: TaskRow[] = [];
   for (const t of [...TASKS, "dream" as const]) {
     const r = routing[t];
-    const desc = TASK_DESCRIPTIONS[t] ?? "";
-    const status = t === "dream" && !dreamEnabled ? `${DIM}(disabled)${RESET}` : `${DIM}(${desc})${RESET}`;
-    console.log(`  ${t.padEnd(taskNameWidth)}${`${r.provider} / ${r.model}`.padEnd(routingWidth)}${status}`);
+    const uses = `${r.provider} / ${r.model}`;
+    const cost = t === "dream" && !dreamEnabled ? "free" : classifyCost(r.provider, r.model);
+    const base = baseline[t];
+    const changed = !base || base.provider !== r.provider || base.model !== r.model;
+    rows.push({ task: t, uses, cost, changed });
   }
-  console.log("");
+  return rows;
 }
 
 /**
@@ -113,15 +129,17 @@ export async function runRoutingSetup(opts: RoutingOptions): Promise<boolean> {
   const model = getProviderModel(cfg, provider);
 
   console.log("");
-  console.log(`${BOLD}Task Routing${RESET}`);
+  console.log(Header(["gnosys", "setup", "routing"]));
   console.log("");
-  console.log(`Each task can use a different LLM. Defaults flow from your provider`);
-  console.log(`(${BOLD}${provider} / ${model}${RESET}). Override per-task or keep defaults.`);
+  console.log(Title("Task routing", "each task can use a different model — overrides the default"));
   console.log("");
 
   const dreamEnabled = !!cfg.dream?.enabled;
-  const routing = buildEffectiveRouting(cfg);
-  printTable(routing, dreamEnabled);
+  const baseline = buildEffectiveRouting(cfg);
+  // Initial table: nothing has changed yet, so every row is `changed: false`.
+  const initialRows = buildTaskRows(baseline, baseline, dreamEnabled);
+  console.log(renderRoutingTable(initialRows));
+  console.log("");
 
   const choice = await askChoice(
     opts.rl,
@@ -149,7 +167,7 @@ export async function runRoutingSetup(opts: RoutingOptions): Promise<boolean> {
   if (choice === 1) {
     // Customize each task
     for (const t of TASKS) {
-      const current = routing[t];
+      const current = baseline[t];
       const keep = await askYesNo(
         opts.rl,
         `Keep ${t} → ${current.provider} / ${current.model}?`,
@@ -199,7 +217,28 @@ export async function runRoutingSetup(opts: RoutingOptions): Promise<boolean> {
     } as any,
   });
 
+  // v5.9.3 Screen 4 — re-render the table with `▶` markers on changed rows
+  // followed by a Diff() block summarizing what shipped. Then a final
+  // status line that names the saved file.
+  const updatedCfg = await loadConfig(opts.directory);
+  const updatedRouting = buildEffectiveRouting(updatedCfg);
+  const finalRows = buildTaskRows(updatedRouting, baseline, dreamEnabledNew);
   console.log("");
-  console.log(`${CHECK} Task routing updated.`);
+  console.log(renderRoutingTable(finalRows));
+  console.log("");
+
+  const diffEntries: DiffEntry[] = [];
+  for (const t of [...TASKS, "dream" as const]) {
+    const before = baseline[t];
+    const after = updatedRouting[t];
+    const fromStr = `${before.provider} / ${before.model}`;
+    const toStr = `${after.provider} / ${after.model}`;
+    diffEntries.push({ task: t, from: fromStr, to: toStr === fromStr ? null : toStr });
+  }
+  console.log(renderRoutingDiff(diffEntries));
+  console.log("");
+  printStatus("ok", "routing saved", `${opts.directory}/.gnosys/gnosys.json`);
+  // Footer hint (right-aligned) for any follow-up navigation in the menu flow.
+  console.log(Footer("press enter to return"));
   return true;
 }

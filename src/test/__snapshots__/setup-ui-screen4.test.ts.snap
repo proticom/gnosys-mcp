@@ -1,0 +1,18 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Screen 4 — routing render > renders the diff block with → for changes and (unchanged) otherwise 1`] = `
+[
+  "   synthesis   anthropic / claude-sonnet-4-6   →   groq / llama-3.1-70b",
+  "   dream       ollama / llama3.2               (unchanged)",
+]
+`;
+
+exports[`Screen 4 — routing render > renders the routing table with the cost column 1`] = `
+[
+  "   task         uses                             cost",
+  "   ───────────────────────────────────────────────────────────────────────────",
+  "     synthesis  anthropic / claude-sonnet-4-6     $$$",
+  "     structuringanthropic / claude-sonnet-4-6     $$$",
+  "     dream      ollama / llama3.2                free",
+]
+`;
