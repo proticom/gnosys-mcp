@@ -1,0 +1,28 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Screen 6 — remote render > renders the diff with previous → new 1`] = `
+[
+  "   remote     not configured         →   /Volumes/NAS/gnosys",
+  "   mode       —                      →   read-write",
+]
+`;
+
+exports[`Screen 6 — remote render > renders the intro with \`not configured\` when no remote 1`] = `
+[
+  " ⬢ gnosys ▸ setup ▸ remote                                                      ",
+  " ───────────────────────────────────────────────────────────────────────────────",
+  "",
+  " Multi-machine sync",
+  " share your memory store across machines via a path on a NAS, iCloud, Dropbox, etc.",
+  "",
+  "   local DB    ~/.gnosys/gnosys.db (120 active, 5 archived)",
+  "   current     not configured",
+]
+`;
+
+exports[`Screen 6 — remote render > renders validation summary with all checks ok 1`] = `
+" ✓ path exists
+ ✓ writable
+ ✓ sqlite compatible
+ ✓ latency                                                                42 ms"
+`;

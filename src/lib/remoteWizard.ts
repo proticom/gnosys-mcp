@@ -13,8 +13,20 @@ import { createInterface, Interface } from "readline/promises";
 import { GnosysDB } from "./db.js";
 import { RemoteSync, validateLocation } from "./remote.js";
 import { safeQuestion } from "./setup/ui/safePrompt.js";
+import { Spinner } from "./setup/ui/spinner.js";
+import { printStatus } from "./setup/ui/status.js";
+import { printDiff } from "./setup/ui/diff.js";
+import { Footer } from "./setup/ui/footer.js";
+import {
+  renderRemoteIntro,
+  renderValidationSummary,
+  renderRemoteDiff,
+  SYNC_MODE_LABELS,
+  type SyncMode,
+} from "./setup/remoteRender.js";
 
 const REMOTE_PATH_KEY = "remote_path";
+const REMOTE_MODE_KEY = "remote_mode";
 
 // ─── Helpers ────────────────────────────────────────────────────────────
 
@@ -80,19 +92,64 @@ async function askConfirm(rl: Interface, prompt: string, defaultYes: boolean = t
 }
 
 function showValidationSummary(validation: Awaited<ReturnType<typeof validateLocation>>): void {
-  console.log(`  Path exists:        ${validation.checks.pathExists ? "✓" : "✗"}`);
-  console.log(`  Writable:           ${validation.checks.writable ? "✓" : "✗"}`);
-  console.log(`  SQLite compatible:  ${validation.checks.sqliteCompatible ? "✓" : "✗"}`);
-  if (validation.checks.latencyMs !== null) {
-    console.log(`  Latency:            ${validation.checks.latencyMs}ms`);
+  // v5.9.3 Screen 6 — route through the renderer so each check renders as
+  // a `✓` / `✗` status line. Identical content, atom-styled output.
+  console.log(
+    renderValidationSummary({
+      pathExists: validation.checks.pathExists,
+      writable: validation.checks.writable,
+      sqliteCompatible: validation.checks.sqliteCompatible,
+      latencyMs: validation.checks.latencyMs,
+      existing: {
+        found: validation.checks.existingDb.found,
+        memoryCount: validation.checks.existingDb.memoryCount ?? null,
+        lastModified: validation.checks.existingDb.lastModified ?? null,
+      },
+      warnings: validation.warnings,
+      errors: validation.errors,
+    }),
+  );
+}
+
+/**
+ * Hierarchical sync-mode picker. Per design §4 Screen 6 the default
+ * `read & write` is one keystroke (enter), and the other modes hide
+ * behind a `more options` affordance.
+ *
+ * Returns the chosen mode, or null when the user explicitly cancels.
+ */
+async function pickSyncMode(rl: Interface): Promise<SyncMode | null> {
+  console.log("");
+  console.log("  Sync mode");
+  console.log("");
+  console.log(`    1   read & write       ${SYNC_MODE_LABELS["read-write"]}            ◂ recommended`);
+  console.log(`    2   more options       pull-only, push-only`);
+  console.log("");
+  console.log(Footer("1–2 · pick    enter · use recommended"));
+  const answer = (await safeQuestion(rl, " > ")).trim();
+  if (!answer || answer === "1") return "read-write";
+  if (answer !== "2") {
+    printStatus("warn", "invalid choice — using `read & write`");
+    return "read-write";
   }
-  if (validation.checks.existingDb.found) {
-    const c = validation.checks.existingDb;
-    const dateStr = c.lastModified ? c.lastModified.split("T")[0] : "unknown";
-    console.log(`  Existing DB found:  ${c.memoryCount ?? "?"} memories (last modified ${dateStr})`);
+  // Nested submenu — all three modes + back.
+  console.log("");
+  console.log(`    1   read & write       ${SYNC_MODE_LABELS["read-write"]}            ◂ recommended`);
+  console.log(`    2   pull-only          ${SYNC_MODE_LABELS["pull-only"]}`);
+  console.log(`    3   push-only          ${SYNC_MODE_LABELS["push-only"]}`);
+  console.log(`    4   back`);
+  console.log("");
+  console.log(Footer("1–4 · pick"));
+  const sub = (await safeQuestion(rl, " > ")).trim();
+  switch (sub) {
+    case "1": return "read-write";
+    case "2": return "pull-only";
+    case "3": return "push-only";
+    case "4": return null;
+    default:
+      printStatus("warn", "invalid choice — using `read & write`");
+      return "read-write";
   }
-  for (const w of validation.warnings) console.log(`  ⚠ ${w}`);
-  for (const e of validation.errors) console.log(`  ✗ ${e}`);
 }
 
 // ─── Main wizard ────────────────────────────────────────────────────────
@@ -108,11 +165,7 @@ export async function runConfigureWizard(
     const currentRemote = centralDb.getMeta(REMOTE_PATH_KEY);
 
     console.log("");
-    console.log("  Gnosys Remote Sync — Configuration Wizard");
-    console.log("  ─────────────────────────────────────────");
-    console.log("");
-    console.log(`  Local DB:  ~/.gnosys/gnosys.db  (${localCount.active} active, ${localCount.archived} archived)`);
-    console.log(`  Remote:    ${currentRemote || "not configured"}`);
+    console.log(renderRemoteIntro(localCount.active, localCount.archived, currentRemote || null));
     console.log("");
 
     if (currentRemote) {
@@ -180,19 +233,35 @@ async function setupRemoteFlow(rl: Interface, centralDb: GnosysDB, localActiveCo
     return false;
   }
 
-  // Step 2: Validate
-  console.log(`\nStep 2: Validating ${remotePath}...`);
+  // Step 2: Validate — v5.9.3 Screen 6: animate the validation under a
+  // Spinner so the path-check feedback lands before the mode picker.
+  console.log("");
+  const validateSpinner = Spinner(`checking ${remotePath}…`);
   const validation = await validateLocation(remotePath);
+  if (validation.ok) {
+    const latency = validation.checks.latencyMs;
+    validateSpinner.ok("path exists, writable", latency !== null ? `${latency} ms` : undefined);
+  } else {
+    validateSpinner.fail("validation failed");
+  }
   showValidationSummary(validation);
 
   if (!validation.ok) {
-    console.log("\nValidation failed. Remote not configured.");
+    printStatus("fail", "remote not configured");
     return false;
   }
 
   if (validation.warnings.length > 0) {
     const proceed = await askConfirm(rl, "Continue despite warnings?", true);
     if (!proceed) return false;
+  }
+
+  // v5.9.3 Screen 6 — hierarchical sync-mode picker before data strategy.
+  // Default is read-write (one keystroke). Persisted to remote_mode meta.
+  const syncMode = await pickSyncMode(rl);
+  if (syncMode === null) {
+    printStatus("warn", "cancelled at mode picker — no changes written");
+    return false;
   }
 
   // Step 3: Decide what to do based on existing DB state
@@ -253,49 +322,52 @@ async function setupRemoteFlow(rl: Interface, centralDb: GnosysDB, localActiveCo
     }
   }
 
-  // Step 4: Save config and execute strategy
+  // Step 4: Save config and execute strategy. v5.9.3 Screen 6 wraps the
+  // long-running sync calls in Spinners and prints a final Diff() block.
+  const previousRemote = centralDb.getMeta(REMOTE_PATH_KEY) || null;
   centralDb.setMeta(REMOTE_PATH_KEY, remotePath);
-  console.log(`\n✓ Remote configured: ${remotePath}`);
+  centralDb.setMeta(REMOTE_MODE_KEY, syncMode);
 
   const sync = new RemoteSync(centralDb, remotePath);
   try {
     if (strategy === "migrate") {
-      console.log("\nCopying local memories to remote...");
+      const spin = Spinner(`doing first sync to ${remotePath}…`);
       const result = await sync.migrate();
       if (result.ok) {
-        console.log(`  ✓ Copied ${result.copied} memories.`);
+        spin.ok("first sync complete", `${result.copied} memories pushed`);
       } else {
-        console.log(`  ✗ Migration had errors:`);
-        for (const e of result.errors) console.log(`    ${e}`);
+        spin.fail("migration had errors");
+        for (const e of result.errors) printStatus("fail", e);
         return false;
       }
     } else if (strategy === "pull") {
-      console.log("\nPulling memories from remote...");
+      const spin = Spinner(`doing first sync from ${remotePath}…`);
       const result = await sync.pull({ strategy: "newer-wins" });
-      console.log(`  ✓ Pulled ${result.pulled} memories.`);
-      if (result.errors.length > 0) {
-        for (const e of result.errors) console.log(`  ✗ ${e}`);
-      }
+      spin.ok("first sync complete", `${result.pulled} memories pulled`);
+      for (const e of result.errors) printStatus("fail", e);
     } else if (strategy === "merge") {
-      console.log("\nMerging local and remote...");
+      const spin = Spinner(`merging local and remote at ${remotePath}…`);
       const result = await sync.sync();
-      console.log(`  Pushed: ${result.pushed} | Pulled: ${result.pulled} | Conflicts: ${result.conflicts.length}`);
+      spin.ok(
+        "merge complete",
+        `pushed ${result.pushed} · pulled ${result.pulled} · conflicts ${result.conflicts.length}`,
+      );
       if (result.conflicts.length > 0) {
-        console.log("\n  Conflicts need resolution:");
-        for (const c of result.conflicts) {
-          console.log(`    ${c.memoryId}: ${c.title}`);
-        }
-        console.log("\n  Resolve with: gnosys remote resolve <memory-id> --keep <local|remote>");
+        printStatus("warn", "conflicts need resolution");
+        for (const c of result.conflicts) console.log(`     ${c.memoryId}: ${c.title}`);
+        printStatus("progress", "resolve with", "gnosys remote resolve <memory-id> --keep <local|remote>");
       }
-      if (result.errors.length > 0) {
-        for (const e of result.errors) console.log(`  ✗ ${e}`);
-      }
+      for (const e of result.errors) printStatus("fail", e);
     }
   } finally {
     sync.closeRemote();
   }
 
-  console.log("\nDone! Run 'gnosys remote status' anytime to check sync state.");
+  // Final Diff + save confirmation per the design.
+  console.log("");
+  console.log(renderRemoteDiff({ previousRemote, newRemote: remotePath, mode: syncMode }));
+  printStatus("ok", "saved", "~/.gnosys/gnosys.json");
+  console.log(Footer("run `gnosys remote status` anytime to check sync state"));
   return true;
 }
 
@@ -317,16 +389,16 @@ async function disconnectRemote(rl: Interface, centralDb: GnosysDB): Promise<boo
 }
 
 async function revalidateRemote(_rl: Interface, _centralDb: GnosysDB, currentRemote: string): Promise<boolean> {
-  console.log(`\nValidating ${currentRemote}...`);
+  console.log("");
+  const spin = Spinner(`checking ${currentRemote}…`);
   const validation = await validateLocation(currentRemote);
-  showValidationSummary(validation);
   if (validation.ok) {
-    console.log("\n✓ Remote is healthy.");
-    return true;
+    spin.ok("remote is healthy");
   } else {
-    console.log("\n✗ Validation failed. The remote may be unreachable or the path is wrong.");
-    return false;
+    spin.fail("validation failed", "the remote may be unreachable or the path is wrong");
   }
+  showValidationSummary(validation);
+  return validation.ok;
 }
 
 // ─── Non-interactive mode ───────────────────────────────────────────────
