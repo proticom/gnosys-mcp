@@ -22,7 +22,6 @@
 import { createInterface, Interface as ReadlineInterface } from "readline/promises";
 import { stdin, stdout } from "process";
 import fsSync from "fs";
-import path from "path";
 import {
   loadConfig,
   resolveTaskModel,
@@ -31,7 +30,7 @@ import {
   type LLMProviderName,
 } from "../config.js";
 import { GnosysDB } from "../db.js";
-import { getGnosysHome } from "../paths.js";
+import { resolveActiveStorePath } from "./storePath.js";
 import { safeQuestion } from "./ui/safePrompt.js";
 import { Header } from "./ui/header.js";
 import { Panel } from "./ui/panel.js";
@@ -49,19 +48,6 @@ const PKG_VERSION = (() => {
     return undefined;
   }
 })();
-
-// ─── Active store path ─────────────────────────────────────────────────────
-//
-// loadConfig() reads `<storePath>/gnosys.json`. The active store is either
-// `<projectDir>/.gnosys/` (if that gnosys.json exists) or `~/.gnosys/`
-// (global). Always prefer the project-level one when present so writes by
-// the section editors are visible to the summary re-render.
-
-function resolveActiveStorePath(projectDir: string): string {
-  const projectStore = path.join(projectDir, ".gnosys");
-  if (fsSync.existsSync(path.join(projectStore, "gnosys.json"))) return projectStore;
-  return getGnosysHome();
-}
 
 // ─── Provider-revert repair ────────────────────────────────────────────────
 //
@@ -140,9 +126,11 @@ export function buildSections(): SummarySection[] {
       key: "1",
       label: "provider",
       describe: (cfg) => cfg.llm.defaultProvider,
+      // v5.9.4 Bug 4 — row 1 now changes ONLY the provider; row 2 stays
+      // as the full model picker. Before, both routed to `runModelsSetup`.
       edit: async (rl, _cfg, projectDir) => {
-        const { runModelsSetup } = await import("../setup.js");
-        await runModelsSetup({ directory: projectDir, rl });
+        const { runProviderOnlySetup } = await import("../setup.js");
+        await runProviderOnlySetup({ directory: projectDir, rl });
         return true;
       },
     },
@@ -207,11 +195,26 @@ export function buildSections(): SummarySection[] {
     {
       key: "6",
       label: "dream mode",
-      describe: (cfg) => {
-        if (!cfg.dream?.enabled) return "disabled";
-        const provider = cfg.dream.provider ?? "ollama";
-        const model = cfg.dream.model ?? "default";
-        return `${provider} / ${model}`;
+      // v5.9.4 Bug 7 — reconcile config + local-DB so the panel reflects
+      // state set elsewhere (e.g. a dream wizard run on this machine).
+      // We use the cfg already loaded by the summary loop (no second read)
+      // and ignore DB read errors so test mocks without dream helpers still
+      // render the configured value cleanly.
+      describe: async (cfg) => {
+        const { getDreamState, describeDreamState } = await import("./dreamState.js");
+        let localDb: GnosysDB | null = null;
+        try {
+          localDb = GnosysDB.openLocal();
+        } catch {
+          // DB unavailable — fall through with null
+        }
+        const state = getDreamState(cfg, localDb);
+        try {
+          localDb?.close();
+        } catch {
+          // ignore
+        }
+        return describeDreamState(state);
       },
       edit: async (rl, _cfg, projectDir) => {
         const { runDreamSetup } = await import("../setup.js");

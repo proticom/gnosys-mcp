@@ -5,6 +5,171 @@ All notable changes to Gnosys are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.9.4] — 2026-05-20
+
+The "v5.9.3 dogfooding fixes" release. Twelve bugs Edward surfaced during
+the first day of dogfooding the v5.9.3 CLI redesign, plus a new generic
+`Table` atom that consolidates the four hand-rolled tabular screens
+(routing, IDEs, sync-projects, preferences) into one shared layout
+component. The bug catalog lives in `deci-051`; the Table atom design in
+`arch-004`. Every bug got a regression test.
+
+Three of the bugs (#7, #8, #10) were the same root-cause family as the
+Phase C stale-display fix in v5.9.3 (`92a98e9`) — that fix only hardened
+the settings panel. v5.9.4 extracts `resolveActiveStorePath()` to a
+shared `src/lib/setup/storePath.ts` so the model picker and dream wizard
+read from the same store, and `getDreamState()` reconciles config +
+local-DB + remote-DB before any "dream mode" display.
+
+Two bugs (#3, #6) were schema/default footguns — same shape as the
+anthropic default heading for v6.0 removal (deci-049). v5.9.4 keeps the
+Zod defaults intact and inherits at load time instead, so the schema
+remains backward compatible.
+
+### Added
+
+- **`Table` atom (`src/lib/setup/ui/table.ts`).** Generic tabular layout
+  with auto-fit or fixed-width columns, optional header + divider,
+  per-row formatter for selection markers (`▶` for changed routing
+  rows, `n· ` for IDE picker numbers), and column-level ANSI colour.
+  Used by routing / IDEs / sync-projects / preferences from v5.9.4 on;
+  v6.0's Rust TUI will swap in the Ratatui `Table` widget behind the
+  same API. 11 snapshot tests in `src/test/setup-ui-table.test.ts`
+  cover empty rows, mixed widths, header on/off, indent variants,
+  coloured cells, and the row-formatter hook.
+
+- **`resolveActiveStorePath()` shared helper (`src/lib/setup/storePath.ts`).**
+  Single source of truth for "which gnosys.json should I read/write?"
+  used by `setup/summary.ts`, `setup.ts:loadExistingConfig`,
+  `setup.ts:runModelsSetup`, `setup.ts:runModelsCommand`, and the dream
+  wizard. Distinguishes read (`resolveActiveStorePath`, no mkdir) from
+  write (`ensureActiveStorePath`, creates global home if missing). 5
+  unit tests in `src/test/setup-storepath.test.ts`.
+
+- **`getDreamState()` reconciler (`src/lib/setup/dreamState.ts`).**
+  Returns `{ enabled, machineId, provider, model, source }` from any
+  combination of config + local DB + remote DB meta. The summary
+  panel's dream row + the dream wizard's "current state" line both use
+  it. 7 unit tests in `src/test/v594-dream-state.test.ts`.
+
+- **`runProviderOnlySetup()` (`src/lib/setup.ts`).** Updates only
+  `llm.defaultProvider` — does not touch the model. The summary panel's
+  row 1 ("provider") now routes here; row 2 ("models") keeps the full
+  picker. (Bug 4)
+
+- **`getMachineId()` + `resolveHostname()` in `src/lib/remote.ts`.**
+  Adds `os.hostname()` as the third fallback after `HOSTNAME` and
+  `COMPUTERNAME` env vars, replacing the `unknown-mp9cyh4j` random
+  suffix that surfaced on macOS shells. Deduplicated with the dream
+  wizard's inline copy in `setup.ts`. (Bug 9)
+
+- **Grok Build IDE integration.** New `grok-build` key across
+  `detectIDEs()` / `setupIDE()` / `runIdesSetup()`. Detection: presence
+  of `~/.grok/`. Setup: writes a `[mcp.gnosys]` block to
+  `~/.grok/config.toml` with `startup_timeout_sec = 90` (preserves all
+  other TOML content — read-then-merge per deci-046). Exported
+  `upsertGrokMcpBlock` is unit-tested in
+  `src/test/v594-grok-build-ide.test.ts` (5 tests). (Bug 12)
+
+### Changed
+
+- **Panel atom border math (`src/lib/setup/ui/panel.ts`).** Top border
+  now closes flush with the bottom border at every width. Pre-strips
+  ANSI from the caller-supplied title so coloured titles still measure
+  correctly; `Math.max(1, ...)` clamp prevents narrow widths from
+  collapsing the right rule. Locked in by 4 regression tests in
+  `src/test/v594-panel-edges.test.ts`. (Bugs 1+2)
+
+- **Dynamic xAI model filter (`fetchDynamicModels` in
+  `src/lib/setup.ts`).** OpenRouter results for xAI are now filtered
+  through `/^grok-[0-9]/` so synthesised names like `grok-build-0.1`
+  and `grok-4.20-multi-agent` no longer appear in the picker. xAI
+  results UNION with the static `PROVIDER_TIERS.xai` catalogue so
+  shipped models (e.g. `grok-4.3`) always show up. (Bug 3)
+
+- **Dream provider inheritance (`src/lib/config.ts`).** When
+  `dream.provider` is absent from gnosys.json and the user has no
+  `llm.ollama` block, `loadConfig()` post-processes the Zod default
+  `"ollama"` to inherit from `llm.defaultProvider`. The schema itself
+  is unchanged — v6.0 will remove the default entirely. (Bug 6)
+
+- **Settings panel dream row + dream wizard re-entry.** Both now read
+  through `getDreamState()` so they see machine designations made
+  elsewhere (different session, different machine via remote DB). The
+  dream wizard also mirrors `dream_machine_id` writes to both local
+  and remote DB meta when sync is configured. (Bugs 7+8)
+
+- **Task routing wizard option copy
+  (`src/lib/setup/sections/routing.ts`).** Option 1 → "Keep current
+  routing (no changes)". Option 3 → "Reset all task overrides to use
+  default" (was "Use same provider for ALL tasks"). Option 3 now
+  prints a `Diff()` of the overrides being cleared before committing
+  and asks for explicit confirmation. (Bug 5)
+
+- **Preferences screen explainer
+  (`src/lib/setup/sections/preferences.ts`).** Both empty-state and
+  list views now lead with `Title("User preferences", "things you've
+  told gnosys to remember about how you work — injected into your
+  agent's system prompt across all IDEs.")`. (Bug 13)
+
+- **Migrated four screens to the new `Table` atom.** Routing table
+  (Screen 4), sync-projects upgraded/skipped/failed/machines sections
+  (Screen 10), IDE picker (Screen 5), and preferences list (Screen 9)
+  all render through `renderTable` now. Snapshot diffs in
+  `src/test/__snapshots__/setup-ui-screen4.test.ts.snap` and
+  `setup-ui-screen10.test.ts.snap` were updated; the changes are
+  intentional (cleaner column alignment, less trailing whitespace).
+
+### Fixed
+
+- **Bug 1 — Panel top-right corner.** Top border could be one char
+  shorter than the bottom border (`╮` not aligned with `╯`), giving
+  the panel a "broken square" look. Width math now uses
+  `innerW - 1 - title.length` after stripping ANSI from the title.
+- **Bug 2 — Panel style consistency.** Same fix as Bug 1; verified
+  rounded glyphs (`╭ ╮ ╰ ╯`) and `accent-dim` border colour against
+  the design canvas. New regression tests pin the width invariant.
+- **Bug 3 — xAI model picker.** Filter + UNION described in Changed.
+- **Bug 4 — Settings rows 1+2 duplication.** Row 1 now calls
+  `runProviderOnlySetup`; row 2 keeps `runModelsSetup`.
+- **Bug 5 — Routing options 1+3 ambiguity.** Clearer copy + Diff
+  before reset; described in Changed.
+- **Bug 6 — Ollama dream default.** Load-time inheritance; described
+  in Changed.
+- **Bug 7 — Stale "dream mode disabled" in settings panel.**
+  Reconciler now reads local DB.
+- **Bug 8 — Dream wizard "no designated machine" after prior setup.**
+  Writes mirror to both local + remote DB; reads use local → remote
+  fallback.
+- **Bug 9 — Machine name shows `unknown-mp9cyh4j`.** `os.hostname()`
+  fallback in `getMachineId()`.
+- **Bug 10 — Model picker shows stale value.** Shared
+  `resolveActiveStorePath()` everywhere.
+- **Bug 12 — Grok Build missing from IDE list.** Added.
+- **Bug 13 — Preferences screen lacks "what is this?" copy.** Title
+  with explainer.
+
+### Not a bug
+
+- **Bug 11 — Validation latency suspiciously fast.** Phase 1 audit
+  confirmed `validateModel` does send a real test prompt with
+  `max_tokens: 5`. The 3.5s observed for `grok-4.3` was genuine
+  network round-trip time. No code change.
+
+### Internal
+
+- `loadExistingConfig`, `runModelsSetup`, `runModelsCommand`, dream
+  wizard, and `pickStorePath` now all share
+  `resolveActiveStorePath` / `ensureActiveStorePath`. Grep for
+  `loadConfig(` to verify every caller routes through the shared
+  helper after pulling.
+- Dead `pickStorePath` function removed from `src/lib/setup.ts`.
+- Snapshot updates from the Table-atom migration: 7 snapshots
+  touched across `setup-ui-screen4.test.ts.snap`,
+  `setup-ui-screen10.test.ts.snap`,
+  `setup-ui-summary.test.ts.snap`, and the new
+  `setup-ui-table.test.ts.snap`. All intentional, none functional.
+
 ## [5.9.3] — 2026-05-20
 
 The "make the CLI feel like one product" release. A unified visual

@@ -18,6 +18,7 @@ import path from "path";
 import { c, color, glyph, width } from "./ui/tokens.js";
 import { Header } from "./ui/header.js";
 import { Status } from "./ui/status.js";
+import { renderTable } from "./ui/table.js";
 
 const MAX_PATH_DISPLAY = 50;
 const MAX_VISIBLE_ROWS = 5;
@@ -74,9 +75,7 @@ export function renderUpgradedSection(rows: ProjectRow[]): string[] {
   const lines: string[] = [];
   lines.push(` ${color(c.text, `upgraded   ${rows.length} projects`)}`);
   const visible = rows.slice(0, MAX_VISIBLE_ROWS);
-  for (const r of visible) {
-    lines.push(formatProjectRow("ok", r));
-  }
+  lines.push(...renderProjectRows("ok", visible));
   const remaining = rows.length - visible.length;
   if (remaining > 0) {
     lines.push(`   ${color(c.textDim, `(${remaining} more)`)}`);
@@ -93,9 +92,7 @@ export function renderSkippedSection(rows: ProjectRow[]): string[] {
   const lines: string[] = [];
   lines.push(` ${color(c.text, `skipped    ${rows.length} projects`)} ${color(c.textDim, "· no .gnosys directory")}`);
   const visible = rows.slice(0, MAX_VISIBLE_ROWS);
-  for (const r of visible) {
-    lines.push(formatProjectRow("skip", r));
-  }
+  lines.push(...renderProjectRows("skip", visible));
   const remaining = rows.length - visible.length;
   if (remaining > 0) {
     lines.push(`   ${color(c.textDim, `(${remaining} more)`)}`);
@@ -111,35 +108,53 @@ export function renderFailedSection(rows: ProjectRow[]): string[] {
   if (rows.length === 0) return [];
   const lines: string[] = [];
   lines.push(` ${color(c.text, `failed     ${rows.length} projects`)}`);
-  for (const r of rows) {
-    lines.push(formatProjectRow("fail", r));
-  }
+  lines.push(...renderProjectRows("fail", rows));
   return lines;
 }
 
 /**
  * Render the connected-machines callout. Returns [] when there's only
- * one machine (no callout needed).
+ * one machine (no callout needed). v5.9.4 — laid out via the `Table`
+ * atom; the dot/tag columns stay bespoke so the warning hue is preserved.
  */
 export function renderMachinesSection(rows: MachineRow[], currentVersion: string): string[] {
   if (rows.length <= 1) return [];
   const lines: string[] = [];
   lines.push(` ${color(c.text, "connected machines")}`);
   lines.push("");
-  const nameW = Math.max(...rows.map((r) => r.hostname.length));
-  for (const r of rows) {
-    const isOlder = r.version !== currentVersion;
-    const dot = isOlder ? color(c.warn, glyph.warn) : color(c.ok, glyph.ok);
-    const name = color(c.text, r.hostname.padEnd(nameW));
-    const versionDisplay = r.isCurrent && !isOlder ? "" : `v${r.version}`;
-    const versionCol = color(c.textDim, versionDisplay.padEnd(10));
-    const lastSeenDate = r.lastSeen.split("T")[0];
-    const lastSeen = r.isCurrent
-      ? color(c.textDim, "this machine")
-      : color(c.textDim, `last seen ${lastSeenDate}`);
-    const tag = isOlder ? `   ${color(c.warn, "← older")}` : "";
-    lines.push(`   ${dot}  ${name}   ${versionCol}   ${lastSeen}${tag}`);
-  }
+
+  type AnnotatedRow = MachineRow & { isOlder: boolean };
+  const annotated: AnnotatedRow[] = rows.map((r) => ({ ...r, isOlder: r.version !== currentVersion }));
+  const tableLines = renderTable<AnnotatedRow>(annotated, [
+    {
+      header: "",
+      width: 1,
+      render: (r) => (r.isOlder ? color(c.warn, glyph.warn) : color(c.ok, glyph.ok)),
+      color: "",
+    },
+    {
+      header: "",
+      render: (r) => r.hostname,
+      color: c.text,
+    },
+    {
+      header: "",
+      render: (r) => (r.isCurrent && !r.isOlder ? "" : `v${r.version}`),
+      color: c.textDim,
+    },
+    {
+      header: "",
+      render: (r) => (r.isCurrent ? "this machine" : `last seen ${r.lastSeen.split("T")[0]}`),
+      color: c.textDim,
+    },
+    {
+      header: "",
+      render: (r) => (r.isOlder ? "← older" : ""),
+      color: c.warn,
+    },
+  ], { showHeader: false, indent: 3, gap: 2 });
+
+  lines.push(...tableLines);
   return lines;
 }
 
@@ -171,20 +186,24 @@ export function renderDashboardSummary(htmlPath: string, mdPath: string): string
 
 type RowKind = "ok" | "skip" | "fail";
 
-function formatProjectRow(kind: RowKind, r: ProjectRow): string {
-  let dot: string;
+function dotFor(kind: RowKind): string {
   switch (kind) {
-    case "ok":
-      dot = color(c.ok, glyph.ok);
-      break;
-    case "skip":
-      dot = color(c.textDim, glyph.dotHollow);
-      break;
-    case "fail":
-      dot = color(c.fail, glyph.fail);
-      break;
+    case "ok": return color(c.ok, glyph.ok);
+    case "skip": return color(c.textDim, glyph.dotHollow);
+    case "fail": return color(c.fail, glyph.fail);
   }
-  const title = color(c.text, r.title.padEnd(28));
-  const fullPath = collapsePath(r.fullPath);
-  return `   ${dot}  ${title}  ${color(c.textDim, fullPath)}`;
+}
+
+/**
+ * v5.9.4 — projects table built via the generic `Table` atom. Each row is
+ * `dot · title · collapsed-path`; title pads to 28 chars to preserve the
+ * v5.9.3 visual rhythm even when titles are very short.
+ */
+function renderProjectRows(kind: RowKind, rows: ProjectRow[]): string[] {
+  if (rows.length === 0) return [];
+  return renderTable<ProjectRow>(rows, [
+    { header: "", width: 1, render: () => dotFor(kind), color: "" },
+    { header: "", width: 28, render: (r) => r.title, color: c.text },
+    { header: "", render: (r) => collapsePath(r.fullPath), color: c.textDim },
+  ], { showHeader: false, indent: 3, gap: 2 });
 }

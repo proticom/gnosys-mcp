@@ -2,9 +2,12 @@
  * Render helpers for `gnosys setup routing` (Screen 4).
  *
  * Provides the cost-tier table + diff renderers used by the wizard. Pure
- * string output for snapshot-testability.
+ * string output for snapshot-testability. v5.9.4 — the columnar table is
+ * now produced by the generic `Table` atom (arch-004); only the row-marker
+ * decoration is still local.
  */
-import { c, color, glyph, width } from "./ui/tokens.js";
+import { c, color, glyph } from "./ui/tokens.js";
+import { renderTable, type TableColumn } from "./ui/table.js";
 import { PROVIDER_TIERS } from "../setup.js";
 
 /** Cost-tier bucket. `free` = ollama / lmstudio (always $0). */
@@ -48,29 +51,42 @@ export interface TaskRow {
 /**
  * Render the task-routing table block (title + columnar table). Returns
  * the full multi-line string with no trailing newline.
+ *
+ * Built on the generic `Table` atom; the only routing-specific bits are
+ * the optional `▶` change marker (via `rowFormatter`) and the cost-tier
+ * colouring (different ANSI per tier).
  */
 export function renderRoutingTable(rows: TaskRow[]): string {
-  const W = width();
-  const taskW = Math.max("task".length, ...rows.map((r) => r.task.length)) + 2;
-  const usesW = Math.max("uses".length, ...rows.map((r) => r.uses.length)) + 2;
-  const indent = "   ";
-  const lines: string[] = [];
-  const head = `${indent}${color(c.textDim, "task".padEnd(taskW))}${color(c.textDim, "uses".padEnd(usesW))}${color(c.textDim, "cost".padStart(6))}`;
-  lines.push(head);
-  // Rule under the header.
-  const ruleLen = Math.max(1, W - indent.length);
-  lines.push(`${indent}${color(c.textGhost, glyph.ruleLight.repeat(ruleLen - 2))}`);
-  for (const r of rows) {
-    const marker = r.changed ? color(c.accentHi, glyph.selection) : " ";
-    const taskTxt = r.changed
-      ? color(c.accentHi, r.task.padEnd(taskW - 2))
-      : color(c.text, r.task.padEnd(taskW - 2));
-    const usesTxt = r.changed
-      ? color(c.accentHi, r.uses.padEnd(usesW))
-      : color(c.text, r.uses.padEnd(usesW));
-    const costTxt = color(costColor(r.cost), r.cost.padStart(6));
-    lines.push(`${indent}${marker} ${taskTxt}${usesTxt}${costTxt}`);
-  }
+  const columns: TableColumn<TaskRow>[] = [
+    {
+      header: "task",
+      render: (r) => r.task,
+      color: c.text,
+    },
+    {
+      header: "uses",
+      render: (r) => r.uses,
+      color: c.text,
+    },
+    {
+      // Cost cells colour themselves so the tier hue (green / yellow / red)
+      // is preserved — column-level `color` would override every cell.
+      header: "cost",
+      align: "right",
+      render: (r) => color(costColor(r.cost), r.cost),
+      color: "",
+    },
+  ];
+  const lines = renderTable(rows, columns, {
+    indent: 3,
+    gap: 2,
+    rowFormatter: (row, line) => {
+      if (!row.changed) return line;
+      // Replace the leading indent with the `▶` selection marker so the
+      // changed row stays column-aligned with the others.
+      return `${color(c.accentHi, glyph.selection)}  ${line.slice(3)}`;
+    },
+  });
   return lines.join("\n");
 }
 

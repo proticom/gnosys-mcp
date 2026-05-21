@@ -4,9 +4,9 @@ exports[`Screen 10 — sync-projects render > renders machines section with olde
 [
   " connected machines",
   "",
-  "   ✓  EdsMacStudio   v5.9.3       last seen 2026-05-19",
-  "   ⚠  EdsMBP         v5.7.1       last seen 2026-05-12   ← older",
-  "   ✓  this-mac                    this machine",
+  "   ✓  EdsMacStudio  v5.9.3  last seen 2026-05-19  ",
+  "   ⚠  EdsMBP        v5.7.1  last seen 2026-05-12  ← older",
+  "   ✓  this-mac              this machine          ",
 ]
 `;
 

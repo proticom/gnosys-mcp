@@ -25,7 +25,7 @@ import {
   type LLMProviderName,
 } from "./config.js";
 import { validateModel } from "./modelValidation.js";
-import { getGnosysHome } from "./paths.js";
+import { resolveActiveStorePath, ensureActiveStorePath } from "./setup/storePath.js";
 import { safeQuestion } from "./setup/ui/safePrompt.js";
 
 // ─── ANSI Colors ────────────────────────────────────────────────────────────
@@ -204,6 +204,12 @@ export async function fetchDynamicModels(): Promise<Record<string, ModelTier[]>>
         })
         .filter((m) => m.input > 0 && !m.isFree && !m.isVariant && !m.isGuard)
         .filter((m) => !/audio|search|embed|tts|vision|image|code-/i.test(m.modelId)) // skip specialized models
+        // v5.9.4 Bug 3 — xAI: OpenRouter returns weird names like
+        // `grok-build-0.1` and `grok-4.20-multi-agent`. Keep only canonical
+        // numbered Grok flagship/preview models (e.g. `grok-3`, `grok-4.0`,
+        // `grok-4.3`). When nothing matches we fall through to the static
+        // tiers a few lines down.
+        .filter((m) => ourProvider !== "xai" || /^grok-[0-9]/.test(m.modelId))
         .sort((a, b) => b.created - a.created); // newest first
 
       if (models.length === 0) continue;
@@ -297,6 +303,20 @@ export async function fetchDynamicModels(): Promise<Record<string, ModelTier[]>>
       // If no balanced tier, recommend the cheapest available
       if (!tiers.some((t) => t.recommended) && tiers.length > 0) {
         tiers[0].recommended = true;
+      }
+
+      // v5.9.4 Bug 3 — UNION OpenRouter tiers with static PROVIDER_TIERS.xai
+      // so the static catalog (e.g. grok-4.3) always shows up even when
+      // OpenRouter omits it. Dedup by model id; static entries win the tie
+      // (their pricing matches the launch price more reliably).
+      if (ourProvider === "xai") {
+        const seen = new Set(tiers.map((t) => t.model));
+        for (const staticTier of PROVIDER_TIERS.xai ?? []) {
+          if (!seen.has(staticTier.model)) {
+            tiers.push(staticTier);
+            seen.add(staticTier.model);
+          }
+        }
       }
 
       result[ourProvider] = tiers;
@@ -613,6 +633,15 @@ export async function detectIDEs(projectDir: string): Promise<string[]> {
     }
   }
 
+  // v5.9.4 Bug 12 — Grok Build (xAI's coding agent) stores MCP config at
+  // ~/.grok/config.toml. The directory's presence is the detection signal.
+  try {
+    const stat = await fs.stat(path.join(home, ".grok"));
+    if (stat.isDirectory()) detected.push("grok-build");
+  } catch {
+    // Not installed
+  }
+
   return detected;
 }
 
@@ -632,6 +661,75 @@ function claudeDesktopConfigPath(): string {
     return path.join(appData, "Claude", "claude_desktop_config.json");
   }
   return path.join(home, ".config", "Claude", "claude_desktop_config.json");
+}
+
+/**
+ * Replace (or append) a `[mcp.<name>]` block inside the TOML text for
+ * Grok Build's config file. Preserves every line outside that block —
+ * deci-046 read-then-merge rule. We can't pull in a TOML dependency
+ * without adding to package.json, so we ship a minimal hand-rolled
+ * updater scoped exactly to the `[mcp.gnosys]` use case.
+ *
+ * Spec assumption: TOML headers we touch are simple `[a.b]` lines with
+ * no inline tables or nested arrays. Any other content is left alone.
+ *
+ * Exported for tests.
+ */
+export function upsertGrokMcpBlock(
+  existing: string,
+  name: string,
+  entry: { command: string; args: string[]; startup_timeout_sec?: number },
+): string {
+  const sectionHeader = `[mcp.${name}]`;
+  const lines = existing.split("\n");
+  const headerIdx = lines.findIndex((line) => line.trim() === sectionHeader);
+  const blockBody = renderGrokMcpBlock(entry);
+
+  if (headerIdx === -1) {
+    // Append a fresh block, separated by a blank line if the file has content.
+    const prefix = existing.length === 0 || existing.endsWith("\n\n")
+      ? existing
+      : existing.endsWith("\n") ? `${existing}\n` : `${existing}\n\n`;
+    return `${prefix}${sectionHeader}\n${blockBody}`;
+  }
+
+  // Replace the existing block — everything from sectionHeader up to the
+  // next `[` header (or EOF). Count blank lines immediately after the block
+  // so we can preserve the original spacing before the next section.
+  let endIdx = lines.length;
+  for (let i = headerIdx + 1; i < lines.length; i++) {
+    if (/^\s*\[/.test(lines[i])) { endIdx = i; break; }
+  }
+  let trailingBlankBeforeNext = 0;
+  while (endIdx > headerIdx + 1 && lines[endIdx - 1].trim() === "") {
+    trailingBlankBeforeNext++;
+    endIdx--;
+  }
+  const afterLines = lines.slice(endIdx);
+  const hasFollowingSection = afterLines.some((l) => /^\s*\[/.test(l));
+
+  const beforeBlock = lines.slice(0, headerIdx).join("\n");
+  const head = beforeBlock.length > 0 ? `${beforeBlock}\n` : "";
+
+  if (!hasFollowingSection) {
+    // No following section — drop trailing blank lines and end with a single \n.
+    return `${head}${sectionHeader}\n${blockBody}`;
+  }
+  const gap = "\n".repeat(Math.max(1, trailingBlankBeforeNext));
+  const afterBlock = afterLines.join("\n");
+  return `${head}${sectionHeader}\n${blockBody}${gap}${afterBlock}`;
+}
+
+function renderGrokMcpBlock(entry: { command: string; args: string[]; startup_timeout_sec?: number }): string {
+  const argsStr = `[${entry.args.map((a) => JSON.stringify(a)).join(", ")}]`;
+  const lines: string[] = [
+    `command = ${JSON.stringify(entry.command)}`,
+    `args = ${argsStr}`,
+  ];
+  if (typeof entry.startup_timeout_sec === "number") {
+    lines.push(`startup_timeout_sec = ${entry.startup_timeout_sec}`);
+  }
+  return `${lines.join("\n")}\n`;
 }
 
 /**
@@ -821,6 +919,29 @@ export async function setupIDE(
         return { success: true, message: "Antigravity MCP config updated (~/.gemini/antigravity/mcp_config.json)" };
       }
 
+      case "grok-build": {
+        // v5.9.4 Bug 12 — Grok Build reads its MCP servers from a
+        // `[mcp.<name>]` block in ~/.grok/config.toml. We never clobber
+        // unrelated TOML content (per deci-046 read-then-merge rule); the
+        // helper preserves every line outside the `[mcp.gnosys]` block.
+        const grokDir = path.join(os.homedir(), ".grok");
+        const configPath = path.join(grokDir, "config.toml");
+        await fs.mkdir(grokDir, { recursive: true });
+        let existing = "";
+        try {
+          existing = await fs.readFile(configPath, "utf-8");
+        } catch {
+          // File doesn't exist yet — start fresh
+        }
+        const updated = upsertGrokMcpBlock(existing, "gnosys", {
+          command: "gnosys",
+          args: ["serve"],
+          startup_timeout_sec: 90,
+        });
+        await fs.writeFile(configPath, updated, "utf-8");
+        return { success: true, message: "Grok Build MCP config updated (~/.grok/config.toml)" };
+      }
+
       case "claude-desktop": {
         // Claude Desktop reads MCP servers from claude_desktop_config.json
         // in a platform-specific app data directory. Distinct from Claude
@@ -993,32 +1114,21 @@ async function getRegisteredProjects(): Promise<Array<{ name: string; directory:
 
 /**
  * Try to load existing gnosys.json config for displaying current values.
- * Checks the project .gnosys dir first, then the global ~/.gnosys dir.
- * Returns null if no config found.
+ * Resolves the active store via the shared `resolveActiveStorePath` helper
+ * (v5.9.4 Bug 10 — was reading from a different store than the summary
+ * panel, producing stale-display bugs in `gnosys setup models`).
+ * Returns null if no config exists in either project or global stores.
  */
 async function loadExistingConfig(projectDir: string): Promise<GnosysConfig | null> {
-  // Try project-level config first
+  const storePath = resolveActiveStorePath(projectDir);
   try {
-    const projectStore = path.join(projectDir, ".gnosys");
-    const stat = await fs.stat(path.join(projectStore, "gnosys.json"));
+    const stat = await fs.stat(path.join(storePath, "gnosys.json"));
     if (stat.isFile()) {
-      return await loadConfig(projectStore);
+      return await loadConfig(storePath);
     }
   } catch {
-    // No project config
+    // No config in the resolved store
   }
-
-  // Try global config at ~/.gnosys
-  try {
-    const globalStore = getGnosysHome();
-    const stat = await fs.stat(path.join(globalStore, "gnosys.json"));
-    if (stat.isFile()) {
-      return await loadConfig(globalStore);
-    }
-  } catch {
-    // No global config
-  }
-
   return null;
 }
 
@@ -1773,14 +1883,16 @@ export async function runSetup(opts: {
       codex: "Codex",
       "gemini-cli": "Gemini CLI",
       antigravity: "Antigravity",
+      // v5.9.4 Bug 12 — Grok Build (~/.grok/config.toml).
+      "grok-build": "Grok Build",
     };
 
     // IDEs whose MCP config lives at the user level (~/...) rather than per-project.
     // We don't try to create a project-level directory for these.
-    const userLevelIdes = new Set(["claude", "claude-desktop", "gemini-cli", "antigravity"]);
+    const userLevelIdes = new Set(["claude", "claude-desktop", "gemini-cli", "antigravity", "grok-build"]);
 
     // Build IDE options: show detected ones and offer to create missing ones
-    const allIdeKeys = ["claude", "claude-desktop", "cursor", "codex", "gemini-cli", "antigravity"];
+    const allIdeKeys = ["claude", "claude-desktop", "cursor", "codex", "gemini-cli", "antigravity", "grok-build"];
     const ideOptions: string[] = [];
     const ideKeyForOption: string[] = []; // parallel array mapping option index to IDE key
 
@@ -1867,20 +1979,8 @@ export async function runSetup(opts: {
 
     // ─── Write config to gnosys.json ─────────────────────────────────
     if (!isSkip) {
-      // Determine which store path to write to — prefer project, fall back to global
-      let storePath: string;
-      const projectStore = path.join(projectDir, ".gnosys");
-      const globalStore = getGnosysHome();
-
-      if (fsSync.existsSync(path.join(projectStore, "gnosys.json"))) {
-        storePath = projectStore;
-      } else if (fsSync.existsSync(path.join(globalStore, "gnosys.json"))) {
-        storePath = globalStore;
-      } else {
-        // Default to global store — create directory if needed
-        await fs.mkdir(globalStore, { recursive: true });
-        storePath = globalStore;
-      }
+      // v5.9.4 Bug 10 — unified store resolution.
+      const storePath = ensureActiveStorePath(projectDir);
 
       // Build the config updates
       // Build LLM config update, preserving existing provider-specific settings
@@ -2051,6 +2151,71 @@ export async function runSetup(opts: {
   }
 }
 
+// ─── Provider-only setup (v5.9.4 — Bug 4) ──────────────────────────────────
+
+export interface ProviderOnlySetupOpts {
+  directory?: string;
+  rl?: ReadlineInterface;
+}
+
+/**
+ * Update ONLY `llm.defaultProvider` in gnosys.json. Used by the summary
+ * panel row 1 ("provider") so it stops dragging the user into the full
+ * model picker — that's row 2's job.
+ *
+ * v5.9.4 Bug 4 — before this split, both summary rows routed through
+ * `runModelsSetup`, leaving no way to swap provider without also choosing
+ * a new model. Now row 1 picks a provider, row 2 picks a model.
+ */
+export async function runProviderOnlySetup(opts: ProviderOnlySetupOpts = {}): Promise<void> {
+  const projectDir = opts.directory ? path.resolve(opts.directory) : process.cwd();
+  const ownsRl = !opts.rl;
+  const rl = opts.rl ?? createInterface({ input: stdin, output: stdout });
+
+  try {
+    const { Header } = await import("./setup/ui/header.js");
+    const { Title } = await import("./setup/ui/title.js");
+    const { Spinner } = await import("./setup/ui/spinner.js");
+    const { printStatus } = await import("./setup/ui/status.js");
+
+    console.log();
+    console.log(Header(["gnosys", "setup", "provider"]));
+    console.log();
+    console.log(Title("Default provider", "pick the LLM provider — model stays as configured"));
+    console.log();
+
+    const existingConfig = await loadExistingConfig(projectDir);
+    const currentProvider = existingConfig?.llm.defaultProvider;
+
+    const pricingSpin = Spinner("fetching latest pricing from openrouter…");
+    const fetchStart = Date.now();
+    const dynamicModels = await fetchDynamicModels();
+    const fetchMs = Date.now() - fetchStart;
+    if (Object.keys(dynamicModels).length > 0) {
+      pricingSpin.ok("pricing loaded", `${fetchMs} ms`);
+    } else {
+      pricingSpin.fail("pricing fetch failed", "using bundled tiers");
+    }
+    console.log();
+
+    const provider = await pickProvider(rl, dynamicModels, "Choose your LLM provider", currentProvider);
+    if (!provider || provider === currentProvider) {
+      printStatus("warn", "no change · provider unchanged");
+      return;
+    }
+
+    const storePath = ensureActiveStorePath(projectDir);
+    const existingLlm = existingConfig?.llm ?? {};
+    await updateConfig(storePath, {
+      llm: { ...existingLlm, defaultProvider: provider as LLMProviderName },
+    });
+    printStatus("ok", `default provider · ${provider}`, `${storePath}/gnosys.json`);
+    printStatus("progress", "model unchanged", "use row 2 to swap the model");
+  } finally {
+    if (ownsRl) rl.close();
+  }
+}
+
 // ─── Models-only setup (gnosys setup models / gnosys models) ─────────────────
 
 export interface ModelsSetupOpts {
@@ -2198,18 +2363,8 @@ export async function runModelsSetup(opts: ModelsSetupOpts = {}): Promise<void> 
       }
     }
 
-    // Step 5: write config
-    const projectStore = path.join(projectDir, ".gnosys");
-    const globalStore = getGnosysHome();
-    let storePath: string;
-    if (fsSync.existsSync(path.join(projectStore, "gnosys.json"))) {
-      storePath = projectStore;
-    } else if (fsSync.existsSync(path.join(globalStore, "gnosys.json"))) {
-      storePath = globalStore;
-    } else {
-      await fs.mkdir(globalStore, { recursive: true });
-      storePath = globalStore;
-    }
+    // Step 5: write config (v5.9.4 Bug 10 — unified store resolution).
+    const storePath = ensureActiveStorePath(projectDir);
 
     const existingLlm = existingConfig?.llm;
     const existingProviderConfig = existingLlm
@@ -2300,11 +2455,8 @@ export async function runModelsCommand(opts: ModelsCommandOpts = {}): Promise<vo
       console.log(`${WARN} No provider configured. Run 'gnosys setup' first.`);
       return;
     }
-    const projectStore = path.join(projectDir, ".gnosys");
-    const globalStore = getGnosysHome();
-    const storePath = fsSync.existsSync(path.join(projectStore, "gnosys.json"))
-      ? projectStore
-      : globalStore;
+    // v5.9.4 Bug 10 — unified store resolution.
+    const storePath = ensureActiveStorePath(projectDir);
 
     const existingProviderConfig = (existingConfig?.llm as Record<string, unknown> | undefined)?.[currentProvider];
     const providerConfigBase = (typeof existingProviderConfig === "object" && existingProviderConfig !== null)
@@ -2376,17 +2528,27 @@ export async function runDreamSetup(opts: DreamSetupOpts = {}): Promise<void> {
 
     // Show current state via central DB
     const { GnosysDB } = await import("./db.js");
+    const { getMachineId } = await import("./remote.js");
     const localDb = GnosysDB.openLocal();
-    const designatedMachine = localDb.getDreamMachineId();
-    const localMachine = (() => {
-      let id = localDb.getMeta("machine_id");
-      if (!id) {
-        const hostname = process.env.HOSTNAME || process.env.COMPUTERNAME || "unknown";
-        id = `${hostname}-${Date.now().toString(36)}`;
-        localDb.setMeta("machine_id", id);
-      }
-      return id;
-    })();
+
+    // v5.9.4 Bugs 7+8 — also peek at the remote DB (if configured) so re-entry
+    // sees a designation made on a different machine. Open remote read-only;
+    // we'll mirror writes below.
+    const remoteDb = await openRemoteDbIfConfigured(localDb);
+    const designatedMachine = localDb.getDreamMachineId() ?? remoteDb?.getDreamMachineId() ?? null;
+    // v5.9.4 Bug 9 — share the canonical machine-id resolver (os.hostname()
+    // fallback included) instead of re-rolling HOSTNAME/COMPUTERNAME logic.
+    const localMachine = getMachineId(localDb);
+
+    // Mirror dream_machine_id writes to both DBs (Bug 8).
+    const setDreamMachineEverywhere = (id: string): void => {
+      localDb.setDreamMachineId(id);
+      try { remoteDb?.setDreamMachineId(id); } catch { /* remote may be transiently unavailable */ }
+    };
+    const clearDreamMachineEverywhere = (): void => {
+      localDb.clearDreamMachineId();
+      try { remoteDb?.clearDreamMachineId(); } catch { /* remote may be transiently unavailable */ }
+    };
 
     // ─── 7.0  Overview & enable ────────────────────────────────────────
     console.log();
@@ -2408,14 +2570,15 @@ export async function runDreamSetup(opts: DreamSetupOpts = {}): Promise<void> {
     const enabled = await askYesNo(rl, "enable Dream Mode?", existingDream?.enabled ?? true);
     if (!enabled) {
       // Persist disabled state and clear designation
-      const storePath = pickStorePath(projectDir);
+      const storePath = ensureActiveStorePath(projectDir);
       await updateConfig(storePath, {
         dream: { ...(existingDream ?? {}), enabled: false },
       });
-      localDb.clearDreamMachineId();
+      clearDreamMachineEverywhere();
       console.log();
       printStatus("ok", "dream mode disabled · designation cleared");
       localDb.close();
+      remoteDb?.close();
       return;
     }
 
@@ -2436,10 +2599,10 @@ export async function runDreamSetup(opts: DreamSetupOpts = {}): Promise<void> {
       true,
     );
     if (designate) {
-      localDb.setDreamMachineId(localMachine);
+      setDreamMachineEverywhere(localMachine);
       printStatus("ok", `${localMachine} is the dreamer`);
     } else if (designatedMachine === localMachine) {
-      localDb.clearDreamMachineId();
+      clearDreamMachineEverywhere();
       printStatus("warn", "designation cleared", "no machine will dream until you re-run on another");
     } else {
       printStatus("progress", "keeping current designation", designatedMachine || "none");
@@ -2502,6 +2665,7 @@ export async function runDreamSetup(opts: DreamSetupOpts = {}): Promise<void> {
             if (!proceed) {
               printStatus("warn", "setup cancelled · no changes written");
               localDb.close();
+              remoteDb?.close();
               return;
             }
           }
@@ -2559,7 +2723,7 @@ export async function runDreamSetup(opts: DreamSetupOpts = {}): Promise<void> {
     }
 
     // Save
-    const storePath = pickStorePath(projectDir);
+    const storePath = ensureActiveStorePath(projectDir);
     await updateConfig(storePath, {
       dream: {
         enabled: true,
@@ -2578,6 +2742,7 @@ export async function runDreamSetup(opts: DreamSetupOpts = {}): Promise<void> {
     // doesn't fire immediately based on stale history.
     localDb.resetDreamConsecutiveFailures();
     localDb.close();
+    remoteDb?.close();
 
     // Final Diff block per the design — provider/machine + the two
     // threshold fields most users actually care about.
@@ -2667,17 +2832,24 @@ export async function runChatSetup(opts: ChatSetupOpts = {}): Promise<void> {
 // + system prompt prefix all move to the v6.0 chat TUI's settings panel
 // (road-014). The exported stub above renders a deprecation notice.
 
-/** Resolve where to write gnosys.json — project store if exists, else global store. */
-function pickStorePath(projectDir: string): string {
-  const projectStore = path.join(projectDir, ".gnosys");
-  const globalStore = getGnosysHome();
-  if (fsSync.existsSync(path.join(projectStore, "gnosys.json"))) {
-    return projectStore;
+/**
+ * Open the remote central DB ONLY when sync is configured AND the share
+ * is reachable. Returns null otherwise. Used by the dream wizard so it
+ * can mirror `dream_machine_id` writes to both DB meta tables (Bug 8).
+ */
+async function openRemoteDbIfConfigured(
+  localDb: import("./db.js").GnosysDB,
+): Promise<import("./db.js").GnosysDB | null> {
+  try {
+    if (!localDb.isAvailable()) return null;
+    const remotePath = localDb.getMeta("remote_path");
+    if (!remotePath) return null;
+    if (!fsSync.existsSync(path.join(remotePath, "gnosys.db"))) return null;
+    const { GnosysDB } = await import("./db.js");
+    return new GnosysDB(remotePath);
+  } catch {
+    return null;
   }
-  if (!fsSync.existsSync(globalStore)) {
-    fsSync.mkdirSync(globalStore, { recursive: true });
-  }
-  return globalStore;
 }
 
 /**

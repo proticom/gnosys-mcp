@@ -9,10 +9,10 @@ exports[`Screen 4 — routing render > renders the diff block with → for chang
 
 exports[`Screen 4 — routing render > renders the routing table with the cost column 1`] = `
 [
-  "   task         uses                             cost",
-  "   ───────────────────────────────────────────────────────────────────────────",
-  "     synthesis  anthropic / claude-sonnet-4-6     $$$",
-  "     structuringanthropic / claude-sonnet-4-6     $$$",
-  "     dream      ollama / llama3.2                free",
+  "   task         uses                           cost",
+  "   ────────────────────────────────────────────────",
+  "   synthesis    anthropic / claude-sonnet-4-6   $$$",
+  "   structuring  anthropic / claude-sonnet-4-6   $$$",
+  "   dream        ollama / llama3.2              free",
 ]
 `;

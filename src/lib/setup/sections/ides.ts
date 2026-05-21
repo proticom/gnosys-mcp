@@ -12,6 +12,7 @@ import fs from "fs/promises";
 import path from "path";
 import { detectIDEs, setupIDE } from "../../setup.js";
 import { safeQuestion } from "../ui/safePrompt.js";
+import { renderTable } from "../ui/table.js";
 
 const DIM = "\x1b[2m";
 const GREEN = "\x1b[32m";
@@ -27,12 +28,29 @@ const IDE_LABELS: Record<string, string> = {
   codex: "Codex",
   "gemini-cli": "Gemini CLI",
   antigravity: "Antigravity",
+  // v5.9.4 Bug 12 — Grok Build is xAI's coding agent.
+  "grok-build": "Grok Build",
 };
 
-const ALL_IDE_KEYS = ["claude", "claude-desktop", "cursor", "codex", "gemini-cli", "antigravity"];
+const ALL_IDE_KEYS = ["claude", "claude-desktop", "cursor", "codex", "gemini-cli", "antigravity", "grok-build"];
 
 // IDEs whose MCP config lives at the user level (~/...) rather than per-project.
-const USER_LEVEL_IDES = new Set(["claude", "claude-desktop", "gemini-cli", "antigravity"]);
+const USER_LEVEL_IDES = new Set(["claude", "claude-desktop", "gemini-cli", "antigravity", "grok-build"]);
+
+/** Per-IDE display target for the v5.9.3+ IDE table. */
+const IDE_TARGET_DISPLAY: Record<string, string> = {
+  claude: "claude mcp add (CLI)",
+  "claude-desktop": "~/Library/.../claude_desktop_config.json",
+  cursor: ".cursor/mcp.json",
+  codex: ".codex/mcp.json",
+  "gemini-cli": "~/.gemini/settings.json",
+  antigravity: "~/.gemini/antigravity/mcp_config.json",
+  "grok-build": "~/.grok/config.toml",
+};
+
+function ideTarget(ide: string): string {
+  return IDE_TARGET_DISPLAY[ide] ?? `.${ide}/mcp.json`;
+}
 
 export interface IdesSetupOptions {
   rl: ReadlineInterface;
@@ -91,30 +109,48 @@ export async function runIdesSetup(opts: IdesSetupOptions): Promise<boolean> {
 
   const detected = await detectIDEs(opts.directory);
 
-  // Header row for the columns.
-  console.log(`   ${color(c.textDim, "ide".padEnd(18))}${color(c.textDim, "status".padEnd(22))}${color(c.textDim, "target")}`);
-  console.log(`   ${color(c.textGhost, "─".repeat(60))}`);
-
-  const ideOptions: string[] = [];
-  const ideKeyForOption: string[] = [];
-
-  ALL_IDE_KEYS.forEach((ide, idx) => {
-    const isDetected = detected.includes(ide);
-    const label = IDE_LABELS[ide] ?? ide;
-    const dot = isDetected ? color(c.accent, glyph.dotFilled) : color(c.textDim, glyph.dotHollow);
-    const status = isDetected
-      ? color(c.text, "detected")
-      : USER_LEVEL_IDES.has(ide)
-        ? color(c.textDim, "user-level")
-        : color(c.textDim, "will create");
-    const target = USER_LEVEL_IDES.has(ide)
-      ? color(c.textDim, `~/${ide}-mcp config`)
-      : color(c.textDim, `.${ide}/mcp.json`);
-    const num = color(c.textDim, String(idx + 1).padStart(2, " "));
-    console.log(`   ${num}  ${color(c.text, label.padEnd(16))} ${dot} ${status.padEnd(20)}   ${target}`);
-    ideOptions.push(label);
-    ideKeyForOption.push(ide);
+  // v5.9.4 — laid out via the `Table` atom. Each row prefixed with a
+  // numbered selection digit (the `rowFormatter` injects that).
+  type IdeRow = { ide: string; idx: number; isDetected: boolean };
+  const tableRows: IdeRow[] = ALL_IDE_KEYS.map((ide, idx) => ({
+    ide,
+    idx,
+    isDetected: detected.includes(ide),
+  }));
+  const tableLines = renderTable<IdeRow>(tableRows, [
+    {
+      header: "ide",
+      render: (r) => IDE_LABELS[r.ide] ?? r.ide,
+      color: c.text,
+    },
+    {
+      header: "status",
+      render: (r) => {
+        if (r.isDetected) return "detected";
+        return USER_LEVEL_IDES.has(r.ide) ? "user-level" : "will create";
+      },
+      color: c.textDim,
+    },
+    {
+      header: "target",
+      render: (r) => ideTarget(r.ide),
+      color: c.textDim,
+    },
+  ], {
+    indent: 3,
+    gap: 2,
+    rowFormatter: (r, line) => {
+      const num = color(c.textDim, String(r.idx + 1).padStart(2, " "));
+      const dot = r.isDetected ? color(c.accent, glyph.dotFilled) : color(c.textDim, glyph.dotHollow);
+      // The Table indent is 3 chars; we replace it with `   <n>  <dot> ` so
+      // the existing visual rhythm (number + status-dot) is preserved.
+      return `   ${num}  ${dot} ${line.slice(3)}`;
+    },
   });
+  tableLines.forEach((line) => console.log(line));
+
+  const ideOptions: string[] = ALL_IDE_KEYS.map((ide) => IDE_LABELS[ide] ?? ide);
+  const ideKeyForOption: string[] = [...ALL_IDE_KEYS];
 
   console.log("");
   console.log(Footer(`1–${ALL_IDE_KEYS.length} · pick    a · all detected    enter · skip`));
