@@ -33,3 +33,6 @@ export { Spinner } from "./spinner.js";
 export type { SpinnerHandle } from "./spinner.js";
 
 export { Footer, printFooter } from "./footer.js";
+
+export { renderTable, printTable } from "./table.js";
+export type { TableColumn, TableOptions } from "./table.js";
