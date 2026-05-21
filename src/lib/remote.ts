@@ -10,7 +10,7 @@
  * - Skip-and-flag for auto sync; AI-mediated resolution for conflicts
  */
 
-import { existsSync, statSync, mkdirSync, writeFileSync, unlinkSync, readFileSync } from "fs";
+import { existsSync, statSync, mkdirSync, writeFileSync, unlinkSync } from "fs";
 import os from "os";
 import * as path from "path";
 import { GnosysDB, DbMemory } from "./db.js";
