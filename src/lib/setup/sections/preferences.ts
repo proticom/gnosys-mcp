@@ -205,11 +205,17 @@ async function viewAndMaybeDelete(rl: ReadlineInterface, pref: UserPreference): 
  */
 export async function runPreferencesReview(rl: ReadlineInterface): Promise<boolean> {
   const { Header } = await import("../ui/header.js");
+  const { Title } = await import("../ui/title.js");
   const { Footer } = await import("../ui/footer.js");
   const { Status } = await import("../ui/status.js");
   const { c, color, glyph } = await import("../ui/tokens.js");
 
   let anyChange = false;
+
+  // v5.9.4 Bug 13 — explainer copy that surfaces on both the empty-state
+  // and the list view so users learn what this screen actually does.
+  const explainerSub =
+    "things you've told gnosys to remember about how you work — injected into your agent's system prompt across all IDEs (e.g. 'use functional TypeScript' or 'no hedging in responses').";
 
   while (true) {
     const current = await listUserPreferences();
@@ -217,22 +223,32 @@ export async function runPreferencesReview(rl: ReadlineInterface): Promise<boole
     console.log("");
     console.log(Header(["gnosys", "setup", "preferences"], { version: `${current.length} stored` }));
     console.log("");
+    console.log(Title("User preferences", explainerSub));
+    console.log("");
     if (current.length === 0) {
-      console.log(`   ${color(c.text, "User preferences")}`);
-      console.log(`   ${color(c.textMid, "things you've told gnosys to remember about how you work")}`);
-      console.log("");
       console.log(`   ${color(c.textDim, "nothing stored yet.")}`);
     } else {
-      current.forEach((p, i) => {
-        const isNative = p.source === "gnosys-native";
-        const dot = isNative ? color(c.accent, glyph.dotFilled) : color(c.textDim, glyph.dotHollow);
-        const num = color(c.textDim, String(i + 1).padStart(2, " "));
-        const key = color(c.text, p.key.padEnd(14));
-        // Hard-truncate at col 80 without a marker per design §9.2.
-        const preview = p.value.replace(/\s+/g, " ").trim();
-        const previewColored = color(c.textMid, preview);
-        console.log(`   ${num}  ${dot} ${key}  ${previewColored}`);
+      const { renderTable } = await import("../ui/table.js");
+      type PrefRow = UserPreference & { idx: number };
+      const tableRows: PrefRow[] = current.map((p, idx) => ({ ...p, idx }));
+      const tableLines = renderTable<PrefRow>(tableRows, [
+        { header: "", render: (p) => p.key, color: c.text },
+        { header: "", render: (p) => p.value.replace(/\s+/g, " ").trim(), color: c.textMid },
+      ], {
+        showHeader: false,
+        indent: 3,
+        gap: 2,
+        rowFormatter: (p, line) => {
+          const num = color(c.textDim, String(p.idx + 1).padStart(2, " "));
+          const dot = p.source === "gnosys-native"
+            ? color(c.accent, glyph.dotFilled)
+            : color(c.textDim, glyph.dotHollow);
+          // Table indent is 3 chars; replace it with `   <n>  <dot> ` to keep
+          // the v5.9.3 visual rhythm (number + source-dot) intact.
+          return `   ${num}  ${dot} ${line.slice(3)}`;
+        },
       });
+      tableLines.forEach((line) => console.log(line));
       console.log("");
       console.log(`   ${color(c.accent, glyph.dotFilled)} ${color(c.textDim, "added by you")}           ${color(c.textDim, glyph.dotHollow)} ${color(c.textDim, "imported / unknown")}`);
     }
