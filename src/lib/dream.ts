@@ -803,7 +803,7 @@ export class DreamScheduler {
     if (this.checkInterval) return;
     if (!this.isDesignatedMachine()) {
       // Quiet — non-designated machines simply don't dream. The user can
-      // see designation status via `gnosys dashboard` if curious.
+      // see designation status via `gnosys status --system` if curious.
       return;
     }
 

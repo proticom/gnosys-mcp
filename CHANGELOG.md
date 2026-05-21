@@ -5,6 +5,36 @@ All notable changes to Gnosys are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.9.5] — 2026-05-21
+
+Hotfix release. Two issues surfaced during the first hour of dogfooding
+v5.9.4.
+
+### Fixed
+
+- **Self-healing stale `machine_id` cache.** v5.9.4's Bug 9 fix correctly
+  taught `resolveHostname()` to fall back to `os.hostname()`, but the
+  derivation result is cached in `gnosys_meta.machine_id` on first call.
+  Users who first ran gnosys under pre-v5.9.4 code already had
+  `unknown-<base36>` cached — the identifier kept appearing in the
+  settings panel, dream wizard, and "this machine" displays. v5.9.5's
+  `getMachineId()` detects cached values matching `/^unknown-[a-z0-9]+$/`
+  and re-derives via the v5.9.4 hostname path; if the cache was
+  referenced by `dream_machine_id`, that row heals in lockstep. The
+  no-churn branch (cache stale AND new derivation still "unknown")
+  preserves the existing id so we don't churn meta on every read.
+  Regression coverage: `src/test/v595-self-healing-machine-id.test.ts`
+  (4 tests).
+
+- **Three stale `gnosys dashboard` references.** The dream wizard's
+  post-success hint pointed at a command that was removed in v5.7.1.
+  Replaced with `gnosys status --system` (the canonical dashboard
+  formatter today) in three places: `src/lib/setup.ts` dream wizard
+  "check status anytime" hint (also dropped the right-aligned two-column
+  layout that produced a large blank gap), `src/lib/ingest.ts`
+  smart-ingestion provider-unavailable error message, and
+  `src/lib/dream.ts` non-designated-machine comment.
+
 ## [5.9.4] — 2026-05-20
 
 The "v5.9.3 dogfooding fixes" release. Twelve bugs Edward surfaced during

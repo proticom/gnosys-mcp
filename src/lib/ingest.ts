@@ -89,7 +89,7 @@ export class GnosysIngestion {
       ];
       if (isLocal) {
         lines.push(
-          `Make sure ${providerName} is running locally (gnosys dashboard will probe it).`,
+          `Make sure ${providerName} is running locally (gnosys status --system will probe it).`,
           `Or use gnosys_add_structured for direct memory writes (no LLM needed).`,
         );
       } else if (envVar) {

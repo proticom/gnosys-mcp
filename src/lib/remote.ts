@@ -810,14 +810,30 @@ export class RemoteSync {
  * v5.9.4 Bug 9 — on macOS, neither `HOSTNAME` nor `COMPUTERNAME` are set
  * by default in subshells, which caused identifiers like `unknown-mp9cyh4j`.
  * `os.hostname()` is the reliable fallback before giving up to `unknown`.
+ *
+ * v5.9.5 — self-heal: when the cached value is a pre-fix `unknown-<rand>`
+ * id and `resolveHostname()` now returns a real name, overwrite the cache
+ * (and any `dream_machine_id` pointing at the broken id) so users who
+ * upgrade past v5.9.4 stop seeing the stale identifier in panels.
  */
 export function getMachineId(localDb: GnosysDB): string {
-  let id = localDb.getMeta(META_MACHINE_ID);
-  if (!id) {
-    id = `${resolveHostname()}-${Date.now().toString(36)}`;
-    localDb.setMeta(META_MACHINE_ID, id);
+  const cached = localDb.getMeta(META_MACHINE_ID);
+  if (cached && !isStaleUnknownId(cached)) return cached;
+  const fresh = `${resolveHostname()}-${Date.now().toString(36)}`;
+  // Don't churn the cache if we still can't resolve a real hostname —
+  // keep the existing `unknown-<rand>` row so the id stays stable.
+  if (cached && fresh.startsWith("unknown-")) return cached;
+  localDb.setMeta(META_MACHINE_ID, fresh);
+  // Heal a dream_machine_id that points at the broken cached id.
+  if (cached && localDb.getDreamMachineId() === cached) {
+    localDb.setDreamMachineId(fresh);
   }
-  return id;
+  return fresh;
+}
+
+/** v5.9.5 — match the pre-fix `unknown-<base36>` shape. */
+function isStaleUnknownId(id: string): boolean {
+  return /^unknown-[a-z0-9]+$/.test(id);
 }
 
 /**

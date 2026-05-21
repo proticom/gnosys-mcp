@@ -2775,7 +2775,7 @@ export async function runDreamSetup(opts: DreamSetupOpts = {}): Promise<void> {
     );
     const dreamerName = designate ? localMachine : (designatedMachine ?? "the designated machine");
     printStatus("progress", `first cycle runs after ${dreamerName} is idle for ${idleMinutes} min`);
-    printStatus("progress", "check status anytime with", "gnosys dashboard");
+    printStatus("progress", "check status anytime with `gnosys status --system`");
   } finally {
     if (ownsRl) rl.close();
   }
