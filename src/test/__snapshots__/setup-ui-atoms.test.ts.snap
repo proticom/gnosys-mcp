@@ -32,7 +32,7 @@ exports[`setup/ui atoms — Phase A > Menu with only labels (no meta, no tag) 1`
 `;
 
 exports[`setup/ui atoms — Phase A > Panel renders rounded box with title and rows 1`] = `
-" ╭─ gnosys settings ─────────────────────────────────────────────────╮
+" ╭─ gnosys settings ──────────────────────────────────────────────────╮
  │   1   provider            anthropic                                │
  │   2   models              anthropic / claude-sonnet-4-6            │
  │   3   task routing        all anthropic                            │

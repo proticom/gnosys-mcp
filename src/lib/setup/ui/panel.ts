@@ -30,11 +30,18 @@ export function Panel(title: string, rows: string[], opts: PanelOptions = {}): s
   const innerW = Math.min(66, Math.max(40, W - 4));
   const border = c.accentDim;
 
-  // Top border: `╭─ title ──────╮`
+  // Top border: `╭─ title ──────╮` — must match the bottom border's total
+  // visible width of `innerW + 4` (corners + innerW+2 rule chars). The
+  // title segment `╭─ <title> ` already costs 4 + title chars, leaving
+  // `innerW - 1 - title` rule chars before the closing `╮` corner.
+  //
+  // v5.9.4 Bug 1 — pre-strip ANSI from the caller-supplied title so
+  // bolded / coloured titles still measure correctly; clamp `topPadLen`
+  // with `Math.max(1, ...)` so narrow widths never collapse the rule.
   const titleStyled = color(c.textHi, title);
+  const titleBareLen = stripAnsi(title).length;
   const topHead = `${color(border, `${glyph.boxTL}${glyph.boxH} `)}${titleStyled} `;
-  const topHeadBare = stripAnsi(topHead);
-  const topPadLen = Math.max(1, innerW + 2 - topHeadBare.length);
+  const topPadLen = Math.max(1, innerW - 1 - titleBareLen);
   const top = `${indent}${topHead}${color(border, `${glyph.boxH.repeat(topPadLen)}${glyph.boxTR}`)}`;
 
   // Each row: `│  <content>  │` — pad content to innerW.
