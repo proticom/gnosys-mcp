@@ -185,6 +185,7 @@ describe("Setup Wizard", () => {
           "codex",
           "gemini-cli",
           "antigravity",
+          "grok-build", // v5.9.4 Bug 12 — added with Grok Build integration
         ]).toContain(ide);
       }
     });
@@ -200,6 +201,7 @@ describe("Setup Wizard", () => {
         "codex",
         "gemini-cli",
         "antigravity",
+        "grok-build", // v5.9.4 Bug 12
       ];
       const projectOnly = ides.filter((i) => !globallyInstalled.includes(i));
       expect(projectOnly).toHaveLength(0);
