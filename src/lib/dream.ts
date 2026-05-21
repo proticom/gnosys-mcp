@@ -18,6 +18,7 @@
  *   - Uses cheap/local LLM (configurable, defaults to Ollama)
  */
 
+import os from "os";
 import { GnosysDB, DbMemory } from "./db.js";
 import { GnosysConfig, LLMProviderName } from "./config.js";
 import { LLMProvider, getLLMProvider } from "./llm.js";
@@ -833,8 +834,15 @@ export class DreamScheduler {
   private getLocalMachineId(db: GnosysDB): string {
     let id = db.getMeta("machine_id");
     if (!id) {
-      const hostname = process.env.HOSTNAME || process.env.COMPUTERNAME || "unknown";
-      id = `${hostname}-${Date.now().toString(36)}`;
+      // v5.9.4 Bug 9 — env vars + os.hostname() fallback so macOS shells
+      // without HOSTNAME/COMPUTERNAME still produce a useful identifier.
+      // Mirrors `remote.resolveHostname()`; kept inlined to avoid a circular
+      // import (remote.ts → dream.ts via the dream scheduler types).
+      let hostname = process.env.HOSTNAME || process.env.COMPUTERNAME || "";
+      if (!hostname) {
+        try { hostname = os.hostname() || ""; } catch { /* fall through */ }
+      }
+      id = `${hostname || "unknown"}-${Date.now().toString(36)}`;
       db.setMeta("machine_id", id);
     }
     return id;

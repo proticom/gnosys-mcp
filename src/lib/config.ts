@@ -534,6 +534,38 @@ async function readRawConfig(configPath: string): Promise<Record<string, unknown
   }
 }
 
+/**
+ * Post-process the schema-parsed config so dream provider inherits from
+ * `llm.defaultProvider` when the user never explicitly set it.
+ *
+ * v5.9.4 Bug 6 — the Zod schema hard-codes `dream.provider.default("ollama")`,
+ * same footgun shape as the anthropic default heading for v6.0 removal.
+ * Until that schema cleanup lands, we keep the default in the schema for
+ * back-compat and apply load-time inheritance here.
+ *
+ * Detection rule: dream.provider in the RAW (pre-parse) config is missing
+ * AND the user has not set up an ollama-specific config block (no
+ * `llm.ollama` object). If either signal is present, the user has opted in
+ * to ollama-for-dream and we leave it alone.
+ */
+function applyDreamProviderInheritance(
+  parsed: GnosysConfig,
+  raw: Record<string, unknown>,
+): GnosysConfig {
+  const rawDream = raw.dream as Record<string, unknown> | undefined;
+  const rawDreamProviderSet = rawDream !== undefined && rawDream.provider !== undefined;
+  if (rawDreamProviderSet) return parsed;
+  if (parsed.dream.provider !== "ollama") return parsed;
+  const defaultProvider = parsed.llm.defaultProvider;
+  if (defaultProvider === "ollama") return parsed;
+  const rawLlm = raw.llm as Record<string, unknown> | undefined;
+  if (rawLlm && rawLlm.ollama !== undefined) return parsed; // user opted into ollama
+  return {
+    ...parsed,
+    dream: { ...parsed.dream, provider: defaultProvider },
+  };
+}
+
 /** Deep merge: `override` wins over `base` for any field both define. */
 function deepMergeConfig(
   base: Record<string, unknown>,
@@ -582,7 +614,8 @@ export async function loadConfig(storePath: string): Promise<GnosysConfig> {
     }
 
     const migrated = migrateConfig(raw);
-    return GnosysConfigSchema.parse(migrated);
+    const parsed = GnosysConfigSchema.parse(migrated);
+    return applyDreamProviderInheritance(parsed, migrated);
   } catch (err: unknown) {
     if (err instanceof z.ZodError) {
       const issues = err.issues

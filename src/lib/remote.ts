@@ -11,6 +11,7 @@
  */
 
 import { existsSync, statSync, mkdirSync, writeFileSync, unlinkSync, readFileSync } from "fs";
+import os from "os";
 import * as path from "path";
 import { GnosysDB, DbMemory } from "./db.js";
 import type { ProgressCallback } from "./progress.js";
@@ -805,15 +806,36 @@ export class RemoteSync {
 /**
  * Get a stable machine identifier for tracking which machine wrote what.
  * Generates one on first call and stores it in gnosys_meta.
+ *
+ * v5.9.4 Bug 9 — on macOS, neither `HOSTNAME` nor `COMPUTERNAME` are set
+ * by default in subshells, which caused identifiers like `unknown-mp9cyh4j`.
+ * `os.hostname()` is the reliable fallback before giving up to `unknown`.
  */
 export function getMachineId(localDb: GnosysDB): string {
   let id = localDb.getMeta(META_MACHINE_ID);
   if (!id) {
-    const hostname = process.env.HOSTNAME || process.env.COMPUTERNAME || "unknown";
-    id = `${hostname}-${Date.now().toString(36)}`;
+    id = `${resolveHostname()}-${Date.now().toString(36)}`;
     localDb.setMeta(META_MACHINE_ID, id);
   }
   return id;
+}
+
+/**
+ * Resolve a usable hostname for machine-id generation. Honours common
+ * env vars first (cross-platform tests can override), then falls through
+ * to `os.hostname()` so macOS shells without `HOSTNAME` still get a real
+ * name. Returns `"unknown"` only when everything fails.
+ */
+export function resolveHostname(): string {
+  const fromEnv = process.env.HOSTNAME || process.env.COMPUTERNAME;
+  if (fromEnv) return fromEnv;
+  try {
+    const fromOs = os.hostname();
+    if (fromOs) return fromOs;
+  } catch {
+    // os.hostname() is documented to throw on some platforms — fall through.
+  }
+  return "unknown";
 }
 
 /** Format a sync status for human display */
