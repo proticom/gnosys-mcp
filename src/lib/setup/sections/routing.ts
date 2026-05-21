@@ -131,13 +131,17 @@ export async function runRoutingSetup(opts: RoutingOptions): Promise<boolean> {
   console.log(renderRoutingTable(initialRows));
   console.log("");
 
+  // v5.9.4 Bug 5 — clearer option copy. Option 1 keeps current routing
+  // (skip, no changes). Option 2 customises individual tasks. Option 3
+  // CLEARS all task overrides so every task falls back to the default
+  // provider; we show a Diff() of what's being removed before committing.
   const choice = await askChoice(
     opts.rl,
     "What would you like to do?",
     [
-      `Keep defaults (all tasks use ${provider})`,
+      "Keep current routing (no changes)",
       "Customize individual tasks",
-      "Use same provider for ALL tasks (including dream)",
+      "Reset all task overrides to use default",
     ],
     0,
   );
@@ -184,15 +188,31 @@ export async function runRoutingSetup(opts: RoutingOptions): Promise<boolean> {
       }
     }
   } else {
-    // choice === 2: use same provider for everything
-    for (const t of TASKS) {
-      newTaskModels[t] = { provider, model };
+    // v5.9.4 Bug 5 — choice === 2 now means "reset all task overrides to use
+    // default". Show the user what's about to be cleared (the rows currently
+    // pinned to non-default providers) before committing.
+    const { Diff } = await import("../ui/diff.js");
+    const overridesBeingCleared = Object.entries(cfg.taskModels ?? {})
+      .filter(([, v]) => v.provider !== provider || v.model !== model)
+      .map(([task, v]) => ({
+        label: task,
+        from: `${v.provider} / ${v.model}`,
+        to: `${provider} / ${model} (default)`,
+      }));
+    if (overridesBeingCleared.length > 0) {
+      console.log("");
+      console.log(Diff(overridesBeingCleared));
+      console.log("");
+    } else {
+      console.log(`${DIM}No overrides to clear — already using default everywhere.${RESET}`);
     }
-    dreamEnabledNew = await askYesNo(opts.rl, `Enable dream with ${provider}?`, true);
-    if (dreamEnabledNew) {
-      dreamProvider = provider as LLMProviderName;
-      dreamModel = model;
+    const confirmReset = await askYesNo(opts.rl, "Reset all task overrides?", true);
+    if (!confirmReset) {
+      console.log(`${DIM}Cancelled.${RESET}`);
+      return false;
     }
+    // Clear every overridden task back to default by deleting the keys.
+    for (const t of TASKS) delete newTaskModels[t];
   }
 
   // Persist
