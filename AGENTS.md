@@ -83,4 +83,4 @@ This project uses Gnosys for its own memory. When working here:
 
 ## Commit Convention
 
-Conventional commits: `feat:`, `fix:`, `docs:`, `chore:`. Include `Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>` in commit messages.
+Conventional commits: `feat:`, `fix:`, `docs:`, `chore:`.

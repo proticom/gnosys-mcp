@@ -9,6 +9,10 @@ coverage/
 *.db-journal
 *.db-wal
 *.tsbuildinfo
+# Agent config, rules & skills (local-only — AGENTS.md stays public)
 rules/
 .gnosys/
 CLAUDE.md
+.claude/
+.cursor/
+.codex/

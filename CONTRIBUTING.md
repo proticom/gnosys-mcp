@@ -311,12 +311,6 @@ per vault and respect user preferences.
 Closes #123
 ```
 
-Always include the co-author trailer:
-
-```
-Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
-```
-
 ## Pull Requests
 
 Provide a clear description of what changed and why:
