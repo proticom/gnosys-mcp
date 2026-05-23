@@ -13,6 +13,7 @@
  * so the same shared brain resolves correctly on the Studio, the MBP, etc.
  */
 
+import fsSync from "fs";
 import type { GnosysDB, DbProject } from "./db.js";
 import { type MachineConfig, absPathFromRoot, relPathUnderRoot } from "./machineConfig.js";
 
@@ -59,6 +60,35 @@ function resolveFor(db: GnosysDB, machine: MachineConfig, project: DbProject): R
   if (override) return { project, absPath: override.abs_path, source: "override" };
   const fromRoot = absPathFromRoot(machine, project.root_id, project.rel_path);
   return { project, absPath: fromRoot, source: fromRoot ? "root" : "none" };
+}
+
+/**
+ * Consumer-facing path for display/use, with a legacy fallback so callers can
+ * adopt machine-aware resolution without breaking pre-migration setups:
+ *
+ *   - machine == null (no machine.json yet)  → working_directory (legacy)
+ *   - resolvable via override/root           → that path
+ *   - legacy row not yet scanned but its     → working_directory
+ *     working_directory exists on this disk
+ *   - otherwise                              → null ("not on this machine")
+ *
+ * Pass `machine` as `readMachineConfig()` (which returns null when absent —
+ * importantly it does NOT create the file as a display side effect).
+ */
+export function effectiveProjectPath(
+  db: GnosysDB,
+  project: DbProject,
+  machine: MachineConfig | null,
+): string | null {
+  if (!machine) return project.working_directory || null;
+  const override = db.getProjectLocation(project.id, machine.machineId);
+  if (override) return override.abs_path;
+  const fromRoot = absPathFromRoot(machine, project.root_id, project.rel_path);
+  if (fromRoot) return fromRoot;
+  if (project.working_directory && fsSync.existsSync(project.working_directory)) {
+    return project.working_directory;
+  }
+  return null;
 }
 
 /**

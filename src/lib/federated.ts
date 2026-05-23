@@ -11,6 +11,8 @@
 
 import { GnosysDB, DbMemory, DbProject, MemoryScope } from "./db.js";
 import { findProjectIdentity } from "./projectIdentity.js";
+import { readMachineConfig, type MachineConfig } from "./machineConfig.js";
+import { effectiveProjectPath } from "./projectPaths.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -291,7 +293,11 @@ export async function detectCurrentProject(
  * memory state. Designed for "dream mode" pre-computation or on-demand
  * project status checks.
  */
-export function generateBriefing(db: GnosysDB, projectId: string): ProjectBriefing | null {
+export function generateBriefing(
+  db: GnosysDB,
+  projectId: string,
+  machine: MachineConfig | null = readMachineConfig(),
+): ProjectBriefing | null {
   const project = db.getProject(projectId);
   if (!project) return null;
 
@@ -354,7 +360,7 @@ export function generateBriefing(db: GnosysDB, projectId: string): ProjectBriefi
   return {
     projectId,
     projectName: project.name,
-    workingDirectory: project.working_directory,
+    workingDirectory: effectiveProjectPath(db, project, machine) ?? "(not on this machine)",
     totalMemories: allProjectMems.length,
     activeMemories: allProjectMems.filter((m) => m.status === "active").length,
     categories,
@@ -371,9 +377,10 @@ export function generateBriefing(db: GnosysDB, projectId: string): ProjectBriefi
 export function generateAllBriefings(db: GnosysDB): ProjectBriefing[] {
   const projects = db.getAllProjects();
   const briefings: ProjectBriefing[] = [];
+  const machine = readMachineConfig();
 
   for (const project of projects) {
-    const briefing = generateBriefing(db, project.id);
+    const briefing = generateBriefing(db, project.id, machine);
     if (briefing) {
       briefings.push(briefing);
     }

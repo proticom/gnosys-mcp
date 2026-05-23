@@ -13,6 +13,8 @@ import {
 import { isProviderAvailable } from "./llm.js";
 import { GnosysEmbeddings } from "./embeddings.js";
 import { GnosysDB } from "./db.js";
+import { readMachineConfig } from "./machineConfig.js";
+import { effectiveProjectPath } from "./projectPaths.js";
 import fs from "fs/promises";
 import path from "path";
 
@@ -148,9 +150,11 @@ export async function collectDashboardData(
   let totalMemories = 0;
   if (gnosysDb?.isAvailable() && gnosysDb?.isMigrated()) {
     const projects = gnosysDb.getAllProjects();
+    const machine = readMachineConfig();
     for (const p of projects) {
       const count = gnosysDb.getMemoriesByProject(p.id).length;
-      storeData.push({ label: p.name, path: p.working_directory, memoryCount: count });
+      const path = effectiveProjectPath(gnosysDb, p, machine) ?? "(not on this machine)";
+      storeData.push({ label: p.name, path, memoryCount: count });
       totalMemories += count;
     }
     // Also count user/global-scoped memories that have no project_id

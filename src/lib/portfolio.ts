@@ -7,6 +7,8 @@
  */
 
 import { GnosysDB, DbProject } from "./db.js";
+import { readMachineConfig } from "./machineConfig.js";
+import { effectiveProjectPath } from "./projectPaths.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -380,10 +382,14 @@ function buildProjectSnapshot(db: GnosysDB, project: DbProject): ProjectSnapshot
 export function generatePortfolio(db: GnosysDB): PortfolioReport {
   const projects = db.getAllProjects();
 
-  // Filter out test projects (those in /tmp/ or /private/tmp/)
-  const realProjects = projects.filter(
-    (p) => !p.working_directory.startsWith("/tmp/") && !p.working_directory.startsWith("/private/tmp/")
-  );
+  // Filter out test projects (those in /tmp/) and projects not present on this
+  // machine. Path is resolved per-machine (machine.json) with a legacy
+  // fallback to working_directory when machine.json is absent.
+  const machine = readMachineConfig();
+  const realProjects = projects.filter((p) => {
+    const ep = effectiveProjectPath(db, p, machine);
+    return ep !== null && !ep.startsWith("/tmp/") && !ep.startsWith("/private/tmp/");
+  });
 
   const snapshots = realProjects.map((p) => buildProjectSnapshot(db, p));
 

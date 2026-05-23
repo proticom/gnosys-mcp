@@ -5250,6 +5250,18 @@ program
 
       const allProjects = centralDb.getAllProjects();
 
+      // v5.11: resolve each project's path for THIS machine (machine.json),
+      // falling back to working_directory when machine.json is absent.
+      const { readMachineConfig } = await import("./lib/machineConfig.js");
+      const { effectiveProjectPath } = await import("./lib/projectPaths.js");
+      const machine = readMachineConfig();
+      const resolvedDirOf = (p: typeof allProjects[number]): string | null =>
+        effectiveProjectPath(centralDb!, p, machine);
+      const isNotHere = (p: typeof allProjects[number]): boolean => {
+        const ep = resolvedDirOf(p);
+        return ep === null || !existsSync(ep);
+      };
+
       if (opts.prune) {
         // Find dead projects first — never just delete without showing
         // them. v5.7.0 adds confirmation by default; --yes skips for
@@ -5302,10 +5314,10 @@ program
         return;
       }
 
-      // Normal listing — filter dead projects by default
+      // Normal listing — filter dead / not-on-this-machine projects by default
       const visibleProjects = opts.all
         ? allProjects
-        : allProjects.filter((p) => !isDeadProjectDir(p.working_directory));
+        : allProjects.filter((p) => !isNotHere(p));
 
       if (visibleProjects.length === 0) {
         const deadCount = allProjects.length;
@@ -5327,6 +5339,7 @@ program
 
       const projectData = visibleProjects.map((p) => ({
         ...p,
+        resolvedDir: resolvedDirOf(p) ?? "(not on this machine)",
         memoryCount: centralDb!.getMemoriesByProject(p.id).length,
       }));
 
@@ -5345,7 +5358,7 @@ program
         for (const p of projectData) {
           console.log(`  ${p.name}`);
           console.log(`    ID:        ${p.id}`);
-          console.log(`    Directory: ${p.working_directory}`);
+          console.log(`    Directory: ${p.resolvedDir}`);
           console.log(`    Memories:  ${p.memoryCount}`);
           console.log(`    Created:   ${p.created}`);
           console.log();
