@@ -56,3 +56,17 @@ export function getConfigDir(): string {
 export function getProjectRegistryPath(): string {
   return path.join(getConfigDir(), "projects.json");
 }
+
+/**
+ * Path to the machine-local config file (~/.config/gnosys/machine.json).
+ *
+ * This file holds everything that is specific to THIS physical machine and
+ * must NEVER be synced to the shared brain or other machines: the stable
+ * machineId, the named project roots (whose absolute paths differ per
+ * machine), and the per-machine remote-sync connection. The central DB at
+ * ~/.gnosys/gnosys.db is the synced source of truth; machine.json is its
+ * machine-local counterpart. See machineConfig.ts.
+ */
+export function getMachineConfigPath(): string {
+  return path.join(getConfigDir(), "machine.json");
+}

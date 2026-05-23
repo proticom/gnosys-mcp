@@ -60,11 +60,29 @@ export interface DbMemory {
 export interface DbProject {
   id: string;                  // UUID v4
   name: string;                // Human-readable project name
-  working_directory: string;   // Absolute path
+  working_directory: string;   // v5.11: machine-local display cache only — NOT identity. May be stale/empty on other machines. Resolve via root_id+rel_path or project_locations.
+  // v5.11: machine-portable location. A project's path is reconstructed per
+  // machine as join(machine.roots[root_id], rel_path); these are machine-
+  // INDEPENDENT and safe to share across machines.
+  root_id?: string | null;     // Named root from machine.json (null = outlier, see project_locations)
+  rel_path?: string | null;    // Path relative to that root (e.g. "gnosys-ai/gnosys-public")
   user: string;                // Username
   agent_rules_target: string | null; // Path to generated rules file
   obsidian_vault: string | null;     // Obsidian export path
   created: string;
+  modified: string;
+}
+
+/**
+ * v5.11: Per-machine project location override. One row per (project, machine)
+ * for projects that live OUTSIDE any named root (so root_id/rel_path can't
+ * resolve them). The composite primary key means each machine owns its own
+ * row — machines never clobber each other's path.
+ */
+export interface DbProjectLocation {
+  project_id: string;
+  machine_id: string;
+  abs_path: string;
   modified: string;
 }
 
@@ -108,7 +126,7 @@ export interface MigrationStats {
 
 // ─── Schema ─────────────────────────────────────────────────────────────
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS memories (
@@ -199,15 +217,29 @@ CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
 CREATE INDEX IF NOT EXISTS idx_audit_operation ON audit_log(operation);
 CREATE INDEX IF NOT EXISTS idx_audit_trace ON audit_log(trace_id);
 
+-- v5.11: working_directory is a machine-local display cache (not UNIQUE, not
+-- identity). Portable identity is id (UUID); portable location is root_id +
+-- rel_path resolved against this machine's roots (see machineConfig.ts).
 CREATE TABLE IF NOT EXISTS projects (
   id                  TEXT PRIMARY KEY,
   name                TEXT NOT NULL,
-  working_directory   TEXT NOT NULL UNIQUE,
+  working_directory   TEXT NOT NULL DEFAULT '',
+  root_id             TEXT,
+  rel_path            TEXT,
   user                TEXT NOT NULL,
   agent_rules_target  TEXT,
   obsidian_vault      TEXT,
   created             TEXT NOT NULL,
   modified            TEXT NOT NULL
+);
+
+-- v5.11: per-machine path override for projects outside any named root.
+CREATE TABLE IF NOT EXISTS project_locations (
+  project_id  TEXT NOT NULL,
+  machine_id  TEXT NOT NULL,
+  abs_path    TEXT NOT NULL,
+  modified    TEXT NOT NULL,
+  PRIMARY KEY (project_id, machine_id)
 );
 
 CREATE TABLE IF NOT EXISTS gnosys_meta (
@@ -274,8 +306,8 @@ const MEMORY_COLUMNS = new Set([
 ]);
 
 const PROJECT_COLUMNS = new Set([
-  "name", "working_directory", "user", "agent_rules_target",
-  "obsidian_vault", "created", "modified",
+  "name", "working_directory", "root_id", "rel_path", "user",
+  "agent_rules_target", "obsidian_vault", "created", "modified",
 ]);
 
 // ─── FNV-1a hash (same as embeddings.ts) ────────────────────────────────
@@ -649,6 +681,57 @@ export class GnosysDB {
       }
     }
 
+    if (fromVersion < 4) {
+      // v3 → v4 (v5.11): machine-portable project paths.
+      // Add root_id/rel_path and drop the UNIQUE constraint on
+      // working_directory (which forced a single path per project across all
+      // machines). SQLite can't drop a constraint in place, so rebuild the
+      // table — but only if the new shape isn't already present (a fresh DB
+      // gets it straight from SCHEMA_SQL above).
+      const cols = this.db.pragma("table_info(projects)") as Array<{ name: string }>;
+      const hasRelPath = cols.some((c) => c.name === "rel_path");
+      if (!hasRelPath) {
+        const rebuild = this.db.transaction(() => {
+          this.db.exec(`
+            CREATE TABLE projects_new (
+              id                  TEXT PRIMARY KEY,
+              name                TEXT NOT NULL,
+              working_directory   TEXT NOT NULL DEFAULT '',
+              root_id             TEXT,
+              rel_path            TEXT,
+              user                TEXT NOT NULL,
+              agent_rules_target  TEXT,
+              obsidian_vault      TEXT,
+              created             TEXT NOT NULL,
+              modified            TEXT NOT NULL
+            )
+          `);
+          this.db.exec(`
+            INSERT INTO projects_new
+              (id, name, working_directory, user, agent_rules_target, obsidian_vault, created, modified)
+            SELECT id, name, working_directory, user, agent_rules_target, obsidian_vault, created, modified
+            FROM projects
+          `);
+          this.db.exec("DROP TABLE projects");
+          this.db.exec("ALTER TABLE projects_new RENAME TO projects");
+        });
+        rebuild();
+      }
+      try {
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS project_locations (
+            project_id  TEXT NOT NULL,
+            machine_id  TEXT NOT NULL,
+            abs_path    TEXT NOT NULL,
+            modified    TEXT NOT NULL,
+            PRIMARY KEY (project_id, machine_id)
+          )
+        `);
+      } catch {
+        // Table may already exist
+      }
+    }
+
     this.db.pragma(`user_version = ${SCHEMA_VERSION}`);
   }
 
@@ -881,13 +964,52 @@ export class GnosysDB {
     return this.withRecovery(() => {
       this.db.prepare(`
         INSERT OR REPLACE INTO projects
-          (id, name, working_directory, user, agent_rules_target, obsidian_vault, created, modified)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          (id, name, working_directory, root_id, rel_path, user, agent_rules_target, obsidian_vault, created, modified)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
-        project.id, project.name, project.working_directory, project.user,
+        project.id, project.name, project.working_directory,
+        project.root_id ?? null, project.rel_path ?? null, project.user,
         project.agent_rules_target || null, project.obsidian_vault || null,
         project.created, project.modified,
       );
+    });
+  }
+
+  // ─── Per-machine project locations (v5.11) ─────────────────────────
+
+  /** This machine's stored absolute path for a project, or null if none. */
+  getProjectLocation(projectId: string, machineId: string): DbProjectLocation | null {
+    return this.withRecovery(() =>
+      (this.db
+        .prepare("SELECT * FROM project_locations WHERE project_id = ? AND machine_id = ?")
+        .get(projectId, machineId) as DbProjectLocation) || null,
+    );
+  }
+
+  /** All machines' stored locations for a project. */
+  getProjectLocations(projectId: string): DbProjectLocation[] {
+    return this.withRecovery(() =>
+      this.db
+        .prepare("SELECT * FROM project_locations WHERE project_id = ?")
+        .all(projectId) as DbProjectLocation[],
+    );
+  }
+
+  /** Record/replace this machine's path for a project (composite PK). */
+  setProjectLocation(loc: DbProjectLocation): void {
+    return this.withRecovery(() => {
+      this.db.prepare(`
+        INSERT OR REPLACE INTO project_locations (project_id, machine_id, abs_path, modified)
+        VALUES (?, ?, ?, ?)
+      `).run(loc.project_id, loc.machine_id, loc.abs_path, loc.modified);
+    });
+  }
+
+  deleteProjectLocation(projectId: string, machineId: string): void {
+    return this.withRecovery(() => {
+      this.db
+        .prepare("DELETE FROM project_locations WHERE project_id = ? AND machine_id = ?")
+        .run(projectId, machineId);
     });
   }
 
