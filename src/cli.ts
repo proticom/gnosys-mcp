@@ -5190,6 +5190,48 @@ function isDeadProjectDir(dir: string): boolean {
 }
 
 program
+  .command("scan")
+  .description("Discover projects under this machine's roots (machine.json) and record their machine-portable locations")
+  .option("--json", "Output as JSON")
+  .action(async (opts: { json?: boolean }) => {
+    const { ensureMachineConfig } = await import("./lib/machineConfig.js");
+    const { getMachineConfigPath } = await import("./lib/paths.js");
+    const { scanProjects } = await import("./lib/projectScan.js");
+
+    const ens = ensureMachineConfig();
+    const machine = ens.config;
+    if (Object.keys(machine.roots).length === 0) {
+      console.error("No project roots configured for this machine.");
+      console.error(`Add roots to ${getMachineConfigPath()}, e.g.`);
+      console.error('  { "roots": { "dev": "/Users/edward/MSDev/projects" } }');
+      process.exit(1);
+    }
+
+    const db = GnosysDB.openCentral();
+    if (!db.isAvailable()) {
+      console.error("Central DB not available (better-sqlite3 missing).");
+      process.exit(1);
+    }
+    const result = await scanProjects(db, machine);
+    db.close();
+
+    outputResult(!!opts.json, {
+      machineId: machine.machineId,
+      roots: result.roots,
+      count: result.entries.length,
+      entries: result.entries,
+    }, () => {
+      if (ens.regenerated) {
+        console.log("⚠ machine.json hostname mismatch — regenerated machineId for this machine.\n");
+      }
+      console.log(`Scanned ${result.roots.length} root(s); registered ${result.entries.length} project(s):`);
+      for (const e of result.entries) {
+        console.log(`  ${e.name}  [${e.mode}]  ${e.absPath}`);
+      }
+    });
+  });
+
+program
   .command("projects")
   .description("List registered projects from the central DB")
   .option("--json", "Output as JSON")
