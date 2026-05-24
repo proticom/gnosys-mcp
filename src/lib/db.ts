@@ -21,6 +21,7 @@ import path from "path";
 import fs from "fs";
 import { enableWAL } from "./lock.js";
 import { getGnosysHome as getGnosysHomeImpl, getCentralDbPath as getCentralDbPathImpl } from "./paths.js";
+import { readMachineConfig } from "./machineConfig.js";
 import { ulid } from "ulidx";
 
 // ─── Types ──────────────────────────────────────────────────────────────
@@ -374,9 +375,15 @@ export class GnosysDB {
     const localDb = GnosysDB.openLocal();
 
     // Check if remote is configured. If not, we're done — return local.
+    // v5.11: the remote connection is machine-local (machine.json), since the
+    // NAS mount path / Tailscale URL differs per machine. Prefer it; fall back
+    // to the legacy synced gnosys_meta value when machine.json has none.
     let remotePath: string | null = null;
     try {
-      if (localDb.isAvailable()) {
+      const mc = readMachineConfig();
+      if (mc?.remote?.enabled && mc.remote.path) {
+        remotePath = mc.remote.path;
+      } else if (localDb.isAvailable()) {
         remotePath = localDb.getMeta("remote_path");
       }
     } catch {
@@ -1295,6 +1302,17 @@ export class GnosysDB {
       } catch {
         // give up silently
       }
+    }
+  }
+
+  /** Remove a meta key. Used by v5.11 migrate to move machine-local values
+   * (machine_id, remote_path) out of the synced DB into machine.json. */
+  deleteMeta(key: string): void {
+    if (!this.available) return;
+    try {
+      this.db.prepare("DELETE FROM gnosys_meta WHERE key = ?").run(key);
+    } catch {
+      // table may not exist — nothing to delete
     }
   }
 

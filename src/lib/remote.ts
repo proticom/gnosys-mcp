@@ -14,6 +14,7 @@ import { existsSync, statSync, mkdirSync, writeFileSync, unlinkSync } from "fs";
 import os from "os";
 import * as path from "path";
 import { GnosysDB, DbMemory } from "./db.js";
+import { readMachineConfig } from "./machineConfig.js";
 import type { ProgressCallback } from "./progress.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────
@@ -817,6 +818,11 @@ export class RemoteSync {
  * upgrade past v5.9.4 stop seeing the stale identifier in panels.
  */
 export function getMachineId(localDb: GnosysDB): string {
+  // v5.11: machine identity lives in machine-local machine.json (never synced).
+  // Prefer it so a shared/synced gnosys_meta can't make two machines collide.
+  // Fall back to the legacy synced meta value when machine.json is absent.
+  const mc = readMachineConfig();
+  if (mc?.machineId) return mc.machineId;
   const cached = localDb.getMeta(META_MACHINE_ID);
   if (cached && !isStaleUnknownId(cached)) return cached;
   const fresh = `${resolveHostname()}-${Date.now().toString(36)}`;

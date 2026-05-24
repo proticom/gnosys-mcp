@@ -5189,6 +5189,65 @@ function isDeadProjectDir(dir: string): boolean {
   return !existsSync(dir);
 }
 
+const machineCmd = program
+  .command("machine")
+  .description("Manage this machine's local config (machine.json: machineId, roots, remote)");
+
+machineCmd
+  .command("show")
+  .description("Show this machine's machine.json")
+  .option("--json", "Output as JSON")
+  .action(async (opts: { json?: boolean }) => {
+    const { readMachineConfig } = await import("./lib/machineConfig.js");
+    const { getMachineConfigPath } = await import("./lib/paths.js");
+    const cfg = readMachineConfig();
+    if (!cfg) {
+      console.log(`No machine.json yet (${getMachineConfigPath()}).`);
+      console.log("Run 'gnosys machine migrate' (existing setup) or 'gnosys scan' to create it.");
+      return;
+    }
+    outputResult(!!opts.json, cfg, () => {
+      console.log(`machine.json: ${getMachineConfigPath()}`);
+      console.log(`  machineId: ${cfg.machineId}`);
+      console.log(`  hostname:  ${cfg.hostname}`);
+      console.log(`  roots:     ${JSON.stringify(cfg.roots)}`);
+      console.log(`  remote:    ${cfg.remote.enabled ? (cfg.remote.path ?? "(enabled, no path)") : "(disabled)"}`);
+    });
+  });
+
+machineCmd
+  .command("migrate")
+  .description("Move machine-local config (machineId, remote) out of the synced DB into machine.json, set roots, and scan")
+  .option("--root <dir>", "Set the 'dev' root for this machine (default: derived from the registry)")
+  .option("--no-scan", "Skip the project scan after migrating")
+  .action(async (opts: { root?: string; scan?: boolean }) => {
+    const { migrateMachine } = await import("./lib/machineMigrate.js");
+    const { getMachineConfigPath } = await import("./lib/paths.js");
+    const db = GnosysDB.openLocal();
+    if (!db.isAvailable()) {
+      console.error("Central DB not available (better-sqlite3 missing).");
+      process.exit(1);
+    }
+    const res = await migrateMachine(db, { root: opts.root, scan: opts.scan });
+    db.close();
+
+    console.log(`✓ machine.json written: ${getMachineConfigPath()}`);
+    const idNote = res.adoptedMachineId
+      ? " (adopted from synced meta)"
+      : res.regeneratedMachineId ? " (regenerated)" : "";
+    console.log(`  machineId: ${res.machineId}${idNote}`);
+    if (res.adoptedRemotePath) {
+      console.log("  remote: adopted remote_path from synced meta (removed from shared DB)");
+    }
+    console.log(`  roots: ${JSON.stringify(res.rootsConfigured)}`);
+    if (res.scan) {
+      console.log(`  scanned ${res.scan.entries.length} project(s):`);
+      for (const e of res.scan.entries) console.log(`    ${e.name}  [${e.mode}]  ${e.absPath}`);
+    } else {
+      console.log("  (scan skipped — set a root in machine.json, then run 'gnosys scan')");
+    }
+  });
+
 program
   .command("scan")
   .description("Discover projects under this machine's roots (machine.json) and record their machine-portable locations")
