@@ -81,6 +81,29 @@ const server = new McpServer({
   version: "2.0.0",
 });
 
+// v5.12: capability registrations (tool/prompt/resource) are collected as
+// replayable thunks so a fresh McpServer can be built per HTTP session, while
+// stdio keeps reusing the singleton `server`. Handlers reference module-global
+// state (the shared brain/search/resolver), so sessions need no per-client
+// state — only the registrations are replayed. See registerCapabilities().
+type Registrar = (s: McpServer) => void;
+const _registrations: Registrar[] = [];
+// Typed to the McpServer methods so call-site generic inference (Zod schema →
+// handler arg types) is preserved; the body just collects a replay thunk.
+const regTool: typeof server.tool = ((...args: unknown[]) => {
+  _registrations.push((s) => (s.tool as (...a: unknown[]) => unknown)(...args));
+}) as typeof server.tool;
+const regPrompt: typeof server.prompt = ((...args: unknown[]) => {
+  _registrations.push((s) => (s.prompt as (...a: unknown[]) => unknown)(...args));
+}) as typeof server.prompt;
+const regResource: typeof server.resource = ((...args: unknown[]) => {
+  _registrations.push((s) => (s.resource as (...a: unknown[]) => unknown)(...args));
+}) as typeof server.resource;
+/** Replay all collected capability registrations onto a server instance. */
+export function registerCapabilities(s: McpServer): void {
+  for (const r of _registrations) r(s);
+}
+
 /**
  * v5.4.1: Format MCP errors. Detects DB corruption and replaces the raw
  * "database disk image is malformed" with actionable recovery instructions.
@@ -273,7 +296,7 @@ function resolveWriteScope(
 }
 
 // ─── Tool: gnosys_discover ──────────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_discover",
   "Discover relevant memories by describing what you're working on. Searches relevance keyword clouds across all stores. Returns lightweight metadata (title, path, relevance keywords) — NO file contents. Use gnosys_read to load specific memories you need. Call this FIRST when starting a task to find what Gnosys knows.",
   {
@@ -342,7 +365,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_read ───────────────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_read",
   "Read a specific memory. Accepts a memory ID (e.g., 'arch-012') or layer-prefixed path (e.g., 'project:decisions/why-not-rag.md'). Without a prefix, searches all stores in precedence order.",
   {
@@ -401,7 +424,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_search ─────────────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_search",
   "Search memories by keyword across all stores. Returns matching file paths with relevance snippets.",
   {
@@ -466,7 +489,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_list ───────────────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_list",
   "List memories across all stores, optionally filtered by category, tag, or store layer.",
   {
@@ -572,7 +595,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_add ────────────────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_add",
   "Add a new memory. Accepts raw text — an LLM structures it into an atomic memory. Writes to the project store by default. Use store='personal' for cross-project knowledge, or store='global' to explicitly write to shared org knowledge.",
   {
@@ -719,7 +742,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_add_structured ─────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_add_structured",
   "Add a memory with structured input (no LLM needed). Writes to the project store by default. Use store='global' to explicitly write to shared org knowledge.",
   {
@@ -822,7 +845,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_tags ───────────────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_tags",
   "List all tags in the registry, grouped by category.",
   { projectRoot: projectRootParam },
@@ -845,7 +868,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_tags_add ───────────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_tags_add",
   "Add a new tag to the registry.",
   {
@@ -871,7 +894,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_reinforce ──────────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_reinforce",
   "Signal whether a memory was useful. 'useful' reinforces it (resets decay). 'not_relevant' means routing was wrong, not the memory (memory unchanged). 'outdated' flags for review.",
   {
@@ -932,7 +955,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_init ───────────────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_init",
   "Initialize Gnosys in a project directory. Creates .gnosys/ with project identity (gnosys.json), registers the project in the central DB (~/.gnosys/gnosys.db), and sets up tag registry. You MUST run this before any other Gnosys tool in a new project. Pass the full absolute path to the project root.",
   {
@@ -1027,7 +1050,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_migrate ────────────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_migrate",
   "Migrate a Gnosys store (.gnosys/) from one directory to another. Updates the project name, working directory, and central DB registration. Use this when a project has moved or you want to consolidate stores.",
   {
@@ -1121,7 +1144,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_update ─────────────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_update",
   "Update an existing memory's frontmatter and/or content. Specify the memory path and the fields to change.",
   {
@@ -1247,7 +1270,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_stale ─────────────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_stale",
   "Find memories that haven't been modified or reviewed within a given number of days. Useful for identifying knowledge that may be outdated.",
   {
@@ -1307,7 +1330,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_commit_context ────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_commit_context",
   "Pre-compaction memory sweep. Call this before context is lost (e.g., before a long conversation compacts). Extracts important decisions, facts, and insights from the conversation and commits novel ones to memory. Checks existing memories to avoid duplicates — only adds what's genuinely new or augments what's changed.",
   {
@@ -1505,7 +1528,7 @@ Output ONLY the JSON array, no markdown fences.`,
 );
 
 // ─── Tool: gnosys_history ────────────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_history",
   "View version history for a memory. Shows what changed and when. Every memory write/update creates a git commit, so the full evolution is available.",
   {
@@ -1573,7 +1596,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_rollback ──────────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_rollback",
   "Rollback a memory to its state at a specific commit. Non-destructive: creates a new commit with the reverted content. Use gnosys_history first to find the target commit hash.",
   {
@@ -1613,7 +1636,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_lens ──────────────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_lens",
   "Filtered view of memories. Combine criteria to focus on specific subsets — e.g., 'active decisions about auth with confidence > 0.8'. Use AND (default) to require all criteria, or OR to match any.",
   {
@@ -1666,7 +1689,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_timeline ───────────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_timeline",
   "View memory creation and modification activity over time. Shows how knowledge evolves by grouping memories into time periods.",
   {
@@ -1693,7 +1716,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_stats ─────────────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_stats",
   "Summary statistics across all memories — totals by category, status, author, authority, average confidence, and date ranges.",
   { projectRoot: projectRootParam },
@@ -1736,7 +1759,7 @@ Last Modified: ${stats.lastModified || "—"}`;
 );
 
 // ─── Tool: gnosys_links ─────────────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_links",
   "Show wikilinks for a specific memory — outgoing [[links]] and backlinks from other memories. Obsidian-compatible [[Title]] and [[path|display]] syntax.",
   {
@@ -1814,7 +1837,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_graph ─────────────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_graph",
   "Show the full cross-reference graph across all memories. Reveals clusters, orphaned links, and the most-connected memories.",
   { projectRoot: projectRootParam },
@@ -1832,7 +1855,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_bootstrap ─────────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_bootstrap",
   "Batch-import existing documents from a directory into the memory store. Scans for markdown files and creates memories. Use dry_run=true to preview.",
   {
@@ -1904,7 +1927,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_import ─────────────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_import",
   "Bulk import structured data (CSV, JSON, JSONL) into Gnosys memories. Map source fields to title/category/content/tags/relevance. Use mode='llm' for smart ingestion with keyword clouds, or 'structured' for fast direct mapping. For large datasets (>100 records with LLM), the CLI is recommended: gnosys import <file>",
   {
@@ -2022,7 +2045,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_hybrid_search ──────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_hybrid_search",
   "Search memories using hybrid keyword + semantic search with Reciprocal Rank Fusion. Combines FTS5 keyword matching with embedding-based semantic similarity for best results. Run gnosys_reindex first if embeddings don't exist yet.",
   {
@@ -2094,7 +2117,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_semantic_search ────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_semantic_search",
   "Search memories using semantic similarity only (no keyword matching). Finds conceptually related memories even without exact keyword matches. Requires embeddings — run gnosys_reindex first.",
   {
@@ -2142,7 +2165,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_reindex ────────────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_reindex",
   "Rebuild all semantic embeddings from every memory file. Downloads the embedding model (~80 MB) on first run. Required before hybrid/semantic search can be used. Safe to re-run — fully regenerates the index.",
   { projectRoot: projectRootParam },
@@ -2180,7 +2203,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_ask ────────────────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_ask",
   "Ask a natural-language question and get a synthesized answer with citations from the entire vault. Uses hybrid search to find relevant memories, then LLM to synthesize a cited response. Citations are Obsidian wikilinks [[filename.md]]. Requires an LLM provider (Anthropic or Ollama) and embeddings (run gnosys_reindex first).",
   {
@@ -2250,7 +2273,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_maintain ────────────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_maintain",
   "Run vault maintenance: detect duplicate memories, apply confidence decay, consolidate similar memories. Use --dry-run mode first to see what would change. Requires embeddings (run gnosys_reindex first).",
   {
@@ -2294,7 +2317,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_dearchive ──────────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_dearchive",
   "Force-dearchive memories from archive.db back to active. Search the archive for memories matching a query, then restore them to the active layer. Used when you need specific archived knowledge that wasn't auto-dearchived by search/ask.",
   {
@@ -2361,7 +2384,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_reindex_graph ──────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_reindex_graph",
   "Build or rebuild the wikilink graph (.gnosys/graph.json). Parses all [[wikilinks]] across memories and generates a persistent JSON graph with nodes, edges, and stats.",
   { projectRoot: projectRootParam },
@@ -2383,7 +2406,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_dream ──────────────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_dream",
   "Run a Dream Mode cycle — idle-time consolidation that decays confidence, generates category summaries, discovers relationships, and creates review suggestions. NEVER deletes memories. Safe to run anytime.",
   {
@@ -2440,7 +2463,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_export ─────────────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_export",
   "Export gnosys.db to Obsidian-compatible vault — atomic Markdown files with YAML frontmatter, [[wikilinks]], category summaries, and relationship graph. One-way export, never modifies gnosys.db.",
   {
@@ -2489,7 +2512,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_dashboard ──────────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_dashboard",
   "Show the Gnosys system dashboard: memory counts, maintenance health, graph stats, LLM provider status. Returns structured JSON.",
   { projectRoot: projectRootParam },
@@ -2511,7 +2534,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_stores ─────────────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_stores",
   "Debug tool — lists all detected Gnosys stores across registered projects, MCP workspace roots, cwd, and environment variables. Shows which store is active and helps diagnose multi-project routing.",
   {},
@@ -2582,7 +2605,7 @@ async function reindexAllStores(): Promise<void> {
 // injecting relevant memories into the model context — no tool call needed.
 //
 // Priority 1 + audience: assistant = hosts inject this before every message.
-server.resource(
+regResource(
   "gnosys_recall",
   "gnosys://recall",
   {
@@ -2635,7 +2658,7 @@ server.resource(
 // ─── Tool: gnosys_recall (query-specific fallback) ──────────────────────
 // For hosts that don't support MCP Resources, or when the agent wants to
 // recall memories for a specific query. The resource above is preferred.
-server.tool(
+regTool(
   "gnosys_recall",
   "Fast memory recall — inject relevant memories as context. Returns <gnosys-recall> block. In aggressive mode (default), always returns top memories even at medium relevance. Prefer the gnosys://recall MCP Resource for automatic injection (no tool call needed).",
   {
@@ -2680,7 +2703,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_audit ──────────────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_audit",
   "View the audit trail of all memory operations (reads, writes, reinforcements, dearchives, maintenance). Shows a timeline of what happened and when. Useful for debugging 'why did the agent forget X?'",
   {
@@ -2712,7 +2735,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_preference_set ─────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_preference_set",
   "Set a user preference. Preferences are stored in the central DB as user-scoped memories. They persist across all projects and are injected into agent rules files on `gnosys sync`. Use this to record workflow conventions, coding standards, tool preferences, etc.",
   {
@@ -2756,7 +2779,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_preference_get ─────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_preference_get",
   "Get a user preference by key, or list all preferences.",
   {
@@ -2808,7 +2831,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_preference_delete ──────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_preference_delete",
   "Delete a user preference by key.",
   {
@@ -2853,7 +2876,7 @@ server.tool(
 //
 // Routine in-session context flows through the SessionStart hook
 // (`gnosys recall`), not through this tool.
-server.tool(
+regTool(
   "gnosys_sync",
   "Get the current user preferences + project conventions formatted as a GNOSYS:START/GNOSYS:END block. By default returns the block as text only (no disk write). Pass commit_to_disk=true to write it into the detected agent rules file (CLAUDE.md, .cursor/rules/gnosys.mdc) — only do this if the user has explicitly asked to refresh the rules file. Routine session context is already injected via the SessionStart hook (`gnosys recall`); do NOT call this tool after every preference change.",
   {
@@ -2960,7 +2983,7 @@ server.tool(
 
 // ─── Tool: gnosys_federated_search ───────────────────────────────────────
 
-server.tool(
+regTool(
   "gnosys_federated_search",
   "Search across all scopes (project → user → global) with tier boosting. Results from the current project rank highest. Returns score breakdown showing which boosts were applied.",
   {
@@ -3002,7 +3025,7 @@ server.tool(
 
 // ─── Tool: gnosys_detect_ambiguity ──────────────────────────────────────
 
-server.tool(
+regTool(
   "gnosys_detect_ambiguity",
   "Check if a query matches memories in multiple projects. Use before write operations to confirm the target project when ambiguity exists.",
   {
@@ -3034,7 +3057,7 @@ server.tool(
 
 // ─── Tool: gnosys_briefing ──────────────────────────────────────────────
 
-server.tool(
+regTool(
   "gnosys_briefing",
   "Generate a project briefing — a summary of memory state, categories, recent activity, and top tags. Use for dream mode pre-computation or quick project status.",
   {
@@ -3103,7 +3126,7 @@ server.tool(
 
 // ─── Tool: gnosys_portfolio ─────────────────────────────────────────────
 
-server.tool(
+regTool(
   "gnosys_portfolio",
   "Portfolio dashboard — shows all registered projects with memory counts, categories, status snapshots, roadmap items, and recent activity. Use for cross-project status overview.",
   {
@@ -3129,7 +3152,7 @@ server.tool(
 
 // ─── Remote sync tools (v5.3.0) ─────────────────────────────────────────
 
-server.tool(
+regTool(
   "gnosys_remote_status",
   "Check the status of remote sync (multi-machine). Returns pending pushes, pulls, conflicts, and reachability. Agents should surface this to the user when there are pending changes or conflicts.",
   {},
@@ -3162,7 +3185,7 @@ server.tool(
   }
 );
 
-server.tool(
+regTool(
   "gnosys_remote_push",
   "Push local memory changes to the remote (NAS) database. Uses skip-and-flag for conflicts by default. Call this when the user has approved pushing local changes.",
   {
@@ -3191,7 +3214,7 @@ server.tool(
   }
 );
 
-server.tool(
+regTool(
   "gnosys_remote_pull",
   "Pull remote memory changes to the local database. Uses skip-and-flag for conflicts by default. Call this when the user wants the latest from the remote.",
   {
@@ -3220,7 +3243,7 @@ server.tool(
   }
 );
 
-server.tool(
+regTool(
   "gnosys_remote_resolve",
   "Resolve a sync conflict by choosing which version to keep. Use after gnosys_remote_status reveals conflicts. The agent should present the local and remote versions to the user and call this with their choice.",
   {
@@ -3253,7 +3276,7 @@ server.tool(
 
 // ─── Tool: gnosys_update_status ─────────────────────────────────────────
 
-server.tool(
+regTool(
   "gnosys_update_status",
   "Get the prompt/template for writing a dashboard-compatible status memory for this project. Returns instructions for creating a landscape memory with the correct heading format so the portfolio dashboard can parse it. Run this, then follow the instructions to analyze and write the status.",
   {
@@ -3281,7 +3304,7 @@ server.tool(
 
 // ─── Tool: gnosys_working_set ───────────────────────────────────────────
 
-server.tool(
+regTool(
   "gnosys_working_set",
   "Get the implicit working set — recently modified memories for the current project. These represent the active context and get boosted in federated search.",
   {
@@ -3308,7 +3331,7 @@ server.tool(
 );
 
 // ─── Tool: gnosys_ingest_file ────────────────────────────────────────────
-server.tool(
+regTool(
   "gnosys_ingest_file",
   "Ingest a file (PDF, DOCX, TXT, MD) into Gnosys memory. Extracts text, splits into chunks, and creates atomic memories. Supports LLM-powered structuring or fast structured mode.",
   {
@@ -3387,7 +3410,7 @@ server.tool(
 // These appear as /gnosys-recall, /gnosys-discover, /gnosys-memorize in
 // Cursor, Claude Code, and Codex.
 
-server.prompt(
+regPrompt(
   "gnosys-recall",
   "Inject top Gnosys memories for the current project into context. Use this at the start of any task to load relevant knowledge.",
   async () => {
@@ -3443,7 +3466,7 @@ server.prompt(
   }
 );
 
-server.prompt(
+regPrompt(
   "gnosys-discover",
   "Search Gnosys memories on a specific topic and inject results into context.",
   { topic: z.string().describe("Topic or keywords to search for") },
@@ -3493,7 +3516,7 @@ server.prompt(
   }
 );
 
-server.prompt(
+regPrompt(
   "gnosys-memorize",
   "Analyze the current conversation and save new decisions, findings, and context as Gnosys memories. Checks for duplicates automatically.",
   async () => {
@@ -3761,6 +3784,7 @@ async function main() {
   // heavy module initialization in the background. Handlers that use the
   // module-level `ingestion` / `hybridSearch` / `askEngine` vars guard
   // against null and either await readiness or surface a clear error.
+  registerCapabilities(server);
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("Gnosys MCP: handshake ready (heavy modules still loading)");
