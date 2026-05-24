@@ -5199,6 +5199,28 @@ function isDeadProjectDir(dir: string): boolean {
   return !existsSync(dir);
 }
 
+program
+  .command("centralize")
+  .description("Copy this machine's local brain (~/.gnosys/gnosys.db) to seed a central server — a Docker volume or another host")
+  .requiredOption("--to <dir>", "Target directory to write gnosys.db into (e.g. a mounted volume)")
+  .option("--from-local", "Source is this machine's local brain (default)")
+  .option("--force", "Overwrite an existing gnosys.db at the target")
+  .action(async (opts: { to: string; force?: boolean }) => {
+    const { centralizeDb } = await import("./lib/centralize.js");
+    try {
+      const r = await centralizeDb({ to: opts.to, force: opts.force });
+      const mb = (r.bytes / 1024 / 1024).toFixed(1);
+      console.log("✓ Seeded central brain:");
+      console.log(`  from: ${r.source}`);
+      console.log(`  to:   ${r.target} (${mb} MB)`);
+      console.log("");
+      console.log(`Run the server against it with GNOSYS_HOME=${opts.to}, or mount this dir as the container's /data volume.`);
+    } catch (e) {
+      console.error(`centralize failed: ${e instanceof Error ? e.message : e}`);
+      process.exit(1);
+    }
+  });
+
 const machineCmd = program
   .command("machine")
   .description("Manage this machine's local config (machine.json: machineId, roots, remote)");
