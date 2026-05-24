@@ -316,10 +316,13 @@ describe("TC-9e.10: Documentation files exist", () => {
 
   it("README.md exists and contains key content", () => {
     const readme = fs.readFileSync(path.join(projectRoot, "README.md"), "utf-8");
-    expect(readme).toContain("sandbox-first");
-    expect(readme).toContain("sandbox start/stop/status");
+    // v5.10.0: the README was deliberately slimmed (commit 8d2f275 — "gnosys.ai
+    // is the source of truth"), removing the sandbox/User-Guide prose. Assert
+    // the current key sections instead. (Stale-assertion fix authorized 2026-05-23.)
+    expect(readme).toContain("Central brain");
+    expect(readme).toContain("Federated search");
+    expect(readme).toContain("MCP server");
     expect(readme).toContain("Web Knowledge Base");
-    expect(readme).toContain("User Guide");
   });
 
   it("CONTRIBUTING.md exists", () => {
