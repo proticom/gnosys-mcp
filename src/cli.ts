@@ -5200,6 +5200,33 @@ function isDeadProjectDir(dir: string): boolean {
 }
 
 program
+  .command("connect")
+  .description("Point an IDE at a remote gnosys server (central-server topology) instead of spawning a local one")
+  .requiredOption("--url <url>", "Remote MCP URL, e.g. http://studio.tailnet.ts.net:7777/mcp")
+  .option("--token <token>", "Bearer token if the server requires auth")
+  .option("--ide <ide>", "IDE config to write: cursor | claude-desktop", "cursor")
+  .option("--dir <dir>", "Project dir for cursor config (default: cwd)")
+  .option("--print", "Print the config snippet instead of writing files")
+  .action(async (opts: { url: string; token?: string; ide?: string; dir?: string; print?: boolean }) => {
+    const m = await import("./lib/mcpClientConfig.js");
+    const remote = { url: opts.url, token: opts.token };
+    if (opts.print) {
+      console.log(JSON.stringify({ mcpServers: { gnosys: m.remoteMcpEntry(remote) } }, null, 2));
+      return;
+    }
+    const ide: "cursor" | "claude-desktop" = opts.ide === "claude-desktop" ? "claude-desktop" : "cursor";
+    try {
+      const file = await m.writeRemoteClientConfig(ide, opts.dir || process.cwd(), remote);
+      console.log(`✓ Pointed ${ide} at ${opts.url}`);
+      console.log(`  wrote: ${file}${opts.token ? "  (bearer token included)" : ""}`);
+      console.log("  Restart the IDE / MCP servers to pick it up.");
+    } catch (e) {
+      console.error(`connect failed: ${e instanceof Error ? e.message : e}`);
+      process.exit(1);
+    }
+  });
+
+program
   .command("centralize")
   .description("Copy this machine's local brain (~/.gnosys/gnosys.db) to seed a central server — a Docker volume or another host")
   .requiredOption("--to <dir>", "Target directory to write gnosys.db into (e.g. a mounted volume)")
