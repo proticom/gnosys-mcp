@@ -3784,6 +3784,34 @@ async function main() {
   // heavy module initialization in the background. Handlers that use the
   // module-level `ingestion` / `hybridSearch` / `askEngine` vars guard
   // against null and either await readiness or surface a clear error.
+  // v5.12: HTTP transport (central-server topology) — opt-in via env, set by
+  // `gnosys serve --transport http`. Each session gets its own McpServer
+  // (registrations replayed); all share the module-global brain/search.
+  if (process.env.GNOSYS_TRANSPORT === "http") {
+    const { startMcpHttpServer } = await import("./lib/mcpHttp.js");
+    const host = process.env.GNOSYS_HTTP_HOST || "127.0.0.1";
+    const port = parseInt(process.env.GNOSYS_HTTP_PORT || "7777", 10);
+    const authToken = process.env.GNOSYS_SERVE_TOKEN || undefined;
+    await startMcpHttpServer({
+      host,
+      port,
+      authToken,
+      log: (m) => console.error(`Gnosys MCP[http]: ${m}`),
+      makeServer: () => {
+        const s = new McpServer({ name: "gnosys", version: "2.0.0" });
+        registerCapabilities(s);
+        return s;
+      },
+    });
+    console.error(
+      `Gnosys MCP: HTTP transport ready on http://${host}:${port}/mcp${authToken ? " (bearer auth required)" : ""}`,
+    );
+    void initHeavyDeps().catch((err) => {
+      console.error(`Gnosys MCP: heavy-init failed — ${err instanceof Error ? err.message : err}`);
+    });
+    return;
+  }
+
   registerCapabilities(server);
   const transport = new StdioServerTransport();
   await server.connect(transport);

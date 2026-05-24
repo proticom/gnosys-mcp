@@ -4797,7 +4797,17 @@ program
     "Start the MCP server (stdio mode). Used by IDE integrations — Claude Code/Desktop, Cursor, Codex, etc. spawn this command in the background to talk to gnosys via the Model Context Protocol. You don't normally invoke this yourself; `gnosys init <ide>` wires it into the IDE config.",
   )
   .option("--with-maintenance", "Run maintenance every 6 hours in background")
-  .action(async (opts: { withMaintenance?: boolean }) => {
+  .option("--transport <mode>", "Transport: 'stdio' (default) or 'http' (central-server topology)", "stdio")
+  .option("--host <addr>", "HTTP bind address — http transport (default 127.0.0.1; use a tailnet addr to share)", "127.0.0.1")
+  .option("--port <n>", "HTTP port — http transport", "7777")
+  .option("--token <token>", "Require 'Authorization: Bearer <token>' — http transport")
+  .action(async (opts: { withMaintenance?: boolean; transport?: string; host?: string; port?: string; token?: string }) => {
+    if (opts.transport === "http") {
+      process.env.GNOSYS_TRANSPORT = "http";
+      process.env.GNOSYS_HTTP_HOST = opts.host || "127.0.0.1";
+      process.env.GNOSYS_HTTP_PORT = String(opts.port || "7777");
+      if (opts.token) process.env.GNOSYS_SERVE_TOKEN = opts.token;
+    }
     if (opts.withMaintenance) {
       // Start background maintenance loop
       const SIX_HOURS = 6 * 60 * 60 * 1000;
