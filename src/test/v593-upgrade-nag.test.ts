@@ -27,6 +27,13 @@ const PKG_VERSION = (() => {
   return (JSON.parse(raw) as { version: string }).version;
 })();
 
+// v5.10.0: pin a synthetic "running" version via GNOSYS_FORCE_VERSION so these
+// nag scenarios don't depend on the real release number. A .0 minor release has
+// no same-minor patch predecessor, which previously broke the patch case when
+// versions were derived from PKG_VERSION. PKG_VERSION is still used where the
+// test checks the binary's real reported version (e.g. `--version` on stdout).
+const CURRENT = "9.9.9";
+
 // Bump a semver minor down/up for the test stamps.
 function bumpSemver(v: string, dir: "down" | "up", level: "patch" | "minor"): string {
   const parts = v.split(".").map(Number);
@@ -89,6 +96,7 @@ function runCli(home: string, args: string[]): { stdout: string; stderr: string;
   delete env.CI;
   env.HOME = home;
   env.GNOSYS_HOME = home;
+  env.GNOSYS_FORCE_VERSION = CURRENT; // pin running version for deterministic nag scenarios
   env.GNOSYS_SKIP_UPGRADE_NUDGE = ""; // not set, so it runs
   const r = spawnSync("node", [CLI, ...args], {
     env,
@@ -104,11 +112,11 @@ describe("Phase H — upgrade-nag consolidation", () => {
   it("upgrade (patch): emits `upgraded` on stderr, NO MCP-restart block", () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "gnosys-nag-up-"));
     try {
-      const older = bumpSemver(PKG_VERSION, "down", "patch");
+      const older = bumpSemver(CURRENT, "down", "patch");
       stampVersion(home, { appVersion: older });
       const r = runCli(home, ["--help"]);
       expect(r.stderr).toMatch(/upgraded/);
-      expect(r.stderr).toMatch(new RegExp(`v${older} . v${PKG_VERSION.replace(/\./g, "\\.")}`));
+      expect(r.stderr).toMatch(new RegExp(`v${older} . v${CURRENT.replace(/\./g, "\\.")}`));
       // No MCP restart instructions on patch bump.
       expect(r.stderr).not.toMatch(/restart mcp/i);
     } finally {
@@ -119,7 +127,7 @@ describe("Phase H — upgrade-nag consolidation", () => {
   it("upgrade (minor): emits MCP-restart block", () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "gnosys-nag-minor-"));
     try {
-      const older = bumpSemver(PKG_VERSION, "down", "minor");
+      const older = bumpSemver(CURRENT, "down", "minor");
       stampVersion(home, { appVersion: older });
       const r = runCli(home, ["--help"]);
       expect(r.stderr).toMatch(/upgraded/);
@@ -132,7 +140,7 @@ describe("Phase H — upgrade-nag consolidation", () => {
   it("downgrade: emits `reverted` and the unintentional hint", () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "gnosys-nag-down-"));
     try {
-      const newer = bumpSemver(PKG_VERSION, "up", "patch");
+      const newer = bumpSemver(CURRENT, "up", "patch");
       stampVersion(home, { appVersion: newer });
       const r = runCli(home, ["--help"]);
       // Phase H spec: emit `reverted · vNEWER → vCURRENT` and the
@@ -147,7 +155,7 @@ describe("Phase H — upgrade-nag consolidation", () => {
   it("upgrade nag never writes to stdout", () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "gnosys-nag-stdout-"));
     try {
-      const older = bumpSemver(PKG_VERSION, "down", "patch");
+      const older = bumpSemver(CURRENT, "down", "patch");
       stampVersion(home, { appVersion: older });
       const r = runCli(home, ["--version"]);
       // stdout should contain ONLY the version number, no nag noise.

@@ -7028,7 +7028,11 @@ if (!isTestEnv()) {
     const centralDb = GnosysDB.openCentral();
     if (centralDb.isAvailable()) {
       const lastVersion = centralDb.getMeta("app_version");
-      const currentVersion = pkg.version;
+      // GNOSYS_FORCE_VERSION lets the upgrade-nag tests pin a synthetic
+      // "running" version independent of the real release number, so a .0
+      // minor release can't break the patch/minor scenarios. Production
+      // always falls through to pkg.version.
+      const currentVersion = process.env.GNOSYS_FORCE_VERSION || pkg.version;
       const isUpgradeCmd = process.argv.slice(2).some(a => a === "upgrade");
       const isSetupSyncCmd = process.argv.slice(2).join(" ").includes("setup sync-projects");
       // CRITICAL: `serve` writes JSON-RPC to stdout for MCP transport. Any
