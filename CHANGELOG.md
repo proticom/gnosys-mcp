@@ -5,6 +5,52 @@ All notable changes to Gnosys are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.10.0] — 2026-05-23
+
+Machine-portable project paths, plus repository/community-standards groundwork.
+
+### Added
+
+- **Machine-portable project paths.** The central brain no longer pins a project
+  to a single absolute path, so the same project resolves correctly across
+  machines that keep it at different locations (e.g. `/Users/x/MSDev/projects`
+  vs `/Users/x/MBPDev/projects`). Identity stays the project UUID; location is
+  resolved per machine.
+  - `~/.config/gnosys/machine.json` — machine-local config (stable `machineId`,
+    named project `roots`, per-machine `remote`), never synced. Includes a
+    hostname-mismatch guard that regenerates the id if a foreign config is
+    synced in.
+  - Projects store machine-independent `root_id` + `rel_path`; a path is
+    reconstructed per machine as `roots[root_id] + rel_path`. A per-machine
+    `project_locations` override table covers projects outside any root.
+  - `gnosys scan` — discover projects under your roots and record their portable
+    locations.
+  - `gnosys machine show` / `gnosys machine migrate` — migrate an existing
+    install: move `machine_id`/`remote_path` out of the synced DB into
+    `machine.json`, derive a `dev` root, and scan.
+  - Cross-project views (briefing, portfolio, dashboard, `gnosys projects`)
+    resolve paths per machine and show `(not on this machine)` when a project
+    isn't present locally.
+- Community-standards groundwork: `SECURITY.md`, GitHub issue templates, a
+  pull-request template, and a command-coverage audit script.
+
+### Changed
+
+- **DB schema v4.** `projects` gains `root_id`/`rel_path`; the `UNIQUE`
+  constraint on `working_directory` is dropped (it is now a machine-local
+  display cache). Migration is automatic and transactional on first open.
+- `getMachineId` and remote-DB resolution now prefer `machine.json`, falling
+  back to the legacy `gnosys_meta` values when it is absent — no behavior change
+  until you run `gnosys machine migrate`.
+- README slimmed to point at [gnosys.ai](https://gnosys.ai) as the documentation
+  source of truth.
+
+### Upgrade note
+
+- Back up `~/.gnosys/gnosys.db` before upgrading: the v3→v4 schema migration
+  rebuilds the `projects` table on first open. Then run `gnosys machine migrate`
+  on each machine to adopt machine-portable paths.
+
 ## [5.9.5] — 2026-05-21
 
 Hotfix release. Two issues surfaced during the first hour of dogfooding
