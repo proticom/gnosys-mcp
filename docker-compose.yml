@@ -1,15 +1,20 @@
-version: "3.8"
-
 services:
   gnosys:
     build: .
+    image: gnosys-mcp
+    ports:
+      - "7777:7777"
     volumes:
-      # Mount the current directory so .gnosys/ vault persists on host
-      - .:/data
+      # Host-local named volume for the brain (~/.gnosys → /data).
+      # Do NOT point this at an SMB/NFS share — it will corrupt the SQLite DB.
+      - gnosys-data:/data
     environment:
+      # Set a token to require `Authorization: Bearer <token>` from clients.
+      - GNOSYS_SERVE_TOKEN=${GNOSYS_SERVE_TOKEN:-}
+      # Optional: provider key for server-side embeddings / LLM features.
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-    # Override command as needed:
-    #   docker compose run gnosys init
-    #   docker compose run gnosys import data.json --format json --mapping '...'
-    #   docker compose run gnosys search "query"
-    #   docker compose run gnosys serve   (default)
+    restart: unless-stopped
+    # Default CMD runs `serve --transport http --host 0.0.0.0 --port 7777`.
+
+volumes:
+  gnosys-data:
