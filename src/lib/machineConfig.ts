@@ -29,6 +29,7 @@ import os from "os";
 import path from "path";
 import { randomUUID } from "crypto";
 import { getMachineConfigPath } from "./paths.js";
+import { atomicWriteFileSync } from "./atomicWrite.js";
 
 export const MACHINE_CONFIG_VERSION = 1;
 
@@ -99,7 +100,7 @@ export function readMachineConfig(): MachineConfig | null {
 export function writeMachineConfig(cfg: MachineConfig): void {
   const p = getMachineConfigPath();
   fs.mkdirSync(path.dirname(p), { recursive: true });
-  fs.writeFileSync(p, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
+  atomicWriteFileSync(p, JSON.stringify(cfg, null, 2) + "\n");
 }
 
 export interface EnsureResult {
