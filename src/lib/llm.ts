@@ -28,6 +28,15 @@ const LLM_TIMEOUT_MS = 60_000;
 /** Shorter timeout for connectivity probes (testConnection, model lists). */
 const PROBE_TIMEOUT_MS = 10_000;
 
+/** Strip literal API keys and known key-prefix patterns from provider error text. */
+export function redactKey(text: string, apiKey?: string): string {
+  let out = text;
+  if (apiKey && apiKey.length >= 8) {
+    out = out.split(apiKey).join("***");
+  }
+  return out.replace(/(?:sk-ant-|sk-|gsk_|xai-|Bearer\s+)[^\s"']+/g, "***");
+}
+
 // ─── Interfaces ──────────────────────────────────────────────────────────
 
 export interface LLMGenerateOptions {
@@ -219,7 +228,7 @@ export class AnthropicProvider implements LLMProvider {
     } catch (err) {
       // Sanitize error message to prevent API key leakage
       const msg = err instanceof Error ? err.message : String(err);
-      throw new Error(`Anthropic connection failed: ${msg.replace(/sk-ant-[^\s"']+/g, "sk-ant-***")}`);
+      throw new Error(`Anthropic connection failed: ${redactKey(msg, this.apiKey)}`);
     }
   }
 }
@@ -492,7 +501,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
     if (!response.ok) {
       const errorText = await response.text();
       // Sanitize error text to prevent API key leakage
-      const safeText = errorText.replace(/(?:sk-|gsk_|Bearer\s+)[^\s"']+/g, "***");
+      const safeText = redactKey(errorText, this.apiKey);
       throw new Error(
         `${this.name} request failed (${response.status}): ${safeText}`
       );
@@ -595,10 +604,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
 
     if (!response.ok) {
       const errorText = await response.text();
-      const safeText = errorText.replace(
-        /(?:sk-|gsk_|Bearer\s+)[^\s"']+/g,
-        "***"
-      );
+      const safeText = redactKey(errorText, this.apiKey);
       throw new Error(
         `${this.name} vision request failed (${response.status}): ${safeText}`
       );
