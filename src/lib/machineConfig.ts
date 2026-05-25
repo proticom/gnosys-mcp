@@ -123,8 +123,20 @@ export interface EnsureResult {
  * genuine foreign file gets corrected when the user re-runs `projects scan`).
  */
 export function ensureMachineConfig(): EnsureResult {
+  const override = process.env.GNOSYS_MACHINE_ID?.trim();
   const existing = readMachineConfig();
   const host = os.hostname();
+
+  if (override) {
+    const base = existing ?? defaultMachineConfig();
+    const cfg: MachineConfig = {
+      ...base,
+      machineId: override,
+      hostname: host,
+    };
+    writeMachineConfig(cfg);
+    return { config: cfg, created: !existing, regenerated: false };
+  }
 
   if (!existing) {
     const fresh = defaultMachineConfig();
