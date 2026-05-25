@@ -37,6 +37,7 @@ export async function centralizeDb(opts: {
 
   // Online backup → a single consistent gnosys.db at the target (handles WAL).
   const db = new Database(source);
+  db.pragma("busy_timeout = 5000");
   try {
     await db.backup(target);
   } finally {

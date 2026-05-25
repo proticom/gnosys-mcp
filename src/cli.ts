@@ -4388,6 +4388,7 @@ async function isLegacyStoreSafeToRemove(localDbPath: string): Promise<{ ok: boo
   try {
     const Database = (await import("better-sqlite3")).default;
     const localDb = new Database(localDbPath, { readonly: true });
+    localDb.pragma("busy_timeout = 5000");
     let localIds: string[] = [];
     try {
       const rows = localDb.prepare("SELECT id FROM memories").all() as Array<{ id: string }>;

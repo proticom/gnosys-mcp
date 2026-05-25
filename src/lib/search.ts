@@ -47,6 +47,7 @@ export class GnosysSearch {
     try {
       const dbPath = path.join(storePath, ".config", "search.db");
       this.db = new Database(dbPath);
+      this.db.pragma("busy_timeout = 5000");
       this.initSchema();
       // Smoke-test: insert + delete to confirm journal ops work
       this.db.exec(

@@ -185,6 +185,7 @@ export async function migrate(
     const embPath = path.join(storePath, ".config", "embeddings.db");
     if (Database) {
       const embDb = new Database(embPath, { readonly: true });
+      embDb.pragma("busy_timeout = 5000");
       const rows = embDb.prepare("SELECT file_path, embedding FROM embeddings").all() as Array<{
         file_path: string;
         embedding: Buffer;
