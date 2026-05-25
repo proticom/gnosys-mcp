@@ -411,7 +411,12 @@ regTool(
       };
     }
 
-    const raw = await fs.readFile(memory.filePath, "utf-8");
+    let raw: string;
+    try {
+      raw = await fs.readFile(memory.filePath, "utf-8");
+    } catch (err) {
+      return { content: [{ type: "text", text: formatMcpError("reading memory", err) }], isError: true };
+    }
     return {
       content: [
         {
@@ -906,6 +911,7 @@ regTool(
     projectRoot: projectRootParam,
   },
   async ({ memory_id, signal, context, projectRoot }) => {
+    try {
     const ctx = await resolveToolContext(projectRoot);
     // Log to the first writable store's .config directory
     const writeTarget = ctx.resolver.getWriteTarget();
@@ -951,6 +957,9 @@ regTool(
     };
 
     return { content: [{ type: "text", text: messages[signal] }] };
+    } catch (err) {
+      return { content: [{ type: "text", text: formatMcpError("reinforcing memory", err) }], isError: true };
+    }
   }
 );
 
@@ -1282,6 +1291,7 @@ regTool(
     projectRoot: projectRootParam,
   },
   async ({ days, limit, projectRoot }) => {
+    try {
     const ctx = await resolveToolContext(projectRoot);
     const threshold = days || 90;
     const maxResults = limit || 20;
@@ -1326,6 +1336,9 @@ regTool(
         },
       ],
     };
+    } catch (err) {
+      return { content: [{ type: "text", text: formatMcpError("finding stale memories", err) }], isError: true };
+    }
   }
 );
 
@@ -1656,6 +1669,7 @@ regTool(
     projectRoot: projectRootParam,
   },
   async ({ category, tags, tagMatchMode, status, author, authority, minConfidence, maxConfidence, createdAfter, createdBefore, modifiedAfter, modifiedBefore, projectRoot }) => {
+    try {
     const ctx = await resolveToolContext(projectRoot);
     const allMemories = await ctx.resolver.getAllMemories();
 
@@ -1685,6 +1699,9 @@ regTool(
     return {
       content: [{ type: "text", text: `${result.length} memories match:\n\n${lines.join("\n\n")}` }],
     };
+    } catch (err) {
+      return { content: [{ type: "text", text: formatMcpError("applying memory lens", err) }], isError: true };
+    }
   }
 );
 
@@ -1697,6 +1714,7 @@ regTool(
     projectRoot: projectRootParam,
   },
   async ({ period, projectRoot }) => {
+    try {
     const ctx = await resolveToolContext(projectRoot);
     const allMemories = await ctx.resolver.getAllMemories();
     const entries = groupByPeriod(allMemories, (period as TimePeriod) || "month");
@@ -1712,6 +1730,9 @@ regTool(
     return {
       content: [{ type: "text", text: `Knowledge Timeline (by ${period || "month"}):\n\n${lines.join("\n\n")}` }],
     };
+    } catch (err) {
+      return { content: [{ type: "text", text: formatMcpError("building timeline", err) }], isError: true };
+    }
   }
 );
 
@@ -1721,6 +1742,7 @@ regTool(
   "Summary statistics across all memories — totals by category, status, author, authority, average confidence, and date ranges.",
   { projectRoot: projectRootParam },
   async ({ projectRoot }) => {
+    try {
     const ctx = await resolveToolContext(projectRoot);
     const allMemories = await ctx.resolver.getAllMemories();
     const stats = computeStats(allMemories);
@@ -1755,6 +1777,9 @@ Newest: ${stats.newestCreated || "—"}
 Last Modified: ${stats.lastModified || "—"}`;
 
     return { content: [{ type: "text", text }] };
+    } catch (err) {
+      return { content: [{ type: "text", text: formatMcpError("computing statistics", err) }], isError: true };
+    }
   }
 );
 
@@ -1842,6 +1867,7 @@ regTool(
   "Show the full cross-reference graph across all memories. Reveals clusters, orphaned links, and the most-connected memories.",
   { projectRoot: projectRootParam },
   async ({ projectRoot }) => {
+    try {
     const ctx = await resolveToolContext(projectRoot);
     const allMemories = await ctx.resolver.getAllMemories();
 
@@ -1851,6 +1877,9 @@ regTool(
 
     const graph = buildLinkGraph(allMemories);
     return { content: [{ type: "text", text: formatGraphSummary(graph) }] };
+    } catch (err) {
+      return { content: [{ type: "text", text: formatMcpError("building graph", err) }], isError: true };
+    }
   }
 );
 
@@ -2417,6 +2446,7 @@ regTool(
     projectRoot: projectRootParam,
   },
   async (params) => {
+    try {
     const ctx = await resolveToolContext(params.projectRoot);
     if (!ctx.centralDb || !ctx.centralDb.isAvailable() || !ctx.centralDb.isMigrated()) {
       return {
@@ -2459,6 +2489,9 @@ regTool(
         },
       ],
     };
+    } catch (err) {
+      return { content: [{ type: "text", text: formatMcpError("running dream mode", err) }], isError: true };
+    }
   }
 );
 
@@ -2476,6 +2509,7 @@ regTool(
     projectRoot: projectRootParam,
   },
   async (params) => {
+    try {
     const ctx = await resolveToolContext(params.projectRoot);
     if (!ctx.centralDb || !ctx.centralDb.isAvailable() || !ctx.centralDb.isMigrated()) {
       return {
@@ -2508,6 +2542,9 @@ regTool(
         },
       ],
     };
+    } catch (err) {
+      return { content: [{ type: "text", text: formatMcpError("exporting vault", err) }], isError: true };
+    }
   }
 );
 
@@ -2539,6 +2576,7 @@ regTool(
   "Debug tool — lists all detected Gnosys stores across registered projects, MCP workspace roots, cwd, and environment variables. Shows which store is active and helps diagnose multi-project routing.",
   {},
   async () => {
+    try {
     const lines: string[] = [];
 
     lines.push("GNOSYS STORES — Multi-Project Overview");
@@ -2577,6 +2615,9 @@ regTool(
     lines.push('  e.g. gnosys_add({ projectRoot: "/path/to/my-project", ... })');
 
     return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+    } catch (err) {
+      return { content: [{ type: "text", text: formatMcpError("listing stores", err) }], isError: true };
+    }
   }
 );
 
@@ -2673,6 +2714,7 @@ regTool(
     projectRoot: projectRootParam,
   },
   async ({ query, limit, traceId, aggressive, projectRoot }) => {
+    try {
     const ctx = await resolveToolContext(projectRoot);
     if (!ctx.search) {
       return {
@@ -2699,6 +2741,9 @@ regTool(
     return {
       content: [{ type: "text" as const, text: formatRecall(result) }],
     };
+    } catch (err) {
+      return { content: [{ type: "text", text: formatMcpError("recalling memories", err) }], isError: true };
+    }
   }
 );
 
