@@ -36,6 +36,10 @@ export interface McpHttpOptions {
   sweepIntervalMs?: number;
   /** Browser origins explicitly allowed to call the endpoint. Default: none. */
   allowedOrigins?: string[];
+  /** Max request body bytes. Default 4 MiB. */
+  maxBodyBytes?: number;
+  /** Max ms to fully receive a request body. Default 30s. */
+  bodyTimeoutMs?: number;
 }
 
 export interface McpHttpHandle {
@@ -55,20 +59,52 @@ export function isLoopbackHost(host: string): boolean {
   return false;
 }
 
-function readBody(req: http.IncomingMessage): Promise<unknown> {
+class HttpBodyError extends Error {
+  constructor(public statusCode: number, message: string) {
+    super(message);
+  }
+}
+
+function readBody(req: http.IncomingMessage, maxBytes: number, timeoutMs: number): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on("data", (c: Buffer) => chunks.push(c));
-    req.on("end", () => {
-      const raw = Buffer.concat(chunks).toString("utf-8");
-      if (!raw) return resolve(undefined);
-      try {
-        resolve(JSON.parse(raw));
-      } catch (e) {
-        reject(e);
+    let total = 0;
+    let settled = false;
+    const done = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn();
+    };
+    const timer = setTimeout(
+      () => done(() => {
+        reject(new HttpBodyError(408, "Request body timeout"));
+      }),
+      timeoutMs,
+    );
+    if (typeof timer.unref === "function") timer.unref();
+    req.on("data", (c: Buffer) => {
+      total += c.length;
+      if (total > maxBytes) {
+        done(() => {
+          reject(new HttpBodyError(413, "Payload too large"));
+        });
+        return;
       }
+      chunks.push(c);
     });
-    req.on("error", reject);
+    req.on("end", () =>
+      done(() => {
+        const raw = Buffer.concat(chunks).toString("utf-8");
+        if (!raw) return resolve(undefined);
+        try {
+          resolve(JSON.parse(raw));
+        } catch (e) {
+          reject(e);
+        }
+      }),
+    );
+    req.on("error", (e) => done(() => reject(e)));
   });
 }
 
@@ -98,6 +134,8 @@ export function startMcpHttpServer(opts: McpHttpOptions): Promise<McpHttpHandle>
   const lastSeen = new Map<string, number>();
   const idleMs = opts.sessionIdleMs ?? 30 * 60 * 1000;
   const sweepMs = opts.sweepIntervalMs ?? 60 * 1000;
+  const maxBodyBytes = opts.maxBodyBytes ?? 4 * 1024 * 1024;
+  const bodyTimeoutMs = opts.bodyTimeoutMs ?? 30_000;
   const touch = (sid: string) => lastSeen.set(sid, Date.now());
 
   function reapIdle(now = Date.now()): number {
@@ -118,6 +156,8 @@ export function startMcpHttpServer(opts: McpHttpOptions): Promise<McpHttpHandle>
       if (!res.headersSent) jsonRpcError(res, 500, -32603, "Internal error");
     });
   });
+  httpServer.headersTimeout = 15_000;
+  httpServer.requestTimeout = 60_000;
 
   async function handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
@@ -153,7 +193,19 @@ export function startMcpHttpServer(opts: McpHttpOptions): Promise<McpHttpHandle>
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
 
     if (req.method === "POST") {
-      const body = await readBody(req);
+      let body: unknown;
+      try {
+        body = await readBody(req, maxBodyBytes, bodyTimeoutMs);
+      } catch (e) {
+        if (e instanceof HttpBodyError) {
+          jsonRpcError(res, e.statusCode, -32000, e.message);
+          req.destroy();
+          return;
+        }
+        jsonRpcError(res, 400, -32700, "Parse error");
+        req.destroy();
+        return;
+      }
       let transport = sessionId ? transports.get(sessionId) : undefined;
 
       if (!transport) {
