@@ -167,6 +167,8 @@ CREATE INDEX IF NOT EXISTS idx_memories_last_reinforced ON memories(last_reinfor
 CREATE INDEX IF NOT EXISTS idx_memories_content_hash ON memories(content_hash);
 CREATE INDEX IF NOT EXISTS idx_memories_project_id ON memories(project_id);
 CREATE INDEX IF NOT EXISTS idx_memories_scope ON memories(scope);
+CREATE INDEX IF NOT EXISTS idx_memories_modified ON memories(modified);
+CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(created);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
   id,
