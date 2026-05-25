@@ -59,6 +59,23 @@ maps each machine's paths correctly.
 - Set `GNOSYS_SERVE_TOKEN` (or `--token`) to require `Authorization: Bearer …`.
 - `/health` is unauthenticated (liveness only; reveals nothing but session count).
 
+## Rate limiting
+
+gnosys does not implement in-process rate limiting, by design:
+
+- It binds `127.0.0.1` by default — only local processes can reach it.
+- Any non-loopback bind **requires** a bearer token (the server refuses to
+  start without one), so there is no anonymous request path to abuse.
+- It is a single-user / small-trusted-group personal brain, not a
+  multi-tenant public API — there is no per-tenant quota problem.
+- Abuse is already bounded by unguessable session IDs, session isolation,
+  the idle-session reaper (orphaned sessions are reclaimed), and the
+  default-deny Origin guard (browsers are rejected unless allowlisted).
+
+If you expose gnosys beyond a trusted tailnet, put it behind a reverse proxy
+(Caddy / nginx / Tailscale) and apply rate limiting and TLS there —
+the network perimeter is the correct layer for it, not the app process.
+
 ## Health
 
 ```bash
