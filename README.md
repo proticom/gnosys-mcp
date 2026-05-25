@@ -73,8 +73,7 @@ All tools are exposed over stdio and HTTP transports. Many tools accept an optio
 | `gnosys_update` | Update an existing memory's frontmatter and/or content. |
 | `gnosys_stale` | Find memories that haven't been modified or reviewed within a given number of days. |
 | `gnosys_commit_context` | Pre-compaction memory sweep. |
-| `gnosys_history` | View version history for a memory. |
-| `gnosys_rollback` | Rollback a memory to its state at a specific commit. |
+| `gnosys_history` | View audit history for a memory. |
 | `gnosys_lens` | Filtered view of memories. |
 | `gnosys_timeline` | View memory creation and modification activity over time. |
 | `gnosys_stats` | Summary statistics across all memories — totals by category, status, author, authority, average confidence, and date ranges. |
