@@ -68,7 +68,8 @@
     "!dist/test",
     "prompts",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "docs/logo.svg"
   ],
   "keywords": [
     "gnosys",
