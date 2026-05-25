@@ -90,7 +90,9 @@
     "embeddings",
     "chatbot",
     "serverless",
-    "knowledge-base"
+    "knowledge-base",
+    "model-context-protocol",
+    "agent-memory"
   ],
   "license": "MIT",
   "author": {
