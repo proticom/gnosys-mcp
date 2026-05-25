@@ -57,6 +57,11 @@ That's the 60-second tour. **Everything else lives on [gnosys.ai](https://gnosys
 
 All tools are exposed over stdio and HTTP transports. Many tools accept an optional `projectRoot` parameter to target a specific project store.
 
+This package installs two binaries:
+
+- **`gnosys`** — the CLI. `gnosys serve` starts the MCP server (stdio by default, `--transport http` for the central-server topology). `gnosys init <ide>` wires this into your IDE/agent automatically.
+- **`gnosys-mcp`** — a direct alias for the MCP stdio server entry, for MCP clients that prefer to spawn the server binary directly (e.g. `npx -y gnosys-mcp`). Equivalent to `gnosys serve`.
+
 | Tool | Description |
 |------|-------------|
 | `gnosys_discover` | Discover relevant memories by describing what you're working on. |
