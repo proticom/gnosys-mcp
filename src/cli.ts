@@ -4089,20 +4089,31 @@ program
 // global binary (see src/lib/upgrade.ts).
 program
   .command("upgrade")
-  .description("Upgrade gnosys itself (npm install -g gnosys@latest) and signal running MCP servers to restart. After upgrading, suggests running 'gnosys setup sync-projects'.")
+  .description("Upgrade gnosys itself and signal running MCP servers to restart. After upgrading, suggests running 'gnosys setup sync-projects'.")
   .option("--yes", "Skip the post-upgrade sync-projects prompt and exit")
   .option("--no-sync", "Don't suggest running sync-projects afterward")
   .action(async (opts: { yes?: boolean; sync?: boolean }) => {
     const currentVersion = pkg.version;
     console.log(`Gnosys CLI: currently v${currentVersion}`);
-    console.log(`Running: npm install -g gnosys@latest ...`);
+
+    const { detectPackageManager, upgradeCommand } = await import("./lib/packageManager.js");
+    const pm = detectPackageManager();
+    const cmd = upgradeCommand(pm);
+    if (!cmd) {
+      console.log(
+        "Running under npx — there's no global install to upgrade. Use `npx gnosys@latest` to run the latest.",
+      );
+      return;
+    }
+
+    console.log(`Running: ${cmd} ...`);
 
     const { execSync } = await import("child_process");
     try {
-      execSync("npm install -g gnosys@latest", { stdio: "inherit" });
+      execSync(cmd, { stdio: "inherit" });
     } catch (err) {
       console.error(`\nUpgrade failed: ${err instanceof Error ? err.message : err}`);
-      console.error(`Try running 'npm install -g gnosys@latest' manually.`);
+      console.error(`Try running '${cmd}' manually.`);
       process.exit(1);
     }
 
