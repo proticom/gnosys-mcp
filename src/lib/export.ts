@@ -45,6 +45,7 @@ export interface ExportOptions {
 export interface ExportReport {
   memoriesExported: number;
   memoriesSkipped: number;
+  archivedExcluded: number;
   summariesExported: number;
   reviewsExported: boolean;
   graphExported: boolean;
@@ -78,6 +79,7 @@ export class GnosysExporter {
     const report: ExportReport = {
       memoriesExported: 0,
       memoriesSkipped: 0,
+      archivedExcluded: 0,
       summariesExported: 0,
       reviewsExported: false,
       graphExported: false,
@@ -92,6 +94,11 @@ export class GnosysExporter {
     const memories = activeOnly
       ? this.db.getActiveMemories()
       : this.db.getAllMemories();
+
+    if (activeOnly) {
+      report.archivedExcluded =
+        this.db.getAllMemories().length - this.db.getActiveMemories().length;
+    }
 
     const total = memories.length;
 
@@ -441,6 +448,11 @@ export function formatExportReport(report: ExportReport): string {
   lines.push(`Target: ${report.targetDir}`);
   lines.push(`Memories exported: ${report.memoriesExported}`);
   lines.push(`Memories skipped (already exist): ${report.memoriesSkipped}`);
+  if (report.archivedExcluded > 0) {
+    lines.push(
+      `Archived excluded: ${report.archivedExcluded} — re-run with --all for a full export`,
+    );
+  }
   lines.push(`Summaries exported: ${report.summariesExported}`);
   lines.push(`Reviews exported: ${report.reviewsExported ? "yes" : "no"}`);
   lines.push(`Graph exported: ${report.graphExported ? "yes" : "no"}`);

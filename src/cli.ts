@@ -4885,6 +4885,11 @@ exportCmd
         const ratio = (result.compressedBytes / result.uncompressedBytes * 100).toFixed(1);
         console.log(`Exported project ${projectId}`);
         console.log(`  Memories:      ${result.memoryCount}`);
+        if (result.archivedExcluded > 0) {
+          console.log(
+            `  Archived:      ${result.archivedExcluded} excluded — re-run with --include-archived for a full backup`,
+          );
+        }
         console.log(`  Relationships: ${result.relationshipCount}`);
         console.log(`  Audit entries: ${result.auditEntryCount}`);
         console.log(`  Bundle:        ${result.outputPath}`);
