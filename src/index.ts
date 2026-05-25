@@ -3850,17 +3850,22 @@ async function main() {
     const host = process.env.GNOSYS_HTTP_HOST || "127.0.0.1";
     const port = parseInt(process.env.GNOSYS_HTTP_PORT || "7777", 10);
     const authToken = process.env.GNOSYS_SERVE_TOKEN || undefined;
-    await startMcpHttpServer({
-      host,
-      port,
-      authToken,
-      log: (m) => console.error(`Gnosys MCP[http]: ${m}`),
-      makeServer: () => {
-        const s = new McpServer({ name: "gnosys", version: "2.0.0" });
-        registerCapabilities(s);
-        return s;
-      },
-    });
+    try {
+      await startMcpHttpServer({
+        host,
+        port,
+        authToken,
+        log: (m) => console.error(`Gnosys MCP[http]: ${m}`),
+        makeServer: () => {
+          const s = new McpServer({ name: "gnosys", version: "2.0.0" });
+          registerCapabilities(s);
+          return s;
+        },
+      });
+    } catch (err) {
+      console.error(`Gnosys MCP: ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
     console.error(
       `Gnosys MCP: HTTP transport ready on http://${host}:${port}/mcp${authToken ? " (bearer auth required)" : ""}`,
     );

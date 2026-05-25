@@ -39,6 +39,14 @@ export interface McpHttpHandle {
   close: () => Promise<void>;
 }
 
+/** True when the bind host is loopback-only (token optional). */
+export function isLoopbackHost(host: string): boolean {
+  const h = (host || "").trim().toLowerCase();
+  if (h === "localhost" || h === "::1" || h === "[::1]") return true;
+  if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)) return true;
+  return false;
+}
+
 function readBody(req: http.IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -65,6 +73,17 @@ function jsonRpcError(res: http.ServerResponse, status: number, code: number, me
  * Start the MCP Streamable HTTP server. Resolves once it is listening.
  */
 export function startMcpHttpServer(opts: McpHttpOptions): Promise<McpHttpHandle> {
+  if (!isLoopbackHost(opts.host) && !opts.authToken) {
+    return Promise.reject(
+      new Error(
+        `Refusing to start: HTTP transport is binding to a non-loopback address ` +
+        `(${opts.host}) without an auth token. Anyone who can reach this address ` +
+        `would get unauthenticated access to your memory. Set --token <token> ` +
+        `(or GNOSYS_SERVE_TOKEN), or bind to 127.0.0.1.`,
+      ),
+    );
+  }
+
   const mcpPath = opts.path ?? "/mcp";
   const log = opts.log ?? (() => {});
   const transports = new Map<string, StreamableHTTPServerTransport>();
