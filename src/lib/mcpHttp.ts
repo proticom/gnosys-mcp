@@ -34,6 +34,8 @@ export interface McpHttpOptions {
   sessionIdleMs?: number;
   /** Sweep cadence (ms). Default 60s. */
   sweepIntervalMs?: number;
+  /** Browser origins explicitly allowed to call the endpoint. Default: none. */
+  allowedOrigins?: string[];
 }
 
 export interface McpHttpHandle {
@@ -130,6 +132,13 @@ export function startMcpHttpServer(opts: McpHttpOptions): Promise<McpHttpHandle>
     if (url.pathname !== mcpPath) {
       res.writeHead(404, { "content-type": "text/plain" });
       res.end("Not found");
+      return;
+    }
+
+    // CORS default-deny: browsers send Origin on cross-origin calls; IDE/CLI clients do not.
+    const origin = req.headers["origin"] as string | undefined;
+    if (origin && !(opts.allowedOrigins ?? []).includes(origin)) {
+      jsonRpcError(res, 403, -32001, "Origin not allowed");
       return;
     }
 
