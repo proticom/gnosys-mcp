@@ -28,7 +28,7 @@ import { loadConfig, generateConfigTemplate, GnosysConfig, DEFAULT_CONFIG, write
 import { getLLMProvider, isProviderAvailable, LLMProvider } from "./lib/llm.js";
 import { GnosysDB } from "./lib/db.js";
 import { createProjectIdentity, readProjectIdentity, findProjectIdentity, migrateProject } from "./lib/projectIdentity.js";
-import { setPreference, getPreference, getAllPreferences, deletePreference } from "./lib/preferences.js";
+import { setPreference, getPreference, getAllPreferences, deletePreference, KNOWN_PREFERENCE_KEYS, suggestPreferenceKey } from "./lib/preferences.js";
 import { syncRules, syncToTarget } from "./lib/rulesGen.js";
 // Lazy-loaded inside action handlers (each ~200ms-2.5s on cold cache):
 //   - ./lib/embeddings.js       (@huggingface/transformers — 80MB)
@@ -5596,6 +5596,14 @@ prefCmd
       if (!centralDb.isAvailable()) {
         console.error("Central DB not available (better-sqlite3 missing).");
         process.exit(1);
+      }
+
+      if (!(KNOWN_PREFERENCE_KEYS as readonly string[]).includes(key)) {
+        const suggestion = suggestPreferenceKey(key);
+        if (suggestion) {
+          console.error(`Unknown preference key \`${key}\` — did you mean \`${suggestion}\`?`);
+          process.exit(1);
+        }
       }
 
       const tags = opts.tags ? opts.tags.split(",").map((t) => t.trim()) : undefined;

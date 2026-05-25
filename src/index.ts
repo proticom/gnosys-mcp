@@ -56,7 +56,7 @@ import { initAudit, readAuditLog, formatAuditTimeline } from "./lib/audit.js";
 import { GnosysDB } from "./lib/db.js";
 import { syncMemoryToDb, syncUpdateToDb, syncArchiveToDb, syncDearchiveToDb, syncReinforcementToDb, auditToDb } from "./lib/dbWrite.js";
 import { createProjectIdentity, readProjectIdentity, findProjectIdentity, checkDirectoryMismatch } from "./lib/projectIdentity.js";
-import { setPreference, getPreference, getAllPreferences, deletePreference, Preference } from "./lib/preferences.js";
+import { setPreference, getPreference, getAllPreferences, deletePreference, Preference, KNOWN_PREFERENCE_KEYS, suggestPreferenceKey } from "./lib/preferences.js";
 import { syncRules, generateRulesBlock, removeRulesBlock } from "./lib/rulesGen.js";
 import { federatedSearch, federatedDiscover, detectAmbiguity, generateBriefing, generateAllBriefings, getWorkingSet, formatWorkingSet, detectCurrentProject } from "./lib/federated.js";
 import { generatePortfolio, formatPortfolioCompact, formatPortfolioMarkdown, generateStatusPrompt } from "./lib/portfolio.js";
@@ -2803,6 +2803,19 @@ regTool(
     }
 
     try {
+      if (!(KNOWN_PREFERENCE_KEYS as readonly string[]).includes(key)) {
+        const suggestion = suggestPreferenceKey(key);
+        if (suggestion) {
+          return {
+            isError: true,
+            content: [{
+              type: "text" as const,
+              text: `Unknown preference key \`${key}\` — did you mean \`${suggestion}\`?`,
+            }],
+          };
+        }
+      }
+
       const pref = setPreference(centralDb, key, value, { title, tags });
       return {
         content: [{
