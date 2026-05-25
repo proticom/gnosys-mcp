@@ -30,12 +30,18 @@ export interface McpHttpOptions {
   /** Phase C: require `Authorization: Bearer <token>` when set. */
   authToken?: string;
   log?: (msg: string) => void;
+  /** Reap sessions idle longer than this (ms). Default 30 min. */
+  sessionIdleMs?: number;
+  /** Sweep cadence (ms). Default 60s. */
+  sweepIntervalMs?: number;
 }
 
 export interface McpHttpHandle {
   server: http.Server;
   /** Active session count (for tests/observability). */
   sessionCount: () => number;
+  /** Close+remove sessions idle beyond sessionIdleMs. Returns count reaped. */
+  reapIdleSessions: (now?: number) => number;
   close: () => Promise<void>;
 }
 
@@ -87,6 +93,22 @@ export function startMcpHttpServer(opts: McpHttpOptions): Promise<McpHttpHandle>
   const mcpPath = opts.path ?? "/mcp";
   const log = opts.log ?? (() => {});
   const transports = new Map<string, StreamableHTTPServerTransport>();
+  const lastSeen = new Map<string, number>();
+  const idleMs = opts.sessionIdleMs ?? 30 * 60 * 1000;
+  const sweepMs = opts.sweepIntervalMs ?? 60 * 1000;
+  const touch = (sid: string) => lastSeen.set(sid, Date.now());
+
+  function reapIdle(now = Date.now()): number {
+    let reaped = 0;
+    for (const [sid, t] of transports) {
+      if (now - (lastSeen.get(sid) ?? now) > idleMs) {
+        void t.close();
+        lastSeen.delete(sid);
+        reaped++;
+      }
+    }
+    return reaped;
+  }
 
   const httpServer = http.createServer((req, res) => {
     void handle(req, res).catch((e) => {
@@ -136,14 +158,18 @@ export function startMcpHttpServer(opts: McpHttpOptions): Promise<McpHttpHandle>
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (sid: string) => {
             transports.set(sid, transport!);
+            touch(sid);
             log(`session initialized: ${sid} (${transports.size} active)`);
           },
         });
         transport.onclose = () => {
           const sid = transport!.sessionId;
+          if (sid) lastSeen.delete(sid);
           if (sid && transports.delete(sid)) log(`session closed: ${sid} (${transports.size} active)`);
         };
         await server.connect(transport);
+      } else if (sessionId) {
+        touch(sessionId);
       }
 
       await transport.handleRequest(req, res, body);
@@ -156,6 +182,7 @@ export function startMcpHttpServer(opts: McpHttpOptions): Promise<McpHttpHandle>
         jsonRpcError(res, 400, -32000, "Missing or unknown session id");
         return;
       }
+      if (sessionId) touch(sessionId);
       await transport.handleRequest(req, res);
       return;
     }
@@ -167,13 +194,18 @@ export function startMcpHttpServer(opts: McpHttpOptions): Promise<McpHttpHandle>
   return new Promise<McpHttpHandle>((resolve) => {
     httpServer.listen(opts.port, opts.host, () => {
       log(`listening on http://${opts.host}:${opts.port}${mcpPath}`);
+      const sweep = setInterval(() => reapIdle(), sweepMs);
+      sweep.unref();
       resolve({
         server: httpServer,
         sessionCount: () => transports.size,
+        reapIdleSessions: (now?: number) => reapIdle(now),
         close: () =>
           new Promise<void>((r) => {
+            clearInterval(sweep);
             for (const t of transports.values()) void t.close();
             transports.clear();
+            lastSeen.clear();
             httpServer.close(() => r());
           }),
       });
