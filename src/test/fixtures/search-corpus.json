@@ -1,0 +1,461 @@
+{
+  "projectId": "proj-golden",
+  "memories": [
+    {
+      "id": "srch-001",
+      "title": "auth topic 1",
+      "category": "decisions",
+      "content": "# auth topic 1\n\nJWT OAuth login session SSO credentials identity tokens detail 1 unique marker srch-001.",
+      "relevance": "JWT OAuth login session SSO credentials identity tokens auth relevance 1",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-002",
+      "title": "auth topic 2",
+      "category": "decisions",
+      "content": "# auth topic 2\n\nJWT OAuth login session SSO credentials identity tokens detail 2 unique marker srch-002.",
+      "relevance": "JWT OAuth login session SSO credentials identity tokens auth relevance 2",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-003",
+      "title": "auth topic 3",
+      "category": "decisions",
+      "content": "# auth topic 3\n\nJWT OAuth login session SSO credentials identity tokens detail 3 unique marker srch-003.",
+      "relevance": "JWT OAuth login session SSO credentials identity tokens auth relevance 3",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-004",
+      "title": "auth topic 4",
+      "category": "decisions",
+      "content": "# auth topic 4\n\nJWT OAuth login session SSO credentials identity tokens detail 4 unique marker srch-004.",
+      "relevance": "JWT OAuth login session SSO credentials identity tokens auth relevance 4",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-005",
+      "title": "auth topic 5",
+      "category": "decisions",
+      "content": "# auth topic 5\n\nJWT OAuth login session SSO credentials identity tokens detail 5 unique marker srch-005.",
+      "relevance": "JWT OAuth login session SSO credentials identity tokens auth relevance 5",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-006",
+      "title": "auth topic 6",
+      "category": "decisions",
+      "content": "# auth topic 6\n\nJWT OAuth login session SSO credentials identity tokens detail 6 unique marker srch-006.",
+      "relevance": "JWT OAuth login session SSO credentials identity tokens auth relevance 6",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-007",
+      "title": "auth topic 7",
+      "category": "decisions",
+      "content": "# auth topic 7\n\nJWT OAuth login session SSO credentials identity tokens detail 7 unique marker srch-007.",
+      "relevance": "JWT OAuth login session SSO credentials identity tokens auth relevance 7",
+      "scope": "user",
+      "project_id": null
+    },
+    {
+      "id": "srch-008",
+      "title": "auth topic 8",
+      "category": "decisions",
+      "content": "# auth topic 8\n\nJWT OAuth login session SSO credentials identity tokens detail 8 unique marker srch-008.",
+      "relevance": "JWT OAuth login session SSO credentials identity tokens auth relevance 8",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-009",
+      "title": "cache topic 1",
+      "category": "architecture",
+      "content": "# cache topic 1\n\nRedis cache TTL invalidation memcached eviction detail 1 unique marker srch-009.",
+      "relevance": "Redis cache TTL invalidation memcached eviction cache relevance 1",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-010",
+      "title": "cache topic 2",
+      "category": "architecture",
+      "content": "# cache topic 2\n\nRedis cache TTL invalidation memcached eviction detail 2 unique marker srch-010.",
+      "relevance": "Redis cache TTL invalidation memcached eviction cache relevance 2",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-011",
+      "title": "cache topic 3",
+      "category": "architecture",
+      "content": "# cache topic 3\n\nRedis cache TTL invalidation memcached eviction detail 3 unique marker srch-011.",
+      "relevance": "Redis cache TTL invalidation memcached eviction cache relevance 3",
+      "scope": "global",
+      "project_id": null
+    },
+    {
+      "id": "srch-012",
+      "title": "cache topic 4",
+      "category": "architecture",
+      "content": "# cache topic 4\n\nRedis cache TTL invalidation memcached eviction detail 4 unique marker srch-012.",
+      "relevance": "Redis cache TTL invalidation memcached eviction cache relevance 4",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-013",
+      "title": "cache topic 5",
+      "category": "architecture",
+      "content": "# cache topic 5\n\nRedis cache TTL invalidation memcached eviction detail 5 unique marker srch-013.",
+      "relevance": "Redis cache TTL invalidation memcached eviction cache relevance 5",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-014",
+      "title": "cache topic 6",
+      "category": "architecture",
+      "content": "# cache topic 6\n\nRedis cache TTL invalidation memcached eviction detail 6 unique marker srch-014.",
+      "relevance": "Redis cache TTL invalidation memcached eviction cache relevance 6",
+      "scope": "user",
+      "project_id": null
+    },
+    {
+      "id": "srch-015",
+      "title": "db topic 1",
+      "category": "decisions",
+      "content": "# db topic 1\n\nPostgreSQL SQLite schema migration ORM indexing detail 1 unique marker srch-015.",
+      "relevance": "PostgreSQL SQLite schema migration ORM indexing db relevance 1",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-016",
+      "title": "db topic 2",
+      "category": "decisions",
+      "content": "# db topic 2\n\nPostgreSQL SQLite schema migration ORM indexing detail 2 unique marker srch-016.",
+      "relevance": "PostgreSQL SQLite schema migration ORM indexing db relevance 2",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-017",
+      "title": "db topic 3",
+      "category": "decisions",
+      "content": "# db topic 3\n\nPostgreSQL SQLite schema migration ORM indexing detail 3 unique marker srch-017.",
+      "relevance": "PostgreSQL SQLite schema migration ORM indexing db relevance 3",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-018",
+      "title": "db topic 4",
+      "category": "decisions",
+      "content": "# db topic 4\n\nPostgreSQL SQLite schema migration ORM indexing detail 4 unique marker srch-018.",
+      "relevance": "PostgreSQL SQLite schema migration ORM indexing db relevance 4",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-019",
+      "title": "db topic 5",
+      "category": "decisions",
+      "content": "# db topic 5\n\nPostgreSQL SQLite schema migration ORM indexing detail 5 unique marker srch-019.",
+      "relevance": "PostgreSQL SQLite schema migration ORM indexing db relevance 5",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-020",
+      "title": "db topic 6",
+      "category": "decisions",
+      "content": "# db topic 6\n\nPostgreSQL SQLite schema migration ORM indexing detail 6 unique marker srch-020.",
+      "relevance": "PostgreSQL SQLite schema migration ORM indexing db relevance 6",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-021",
+      "title": "db topic 7",
+      "category": "decisions",
+      "content": "# db topic 7\n\nPostgreSQL SQLite schema migration ORM indexing detail 7 unique marker srch-021.",
+      "relevance": "PostgreSQL SQLite schema migration ORM indexing db relevance 7",
+      "scope": "user",
+      "project_id": null
+    },
+    {
+      "id": "srch-022",
+      "title": "search topic 1",
+      "category": "concepts",
+      "content": "# search topic 1\n\nFTS embeddings semantic hybrid ranking discover detail 1 unique marker srch-022.",
+      "relevance": "FTS embeddings semantic hybrid ranking discover search relevance 1",
+      "scope": "global",
+      "project_id": null
+    },
+    {
+      "id": "srch-023",
+      "title": "search topic 2",
+      "category": "concepts",
+      "content": "# search topic 2\n\nFTS embeddings semantic hybrid ranking discover detail 2 unique marker srch-023.",
+      "relevance": "FTS embeddings semantic hybrid ranking discover search relevance 2",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-024",
+      "title": "search topic 3",
+      "category": "concepts",
+      "content": "# search topic 3\n\nFTS embeddings semantic hybrid ranking discover detail 3 unique marker srch-024.",
+      "relevance": "FTS embeddings semantic hybrid ranking discover search relevance 3",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-025",
+      "title": "search topic 4",
+      "category": "concepts",
+      "content": "# search topic 4\n\nFTS embeddings semantic hybrid ranking discover detail 4 unique marker srch-025.",
+      "relevance": "FTS embeddings semantic hybrid ranking discover search relevance 4",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-026",
+      "title": "search topic 5",
+      "category": "concepts",
+      "content": "# search topic 5\n\nFTS embeddings semantic hybrid ranking discover detail 5 unique marker srch-026.",
+      "relevance": "FTS embeddings semantic hybrid ranking discover search relevance 5",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-027",
+      "title": "search topic 6",
+      "category": "concepts",
+      "content": "# search topic 6\n\nFTS embeddings semantic hybrid ranking discover detail 6 unique marker srch-027.",
+      "relevance": "FTS embeddings semantic hybrid ranking discover search relevance 6",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-028",
+      "title": "search topic 7",
+      "category": "concepts",
+      "content": "# search topic 7\n\nFTS embeddings semantic hybrid ranking discover detail 7 unique marker srch-028.",
+      "relevance": "FTS embeddings semantic hybrid ranking discover search relevance 7",
+      "scope": "user",
+      "project_id": null
+    },
+    {
+      "id": "srch-029",
+      "title": "test topic 1",
+      "category": "concepts",
+      "content": "# test topic 1\n\nvitest fixtures golden regression stability detail 1 unique marker srch-029.",
+      "relevance": "vitest fixtures golden regression stability test relevance 1",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-030",
+      "title": "test topic 2",
+      "category": "concepts",
+      "content": "# test topic 2\n\nvitest fixtures golden regression stability detail 2 unique marker srch-030.",
+      "relevance": "vitest fixtures golden regression stability test relevance 2",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-031",
+      "title": "test topic 3",
+      "category": "concepts",
+      "content": "# test topic 3\n\nvitest fixtures golden regression stability detail 3 unique marker srch-031.",
+      "relevance": "vitest fixtures golden regression stability test relevance 3",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-032",
+      "title": "test topic 4",
+      "category": "concepts",
+      "content": "# test topic 4\n\nvitest fixtures golden regression stability detail 4 unique marker srch-032.",
+      "relevance": "vitest fixtures golden regression stability test relevance 4",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-033",
+      "title": "test topic 5",
+      "category": "concepts",
+      "content": "# test topic 5\n\nvitest fixtures golden regression stability detail 5 unique marker srch-033.",
+      "relevance": "vitest fixtures golden regression stability test relevance 5",
+      "scope": "global",
+      "project_id": null
+    },
+    {
+      "id": "srch-034",
+      "title": "test topic 6",
+      "category": "concepts",
+      "content": "# test topic 6\n\nvitest fixtures golden regression stability detail 6 unique marker srch-034.",
+      "relevance": "vitest fixtures golden regression stability test relevance 6",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-035",
+      "title": "deploy topic 1",
+      "category": "architecture",
+      "content": "# deploy topic 1\n\nCI CD docker kubernetes release pipeline detail 1 unique marker srch-035.",
+      "relevance": "CI CD docker kubernetes release pipeline deploy relevance 1",
+      "scope": "user",
+      "project_id": null
+    },
+    {
+      "id": "srch-036",
+      "title": "deploy topic 2",
+      "category": "architecture",
+      "content": "# deploy topic 2\n\nCI CD docker kubernetes release pipeline detail 2 unique marker srch-036.",
+      "relevance": "CI CD docker kubernetes release pipeline deploy relevance 2",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-037",
+      "title": "deploy topic 3",
+      "category": "architecture",
+      "content": "# deploy topic 3\n\nCI CD docker kubernetes release pipeline detail 3 unique marker srch-037.",
+      "relevance": "CI CD docker kubernetes release pipeline deploy relevance 3",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-038",
+      "title": "deploy topic 4",
+      "category": "architecture",
+      "content": "# deploy topic 4\n\nCI CD docker kubernetes release pipeline detail 4 unique marker srch-038.",
+      "relevance": "CI CD docker kubernetes release pipeline deploy relevance 4",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-039",
+      "title": "deploy topic 5",
+      "category": "architecture",
+      "content": "# deploy topic 5\n\nCI CD docker kubernetes release pipeline detail 5 unique marker srch-039.",
+      "relevance": "CI CD docker kubernetes release pipeline deploy relevance 5",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-040",
+      "title": "deploy topic 6",
+      "category": "architecture",
+      "content": "# deploy topic 6\n\nCI CD docker kubernetes release pipeline detail 6 unique marker srch-040.",
+      "relevance": "CI CD docker kubernetes release pipeline deploy relevance 6",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-041",
+      "title": "mcp topic 1",
+      "category": "architecture",
+      "content": "# mcp topic 1\n\nMCP server tools protocol agent JSON schema detail 1 unique marker srch-041.",
+      "relevance": "MCP server tools protocol agent JSON schema mcp relevance 1",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-042",
+      "title": "mcp topic 2",
+      "category": "architecture",
+      "content": "# mcp topic 2\n\nMCP server tools protocol agent JSON schema detail 2 unique marker srch-042.",
+      "relevance": "MCP server tools protocol agent JSON schema mcp relevance 2",
+      "scope": "user",
+      "project_id": null
+    },
+    {
+      "id": "srch-043",
+      "title": "mcp topic 3",
+      "category": "architecture",
+      "content": "# mcp topic 3\n\nMCP server tools protocol agent JSON schema detail 3 unique marker srch-043.",
+      "relevance": "MCP server tools protocol agent JSON schema mcp relevance 3",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-044",
+      "title": "mcp topic 4",
+      "category": "architecture",
+      "content": "# mcp topic 4\n\nMCP server tools protocol agent JSON schema detail 4 unique marker srch-044.",
+      "relevance": "MCP server tools protocol agent JSON schema mcp relevance 4",
+      "scope": "global",
+      "project_id": null
+    },
+    {
+      "id": "srch-045",
+      "title": "mcp topic 5",
+      "category": "architecture",
+      "content": "# mcp topic 5\n\nMCP server tools protocol agent JSON schema detail 5 unique marker srch-045.",
+      "relevance": "MCP server tools protocol agent JSON schema mcp relevance 5",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-046",
+      "title": "sync topic 1",
+      "category": "decisions",
+      "content": "# sync topic 1\n\nNAS sync conflict resolution multi-machine WAL detail 1 unique marker srch-046.",
+      "relevance": "NAS sync conflict resolution multi-machine WAL sync relevance 1",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-047",
+      "title": "sync topic 2",
+      "category": "decisions",
+      "content": "# sync topic 2\n\nNAS sync conflict resolution multi-machine WAL detail 2 unique marker srch-047.",
+      "relevance": "NAS sync conflict resolution multi-machine WAL sync relevance 2",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-048",
+      "title": "sync topic 3",
+      "category": "decisions",
+      "content": "# sync topic 3\n\nNAS sync conflict resolution multi-machine WAL detail 3 unique marker srch-048.",
+      "relevance": "NAS sync conflict resolution multi-machine WAL sync relevance 3",
+      "scope": "project",
+      "project_id": "proj-golden"
+    },
+    {
+      "id": "srch-049",
+      "title": "sync topic 4",
+      "category": "decisions",
+      "content": "# sync topic 4\n\nNAS sync conflict resolution multi-machine WAL detail 4 unique marker srch-049.",
+      "relevance": "NAS sync conflict resolution multi-machine WAL sync relevance 4",
+      "scope": "user",
+      "project_id": null
+    },
+    {
+      "id": "srch-050",
+      "title": "sync topic 5",
+      "category": "decisions",
+      "content": "# sync topic 5\n\nNAS sync conflict resolution multi-machine WAL detail 5 unique marker srch-050.",
+      "relevance": "NAS sync conflict resolution multi-machine WAL sync relevance 5",
+      "scope": "project",
+      "project_id": "proj-golden"
+    }
+  ],
+  "queries": [
+    "JWT OAuth login",
+    "Redis cache invalidation",
+    "PostgreSQL schema migration",
+    "embeddings semantic hybrid FTS"
+  ]
+}

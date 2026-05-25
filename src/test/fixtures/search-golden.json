@@ -1,0 +1,102 @@
+{
+  "keyword::JWT OAuth login": [
+    "srch-001",
+    "srch-002",
+    "srch-003"
+  ],
+  "keyword::Redis cache invalidation": [
+    "srch-009",
+    "srch-010",
+    "srch-011"
+  ],
+  "keyword::PostgreSQL schema migration": [
+    "srch-015",
+    "srch-016",
+    "srch-017"
+  ],
+  "keyword::embeddings semantic hybrid FTS": [
+    "srch-022",
+    "srch-023",
+    "srch-024"
+  ],
+  "discover::JWT OAuth login": [
+    "srch-001",
+    "srch-002",
+    "srch-003"
+  ],
+  "discover::Redis cache invalidation": [
+    "srch-009",
+    "srch-010",
+    "srch-011"
+  ],
+  "discover::PostgreSQL schema migration": [
+    "srch-015",
+    "srch-016",
+    "srch-017"
+  ],
+  "discover::embeddings semantic hybrid FTS": [
+    "srch-022",
+    "srch-023",
+    "srch-024"
+  ],
+  "federated::JWT OAuth login": [
+    "srch-001",
+    "srch-002",
+    "srch-003"
+  ],
+  "federated::Redis cache invalidation": [
+    "srch-009",
+    "srch-010",
+    "srch-012"
+  ],
+  "federated::PostgreSQL schema migration": [
+    "srch-015",
+    "srch-016",
+    "srch-017"
+  ],
+  "federated::embeddings semantic hybrid FTS": [
+    "srch-023",
+    "srch-024",
+    "srch-025"
+  ],
+  "hybrid::JWT OAuth login": [
+    "srch-001",
+    "srch-011",
+    "srch-002"
+  ],
+  "hybrid::Redis cache invalidation": [
+    "srch-009",
+    "srch-024",
+    "srch-010"
+  ],
+  "hybrid::PostgreSQL schema migration": [
+    "srch-015",
+    "srch-040",
+    "srch-016"
+  ],
+  "hybrid::embeddings semantic hybrid FTS": [
+    "srch-025",
+    "srch-022",
+    "srch-023"
+  ],
+  "semantic::JWT OAuth login": [
+    "srch-011",
+    "srch-009",
+    "srch-025"
+  ],
+  "semantic::Redis cache invalidation": [
+    "srch-024",
+    "srch-027",
+    "srch-041"
+  ],
+  "semantic::PostgreSQL schema migration": [
+    "srch-040",
+    "srch-009",
+    "srch-025"
+  ],
+  "semantic::embeddings semantic hybrid FTS": [
+    "srch-025",
+    "srch-011",
+    "srch-009"
+  ]
+}
