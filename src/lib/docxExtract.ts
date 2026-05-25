@@ -8,6 +8,9 @@
 
 import * as fs from "fs/promises";
 
+/** Reject DOCX archives whose entries decompress beyond this total (zip-bomb guard). */
+const MAX_DECOMPRESSED_BYTES = 200 * 1024 * 1024;
+
 // ─── Types ──────────────────────────────────────────────────────────────
 
 export interface DocxChunk {
@@ -38,6 +41,7 @@ export async function extractDocxText(filePath: string): Promise<DocxChunk[]> {
 
   // Read the file and convert to HTML
   const buffer = await fs.readFile(filePath);
+  await assertDocxDecompressedSizeWithinLimit(buffer);
   const result = await mammoth.convertToHtml({ buffer });
   const html = result.value;
 
@@ -98,4 +102,27 @@ export async function extractDocxText(filePath: string): Promise<DocxChunk[]> {
   }
 
   return chunks;
+}
+
+/**
+ * Inspect ZIP central-directory metadata before decompression.
+ * Rejects archives whose total uncompressed payload exceeds the cap.
+ */
+async function assertDocxDecompressedSizeWithinLimit(buffer: Buffer): Promise<void> {
+  const JSZip = (await import("jszip")).default;
+  const zip = await JSZip.loadAsync(buffer);
+  let total = 0;
+
+  zip.forEach((_relativePath, entry) => {
+    if (entry.dir) return;
+    const data = (entry as unknown as { _data?: { uncompressedSize?: number } })._data;
+    const size = data?.uncompressedSize ?? 0;
+    total += size;
+  });
+
+  if (total > MAX_DECOMPRESSED_BYTES) {
+    throw new Error(
+      `DOCX decompresses to ~${Math.floor(total / 1048576)}MB, exceeds the ${MAX_DECOMPRESSED_BYTES / 1048576}MB limit (possible zip bomb).`,
+    );
+  }
 }
