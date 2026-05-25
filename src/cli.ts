@@ -21,7 +21,6 @@ import { getGnosysHome } from "./lib/paths.js";
 import { GnosysSearch } from "./lib/search.js";
 import { GnosysTagRegistry } from "./lib/tags.js";
 import { applyLens, LensFilter } from "./lib/lensing.js";
-import { getFileHistory, rollbackToCommit, hasGitHistory, getFileDiff } from "./lib/history.js";
 import { computeStats, TimePeriod } from "./lib/timeline.js";
 import { buildLinkGraph, getBacklinks, getOutgoingLinks, formatGraphSummary } from "./lib/wikilinks.js";
 import { loadConfig, generateConfigTemplate, GnosysConfig, DEFAULT_CONFIG, writeConfig, updateConfig, resolveTaskModel, ALL_PROVIDERS, LLMProviderName, getProviderModel } from "./lib/config.js";
@@ -2219,87 +2218,55 @@ program
 // ─── gnosys history <path> ───────────────────────────────────────────────
 program
   .command("history <memoryPath>")
-  .description("Show version history for a memory (git-backed)")
+  .description("Show audit history for a memory")
   .option("-n, --limit <number>", "Max entries", "20")
-  .option("--diff <hash>", "Show diff from this commit to current")
   .option("--json", "Output as JSON")
-  .action(async (memPath: string, opts: { limit: string; diff?: string; json?: boolean }) => {
-    const resolver = await getResolver();
-    const memory = await resolver.readMemory(memPath);
-    if (!memory) {
-      console.error(`Memory not found: ${memPath}`);
+  .action(async (memPath: string, opts: { limit: string; json?: boolean }) => {
+    const centralDb = GnosysDB.openCentral();
+    if (!centralDb.isAvailable()) {
+      console.error("Central DB not available.");
       process.exit(1);
     }
-
-    const sourceStore = resolver.getStores().find((s) => s.label === memory.sourceLabel);
-    if (!sourceStore) {
-      console.error("Could not locate source store.");
-      process.exit(1);
-    }
-
-    if (!hasGitHistory(sourceStore.path)) {
-      console.error("No git history available for this store.");
-      process.exit(1);
-    }
-
-    if (opts.diff) {
-      const diff = getFileDiff(sourceStore.path, memory.relativePath, opts.diff, "HEAD");
-      if (!diff) {
-        console.error("Could not generate diff.");
+    try {
+      const dbMem = centralDb.getMemory(memPath);
+      if (!dbMem) {
+        console.error(`Memory not found: ${memPath}`);
         process.exit(1);
       }
-      outputResult(!!opts.json, { memoryPath: memPath, diff }, () => {
-        console.log(diff);
-      });
-      return;
-    }
 
-    const history = getFileHistory(sourceStore.path, memory.relativePath, parseInt(opts.limit));
-    outputResult(
-      !!opts.json,
-      {
-        memoryPath: memPath,
-        title: memory.frontmatter.title,
-        entries: history,
-      },
-      () => {
-        if (history.length === 0) {
-          console.log("No history found for this memory.");
-          return;
-        }
+      const limit = parseInt(opts.limit, 10) || 20;
+      const audits = centralDb.getAuditLog(dbMem.id, limit);
 
-        console.log(`History for ${memory.frontmatter.title}:\n`);
-        for (const entry of history) {
-          console.log(`  ${entry.commitHash.substring(0, 7)}  ${entry.date}  ${entry.message}`);
-        }
-      },
-    );
-  });
+      outputResult(
+        !!opts.json,
+        {
+          memoryId: dbMem.id,
+          title: dbMem.title,
+          created: dbMem.created,
+          modified: dbMem.modified,
+          entries: audits,
+        },
+        () => {
+          if (audits.length === 0) {
+            console.log(`Memory: ${dbMem.title} (${dbMem.id})`);
+            console.log(`Created: ${dbMem.created}`);
+            console.log(`Modified: ${dbMem.modified}`);
+            console.log("No audit history recorded.");
+            return;
+          }
 
-// ─── gnosys rollback <path> <hash> ──────────────────────────────────────
-program
-  .command("rollback <memoryPath> <commitHash>")
-  .description("Rollback a memory to its state at a specific commit")
-  .action(async (memPath: string, commitHash: string) => {
-    const resolver = await getResolver();
-    const memory = await resolver.readMemory(memPath);
-    if (!memory) {
-      console.error(`Memory not found: ${memPath}`);
-      process.exit(1);
-    }
-
-    const sourceStore = resolver.getStores().find((s) => s.label === memory.sourceLabel);
-    if (!sourceStore?.writable) {
-      console.error("Cannot rollback: store is read-only.");
-      process.exit(1);
-    }
-
-    const success = rollbackToCommit(sourceStore.path, memory.relativePath, commitHash);
-    if (success) {
-      console.log(`Rolled back ${memory.frontmatter.title} to commit ${commitHash.substring(0, 7)}.`);
-    } else {
-      console.error(`Rollback failed. Check that the commit hash is valid.`);
-      process.exit(1);
+          console.log(`History for ${dbMem.title} (${dbMem.id}, ${audits.length} entries):\n`);
+          console.log(`Created: ${dbMem.created}`);
+          console.log(`Modified: ${dbMem.modified}\n`);
+          for (const entry of audits) {
+            const date = entry.timestamp.split("T")[0];
+            const detail = entry.details ? ` (${entry.details})` : "";
+            console.log(`  ${date}  ${entry.operation}${detail}`);
+          }
+        },
+      );
+    } finally {
+      centralDb.close();
     }
   });
 

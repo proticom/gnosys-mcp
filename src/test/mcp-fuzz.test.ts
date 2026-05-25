@@ -71,7 +71,7 @@ describe("MCP tool input fuzzing", () => {
   it("rejects malformed input for every tool with required fields", async () => {
     ({ server, client } = await connect());
     const { tools } = await client.listTools();
-    expect(tools.length).toBeGreaterThanOrEqual(51);
+    expect(tools.length).toBeGreaterThanOrEqual(50); // v5.x: 50 after gnosys_rollback removed (git-backed history/rollback legacy)
 
     for (const tool of tools) {
       const { required, properties } = schemaFields(tool);

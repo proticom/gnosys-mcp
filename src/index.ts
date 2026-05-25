@@ -46,7 +46,6 @@ import { GnosysSearch } from "./lib/search.js";
 import { GnosysTagRegistry } from "./lib/tags.js";
 import { GnosysResolver } from "./lib/resolver.js";
 import { applyLens, LensFilter } from "./lib/lensing.js";
-import { getFileHistory, rollbackToCommit, hasGitHistory, getFileDiff } from "./lib/history.js";
 import { groupByPeriod, computeStats, TimePeriod } from "./lib/timeline.js";
 import { buildLinkGraph, getBacklinks, getOutgoingLinks, formatGraphSummary } from "./lib/wikilinks.js";
 import { loadConfig, GnosysConfig, DEFAULT_CONFIG } from "./lib/config.js";
@@ -1543,7 +1542,7 @@ Output ONLY the JSON array, no markdown fences.`,
 // ─── Tool: gnosys_history ────────────────────────────────────────────────
 regTool(
   "gnosys_history",
-  "View version history for a memory. Shows what changed and when. Every memory write/update creates a git commit, so the full evolution is available.",
+  "View audit history for a memory. Shows what changed and when based on the audit log.",
   {
     path: z.string().describe("Path to memory, optionally layer-prefixed"),
     limit: z.number().optional().describe("Max history entries (default 20)"),
@@ -1552,11 +1551,9 @@ regTool(
   async ({ path: memPath, limit, projectRoot }) => {
     const ctx = await resolveToolContext(projectRoot);
 
-    // DB-first: resolve memory ID and show timestamps
     if (ctx.centralDb?.isAvailable()) {
       const dbMem = ctx.centralDb.getMemory(memPath);
       if (dbMem) {
-        // Query audit_log for this memory
         const audits = ctx.centralDb.getAuditLog(dbMem.id, limit || 20);
 
         if (audits.length > 0) {
@@ -1579,72 +1576,7 @@ regTool(
       }
     }
 
-    // Legacy file-based fallback
-    const memory = await ctx.resolver.readMemory(memPath);
-    if (!memory) {
-      return { content: [{ type: "text", text: `Memory not found: ${memPath}` }], isError: true };
-    }
-
-    const sourceStore = ctx.resolver.getStores().find((s) => s.label === memory.sourceLabel);
-    if (!sourceStore || !hasGitHistory(sourceStore.path)) {
-      return { content: [{ type: "text", text: "No git history available for this store." }], isError: true };
-    }
-
-    const history = getFileHistory(sourceStore.path, memory.relativePath, limit || 20);
-    if (history.length === 0) {
-      return { content: [{ type: "text", text: "No history found for this memory." }] };
-    }
-
-    const lines = history.map(
-      (e) => `- \`${e.commitHash.substring(0, 7)}\` ${e.date} — ${e.message}`
-    );
-
-    return {
-      content: [{
-        type: "text",
-        text: `History for **${memory.frontmatter.title}** (${history.length} entries):\n\n${lines.join("\n")}\n\nUse gnosys_rollback with a commit hash to revert to a prior version.`,
-      }],
-    };
-  }
-);
-
-// ─── Tool: gnosys_rollback ──────────────────────────────────────────────
-regTool(
-  "gnosys_rollback",
-  "Rollback a memory to its state at a specific commit. Non-destructive: creates a new commit with the reverted content. Use gnosys_history first to find the target commit hash.",
-  {
-    path: z.string().describe("Path to memory, optionally layer-prefixed"),
-    commitHash: z.string().describe("Git commit hash to revert to (full or abbreviated)"),
-    projectRoot: projectRootParam,
-  },
-  async ({ path: memPath, commitHash, projectRoot }) => {
-    const ctx = await resolveToolContext(projectRoot);
-    const memory = await ctx.resolver.readMemory(memPath);
-    if (!memory) {
-      return { content: [{ type: "text", text: `Memory not found: ${memPath}` }], isError: true };
-    }
-
-    const sourceStore = ctx.resolver.getStores().find((s) => s.label === memory.sourceLabel);
-    if (!sourceStore?.writable) {
-      return { content: [{ type: "text", text: "Cannot rollback: store is read-only." }], isError: true };
-    }
-
-    const success = rollbackToCommit(sourceStore.path, memory.relativePath, commitHash);
-    if (!success) {
-      return { content: [{ type: "text", text: `Rollback failed. Verify the commit hash with gnosys_history.` }], isError: true };
-    }
-
-    // Reindex after rollback
-    if (ctx.search) await reindexAllStores();
-
-    // Read the reverted memory
-    const reverted = await ctx.resolver.readMemory(memPath);
-    return {
-      content: [{
-        type: "text",
-        text: `Rolled back **${memory.frontmatter.title}** to commit ${commitHash.substring(0, 7)}.\n\nCurrent state: ${reverted?.frontmatter.title} [${reverted?.frontmatter.status}] (confidence: ${reverted?.frontmatter.confidence})`,
-      }],
-    };
+    return { content: [{ type: "text", text: `Memory not found: ${memPath}` }], isError: true };
   }
 );
 

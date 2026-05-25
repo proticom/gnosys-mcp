@@ -50,7 +50,7 @@ describe("MCP HTTP registration replay", () => {
     const names1 = list1.tools.map((t) => t.name).sort();
     const names2 = list2.tools.map((t) => t.name).sort();
 
-    expect(names1.length).toBeGreaterThanOrEqual(51);
+    expect(names1.length).toBeGreaterThanOrEqual(50); // v5.x: 50 after gnosys_rollback removed (git-backed history/rollback legacy)
     expect(names1).toEqual(names2);
 
     for (const expected of ["gnosys_discover", "gnosys_recall", "gnosys_add", "gnosys_ingest_file"]) {
