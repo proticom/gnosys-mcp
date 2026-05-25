@@ -378,7 +378,7 @@ regTool(
       const dbMem = ctx.centralDb.getMemory(memPath);
       if (dbMem) {
         const tags = dbMem.tags || "[]";
-        const header = [
+        const headerLines = [
           `---`,
           `id: ${dbMem.id}`,
           `title: '${dbMem.title}'`,
@@ -392,8 +392,15 @@ regTool(
           `tier: ${dbMem.tier}`,
           `created: '${dbMem.created}'`,
           `modified: '${dbMem.modified}'`,
-          `---`,
-        ].join("\n");
+        ];
+        if (dbMem.source_file) {
+          headerLines.push(
+            `source_file: ${dbMem.source_file}${dbMem.source_page != null ? ` (page ${Number(dbMem.source_page)})` : ""}`,
+          );
+        }
+        if (dbMem.source_path) headerLines.push(`source_path: ${dbMem.source_path}`);
+        headerLines.push(`---`);
+        const header = headerLines.join("\n");
         return {
           content: [{ type: "text", text: `[Source: gnosys.db]\n\n${header}\n\n${dbMem.content}` }],
         };
@@ -3378,6 +3385,14 @@ regTool(
         for (const e of result.errors) {
           lines.push(`- Chunk ${e.chunk}: ${e.error}`);
         }
+      }
+
+      if (!dryRun && ctx.centralDb?.isAvailable()) {
+        auditToDb(ctx.centralDb, "ingest", undefined, {
+          source_file: result.attachment.originalName,
+          fileType: result.fileType,
+          count: result.memories.length,
+        }, result.duration);
       }
 
       if (dryRun) {
