@@ -31,6 +31,8 @@ npm install -g gnosys
 gnosys setup          # configures provider, API key, and your IDE/agent
 ```
 
+> **Optional native deps.** Gnosys auto-installs **better-sqlite3** (the SQLite engine) and **@huggingface/transformers** (local embeddings). If your environment lacks build tools and either fails to install, run `npm install better-sqlite3 @huggingface/transformers` — or configure an external embedding API. Both degrade gracefully if absent.
+
 ## Quick start
 
 ```bash
