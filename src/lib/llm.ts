@@ -23,6 +23,11 @@ import {
 } from "./config.js";
 import { withRetry, isTransientError } from "./retry.js";
 
+/** Per-request timeout for LLM generation calls (ms). */
+const LLM_TIMEOUT_MS = 60_000;
+/** Shorter timeout for connectivity probes (testConnection, model lists). */
+const PROBE_TIMEOUT_MS = 10_000;
+
 // ─── Interfaces ──────────────────────────────────────────────────────────
 
 export interface LLMGenerateOptions {
@@ -92,7 +97,7 @@ export class AnthropicProvider implements LLMProvider {
     if (!this.clientPromise) {
       this.clientPromise = import("@anthropic-ai/sdk").then((mod) => {
         const Anthropic = mod.default || mod;
-        this.client = new Anthropic({ apiKey: this.apiKey });
+        this.client = new Anthropic({ apiKey: this.apiKey, timeout: LLM_TIMEOUT_MS });
         return this.client;
       });
     }
@@ -263,6 +268,7 @@ export class OllamaProvider implements LLMProvider {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
+          signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
         }),
       {
         maxAttempts: this.config.llmRetryAttempts,
@@ -353,6 +359,7 @@ export class OllamaProvider implements LLMProvider {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
+          signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
         }),
       {
         maxAttempts: this.config.llmRetryAttempts,
@@ -377,7 +384,9 @@ export class OllamaProvider implements LLMProvider {
 
   async testConnection(): Promise<boolean> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/tags`);
+      const response = await fetch(`${this.baseUrl}/api/tags`, {
+        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+      });
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
@@ -471,6 +480,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
             ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
           },
           body: JSON.stringify(body),
+          signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
         }),
       {
         maxAttempts: this.config.llmRetryAttempts,
@@ -574,6 +584,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
             messages,
             max_tokens: maxTokens,
           }),
+          signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
         }),
       {
         maxAttempts: this.config.llmRetryAttempts,
@@ -605,6 +616,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
         headers: {
           ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
         },
+        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
       });
 
       if (!response.ok) {
