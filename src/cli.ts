@@ -2156,6 +2156,7 @@ program
   .option("--modified-after <date>", "Modified after ISO date")
   .option("--modified-before <date>", "Modified before ISO date")
   .option("--or", "Combine filters with OR instead of AND (default: AND)")
+  .option("--json", "Output as JSON")
   .action(
     async (opts: {
       category?: string;
@@ -2171,6 +2172,7 @@ program
       modifiedAfter?: string;
       modifiedBefore?: string;
       or?: boolean;
+      json?: boolean;
     }) => {
       const resolver = await getResolver();
       const allMemories = await resolver.getAllMemories();
@@ -2189,19 +2191,28 @@ program
       if (opts.modifiedBefore) lens.modifiedBefore = opts.modifiedBefore;
 
       const result = applyLens(allMemories, lens);
+      const items = result.map((m) => ({
+        title: m.frontmatter.title,
+        status: m.frontmatter.status,
+        confidence: m.frontmatter.confidence,
+        sourceLabel: (m as any).sourceLabel || "",
+        relativePath: m.relativePath,
+      }));
 
-      if (result.length === 0) {
-        console.log("No memories match the lens filter.");
-        return;
-      }
+      outputResult(!!opts.json, { count: items.length, items }, () => {
+        if (result.length === 0) {
+          console.log("No memories match the lens filter.");
+          return;
+        }
 
-      console.log(`${result.length} memories match:\n`);
-      for (const m of result) {
-        const src = (m as any).sourceLabel || "";
-        console.log(`  [${m.frontmatter.status}] ${m.frontmatter.title} (${m.frontmatter.confidence})`);
-        console.log(`    ${src ? src + ":" : ""}${m.relativePath}`);
-        console.log();
-      }
+        console.log(`${result.length} memories match:\n`);
+        for (const m of result) {
+          const src = (m as any).sourceLabel || "";
+          console.log(`  [${m.frontmatter.status}] ${m.frontmatter.title} (${m.frontmatter.confidence})`);
+          console.log(`    ${src ? src + ":" : ""}${m.relativePath}`);
+          console.log();
+        }
+      });
     }
   );
 
@@ -2211,7 +2222,8 @@ program
   .description("Show version history for a memory (git-backed)")
   .option("-n, --limit <number>", "Max entries", "20")
   .option("--diff <hash>", "Show diff from this commit to current")
-  .action(async (memPath: string, opts: { limit: string; diff?: string }) => {
+  .option("--json", "Output as JSON")
+  .action(async (memPath: string, opts: { limit: string; diff?: string; json?: boolean }) => {
     const resolver = await getResolver();
     const memory = await resolver.readMemory(memPath);
     if (!memory) {
@@ -2236,20 +2248,32 @@ program
         console.error("Could not generate diff.");
         process.exit(1);
       }
-      console.log(diff);
+      outputResult(!!opts.json, { memoryPath: memPath, diff }, () => {
+        console.log(diff);
+      });
       return;
     }
 
     const history = getFileHistory(sourceStore.path, memory.relativePath, parseInt(opts.limit));
-    if (history.length === 0) {
-      console.log("No history found for this memory.");
-      return;
-    }
+    outputResult(
+      !!opts.json,
+      {
+        memoryPath: memPath,
+        title: memory.frontmatter.title,
+        entries: history,
+      },
+      () => {
+        if (history.length === 0) {
+          console.log("No history found for this memory.");
+          return;
+        }
 
-    console.log(`History for ${memory.frontmatter.title}:\n`);
-    for (const entry of history) {
-      console.log(`  ${entry.commitHash.substring(0, 7)}  ${entry.date}  ${entry.message}`);
-    }
+        console.log(`History for ${memory.frontmatter.title}:\n`);
+        for (const entry of history) {
+          console.log(`  ${entry.commitHash.substring(0, 7)}  ${entry.date}  ${entry.message}`);
+        }
+      },
+    );
   });
 
 // ─── gnosys rollback <path> <hash> ──────────────────────────────────────
@@ -2286,7 +2310,8 @@ program
   .option("-p, --period <period>", "Group by: day, week, month (default), year", "month")
   .option("--project <id>", "Filter to a specific project ID (default: all projects)")
   .option("--limit-titles <n>", "Show titles inline when an entry has <= N memories (default 5)", "5")
-  .action(async (opts: { period: string; project?: string; limitTitles: string }) => {
+  .option("--json", "Output as JSON")
+  .action(async (opts: { period: string; project?: string; limitTitles: string; json?: boolean }) => {
     const { groupDbByPeriod } = await import("./lib/timeline.js");
     const centralDb = GnosysDB.openCentral();
     if (!centralDb.isAvailable()) {
@@ -2299,25 +2324,29 @@ program
         : centralDb.getActiveMemories();
 
       if (memories.length === 0) {
-        console.log("No memories found.");
+        outputResult(!!opts.json, { period: opts.period, count: 0, entries: [] }, () => {
+          console.log("No memories found.");
+        });
         return;
       }
 
       const entries = groupDbByPeriod(memories, opts.period as TimePeriod);
       const titleLimit = Math.max(0, parseInt(opts.limitTitles, 10) || 5);
 
-      console.log(`Knowledge Timeline (by ${opts.period}, ${memories.length} memories):\n`);
-      for (const entry of entries) {
-        const parts = [];
-        if (entry.created > 0) parts.push(`${entry.created} created`);
-        if (entry.modified > 0) parts.push(`${entry.modified} modified`);
-        console.log(`  ${entry.period}: ${parts.join(", ")}`);
-        if (entry.titles.length > 0 && entry.titles.length <= titleLimit) {
-          for (const t of entry.titles) {
-            console.log(`    + ${t}`);
+      outputResult(!!opts.json, { period: opts.period, count: memories.length, entries }, () => {
+        console.log(`Knowledge Timeline (by ${opts.period}, ${memories.length} memories):\n`);
+        for (const entry of entries) {
+          const parts = [];
+          if (entry.created > 0) parts.push(`${entry.created} created`);
+          if (entry.modified > 0) parts.push(`${entry.modified} modified`);
+          console.log(`  ${entry.period}: ${parts.join(", ")}`);
+          if (entry.titles.length > 0 && entry.titles.length <= titleLimit) {
+            for (const t of entry.titles) {
+              console.log(`    + ${t}`);
+            }
           }
         }
-      }
+      });
     } finally {
       centralDb.close();
     }
@@ -2474,7 +2503,8 @@ program
 program
   .command("links <memoryPath>")
   .description("Show wikilinks for a memory — both outgoing [[links]] and backlinks from other memories")
-  .action(async (memPath: string) => {
+  .option("--json", "Output as JSON")
+  .action(async (memPath: string, opts: { json?: boolean }) => {
     const resolver = await getResolver();
     const memory = await resolver.readMemory(memPath);
     if (!memory) {
@@ -2486,35 +2516,47 @@ program
     const outgoing = getOutgoingLinks(allMemories, memory.relativePath);
     const backlinks = getBacklinks(allMemories, memory.relativePath);
 
-    console.log(`Links for ${memory.frontmatter.title}:\n`);
+    outputResult(
+      !!opts.json,
+      {
+        memoryPath: memPath,
+        title: memory.frontmatter.title,
+        outgoing,
+        backlinks,
+      },
+      () => {
+        console.log(`Links for ${memory.frontmatter.title}:\n`);
 
-    if (outgoing.length > 0) {
-      console.log(`  Outgoing (${outgoing.length}):`);
-      for (const link of outgoing) {
-        const display = link.displayText ? ` (${link.displayText})` : "";
-        console.log(`    → [[${link.target}]]${display}`);
-      }
-    } else {
-      console.log("  No outgoing links.");
-    }
+        if (outgoing.length > 0) {
+          console.log(`  Outgoing (${outgoing.length}):`);
+          for (const link of outgoing) {
+            const display = link.displayText ? ` (${link.displayText})` : "";
+            console.log(`    → [[${link.target}]]${display}`);
+          }
+        } else {
+          console.log("  No outgoing links.");
+        }
 
-    console.log();
+        console.log();
 
-    if (backlinks.length > 0) {
-      console.log(`  Backlinks (${backlinks.length}):`);
-      for (const link of backlinks) {
-        console.log(`    ← ${link.sourceTitle} (${link.sourcePath})`);
-      }
-    } else {
-      console.log("  No backlinks.");
-    }
+        if (backlinks.length > 0) {
+          console.log(`  Backlinks (${backlinks.length}):`);
+          for (const link of backlinks) {
+            console.log(`    ← ${link.sourceTitle} (${link.sourcePath})`);
+          }
+        } else {
+          console.log("  No backlinks.");
+        }
+      },
+    );
   });
 
 // ─── gnosys graph ───────────────────────────────────────────────────────
 program
   .command("graph")
   .description("Show the [[wikilink]] cross-reference graph between memories. Empty until you start using [[Title]] in memory content — then this shows which memories reference each other.")
-  .action(async () => {
+  .option("--json", "Output as JSON")
+  .action(async (opts: { json?: boolean }) => {
     // v5.4.1: Query the central DB directly. Previously this used the
     // filesystem resolver, which returns nothing in v5.x DB-only mode
     // because memories no longer live as markdown files.
@@ -2528,7 +2570,9 @@ program
 
       const dbMemories = centralDb.getAllMemories();
       if (dbMemories.length === 0) {
-        console.log("No memories found.");
+        outputResult(!!opts.json, { totalLinks: 0, orphanedLinks: [], nodes: [] }, () => {
+          console.log("No memories found.");
+        });
         return;
       }
 
@@ -2566,7 +2610,17 @@ program
       });
 
       const graph = buildLinkGraph(adapted);
-      console.log(formatGraphSummary(graph));
+      outputResult(
+        !!opts.json,
+        {
+          totalLinks: graph.totalLinks,
+          orphanedLinks: graph.orphanedLinks,
+          nodes: Array.from(graph.nodes.values()),
+        },
+        () => {
+          console.log(formatGraphSummary(graph));
+        },
+      );
     } finally {
       centralDb?.close();
     }
@@ -3005,7 +3059,8 @@ program
   .command("semantic-search <query>")
   .description("Search using semantic similarity only (requires embeddings)")
   .option("-l, --limit <n>", "Max results", "15")
-  .action(async (query: string, opts: { limit: string }) => {
+  .option("--json", "Output as JSON")
+  .action(async (query: string, opts: { limit: string; json?: boolean }) => {
     const resolver = await getResolver();
     const stores = resolver.getStores();
     if (stores.length === 0) {
@@ -3027,17 +3082,33 @@ program
 
     const results = await hybridSearch.hybridSearch(query, parseInt(opts.limit), "semantic");
 
-    if (results.length === 0) {
-      console.log(`No semantic results for "${query}". Run gnosys reindex first.`);
-    } else {
-      console.log(`Found ${results.length} semantic results for "${query}":\n`);
-      for (const r of results) {
-        console.log(`  ${r.title}`);
-        console.log(`    Path: ${r.relativePath}`);
-        console.log(`    Similarity: ${r.score.toFixed(4)}`);
-        console.log(`    ${r.snippet.substring(0, 120)}...\n`);
-      }
-    }
+    outputResult(
+      !!opts.json,
+      {
+        query,
+        count: results.length,
+        results: results.map((r) => ({
+          title: r.title,
+          relativePath: r.relativePath,
+          score: r.score,
+          snippet: r.snippet,
+        })),
+      },
+      () => {
+        if (results.length === 0) {
+          console.log(`No semantic results for "${query}". Run gnosys reindex first.`);
+          return;
+        }
+
+        console.log(`Found ${results.length} semantic results for "${query}":\n`);
+        for (const r of results) {
+          console.log(`  ${r.title}`);
+          console.log(`    Path: ${r.relativePath}`);
+          console.log(`    Similarity: ${r.score.toFixed(4)}`);
+          console.log(`    ${r.snippet.substring(0, 120)}...\n`);
+        }
+      },
+    );
     search.close();
     embeddings.close();
   });
@@ -3054,7 +3125,8 @@ program
   .option("--federated", "Use federated search with tier boosting (project > user > global)")
   .option("--scope <scope>", "Filter by scope: project, user, global (comma-separated)")
   .option("-d, --directory <dir>", "Project directory for context")
-  .action(async (question: string, opts: { limit: string; mode: string; stream: boolean; federated?: boolean; scope?: string; directory?: string }) => {
+  .option("--json", "Output as JSON")
+  .action(async (question: string, opts: { limit: string; mode: string; stream: boolean; federated?: boolean; scope?: string; directory?: string; json?: boolean }) => {
     const resolver = await getResolver();
     const stores = resolver.getStores();
     if (stores.length === 0) {
@@ -3135,7 +3207,7 @@ program
     }
 
     const mode = opts.mode as "keyword" | "semantic" | "hybrid";
-    const useStream = opts.stream !== false;
+    const useStream = opts.stream !== false && !opts.json;
 
     try {
       const result = await ask.ask(question, {
@@ -3156,18 +3228,36 @@ program
           : undefined,
       });
 
-      if (!useStream) {
-        console.log(result.answer);
-      }
+      outputResult(
+        !!opts.json,
+        {
+          question,
+          answer: result.answer,
+          sources: result.sources.map((s) => ({
+            title: s.title,
+            relativePath: s.relativePath,
+          })),
+          deepQueryUsed: result.deepQueryUsed ?? false,
+        },
+        () => {
+          if (!useStream) {
+            console.log(result.answer);
+          }
 
-      // Print sources
+          if (result.sources.length > 0) {
+            console.log("\n\n--- Sources ---");
+            for (const s of result.sources) {
+              console.log(`  [[${s.relativePath.split("/").pop()}]] — ${s.title}`);
+            }
+          }
+
+          if (result.deepQueryUsed) {
+            console.log("\n(Deep query was used — a follow-up search expanded the context)");
+          }
+        },
+      );
+
       if (result.sources.length > 0) {
-        console.log("\n\n--- Sources ---");
-        for (const s of result.sources) {
-          console.log(`  [[${s.relativePath.split("/").pop()}]] — ${s.title}`);
-        }
-
-        // Reinforce used memories (best-effort)
         const writeTarget = resolver.getWriteTarget();
         if (writeTarget) {
           const { GnosysMaintenanceEngine } = await import("./lib/maintenance.js");
@@ -3176,10 +3266,6 @@ program
             result.sources.map((s) => s.relativePath)
           ).catch(() => {});
         }
-      }
-
-      if (result.deepQueryUsed) {
-        console.log("\n(Deep query was used — a follow-up search expanded the context)");
       }
     } catch (err) {
       console.error(`Ask failed: ${err instanceof Error ? err.message : String(err)}`);
