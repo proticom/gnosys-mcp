@@ -609,6 +609,15 @@ export class GnosysDB {
   }
 
   private applySchema(): void {
+    const currentVersion = this.db.pragma("user_version", { simple: true }) as number;
+
+    // Legacy DBs (user_version >= 1) must migrate before the full current
+    // schema is applied — SCHEMA_SQL creates indexes on columns (project_id,
+    // scope, …) that do not exist on v1/v2 databases yet.
+    if (currentVersion > 0 && currentVersion < SCHEMA_VERSION) {
+      this.migrateSchema(currentVersion);
+    }
+
     // Apply main schema
     this.db.exec(SCHEMA_SQL);
 
@@ -619,10 +628,11 @@ export class GnosysDB {
       // Triggers may already exist — that's fine
     }
 
-    // Schema migration: v1 → v2 (add project_id, scope, projects table)
-    const currentVersion = this.db.pragma("user_version", { simple: true }) as number;
-    if (currentVersion < SCHEMA_VERSION) {
-      this.migrateSchema(currentVersion);
+    // Fresh DBs (user_version 0) get the full schema first, then migrate
+    // to stamp user_version and apply any incremental steps idempotently.
+    const versionAfterSchema = this.db.pragma("user_version", { simple: true }) as number;
+    if (versionAfterSchema < SCHEMA_VERSION) {
+      this.migrateSchema(versionAfterSchema);
     }
   }
 
