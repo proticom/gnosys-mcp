@@ -5,6 +5,10 @@ All notable changes to Gnosys are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+### Historical versions
+
+Detailed CHANGELOG coverage begins at **5.2.16**. Earlier 5.0.0–5.2.15 releases and a few 5.2.x patches without individual entries (5.2.17, 5.2.18, 5.2.21) are tracked via [git tags](https://github.com/proticom/gnosys/tags). Versions 5.2.13, 5.2.14, and 5.2.15 were CHANGELOG-only and never published to npm.
+
 ## [5.10.0] — 2026-05-23
 
 Machine-portable project paths, plus repository/community-standards groundwork.
@@ -1127,24 +1131,17 @@ transitive, both functional, neither breaking. Tracked in road-006.
 
 - **`gnosys dream run` — explicit manual trigger.** The bare `gnosys dream` already runs a cycle, but users naturally type `dream run` to match the `dream log` pattern. Added an alias subcommand. Both forms now check the central DB's `dream_machine_id` designation before running and refuse on non-designated machines unless `--force` is passed.
 
-
+## [5.4.3] — 2026-05-02
 
 ### Fixed
 
-- **Postinstall output now visible during `npm install -g`.** npm 7+ hides postinstall stdout for global installs but shows stderr — switched our messages to stderr so users actually see "Gnosys v5.4.3 installed / Run `gnosys upgrade`" after a global install.
-- **Postinstall version read fixed.** Previously printed "Gnosys vunknown" because `require("fs")` doesn't work in ESM modules. Replaced with proper top-level `import { readFileSync }` and `import.meta.url`-based path resolution.
+- **Postinstall output now visible during `npm install -g`.** npm 7+ hides postinstall stdout for global installs but shows stderr — switched messages to stderr so users see the installed version and upgrade hint after a global install.
+- **Postinstall version read fixed.** Previously printed "Gnosys vunknown" because `require("fs")` doesn't work in ESM modules. Replaced with top-level `readFileSync` and `import.meta.url`-based path resolution.
 
 ### Added
 
-- **Upgrade nudge on first CLI invocation.** Tracks `last_seen_version` in central DB meta. On every CLI command boot, if the installed version differs from what's stored, print a one-line stderr notice:
-  ```
-  gnosys: upgraded to v5.4.3 (from v5.4.2). Run 'gnosys upgrade' to sync registered projects.
-  ```
-  Fires once per upgrade, then updates the meta. Skipped when running `gnosys upgrade` itself, when `GNOSYS_SKIP_UPGRADE_NUDGE=1` is set, or when the central DB is unavailable. Belt-and-suspenders for cases where the postinstall hook silently fails (CI, Docker builds, `--ignore-scripts`).
-
-### Known issue (deferred to v5.5.0)
-
-- `npm install` still prints `npm warn deprecated prebuild-install@7.1.3: No longer maintained.` This is a transitive deprecation: `prebuild-install` is pulled in by `better-sqlite3` and (via `sharp`) by `@xenova/transformers`. The package still works correctly — the maintainer has just announced no future patches. Migrating `@xenova/transformers` (now a stale package) to `@huggingface/transformers@4.x` (the modern rebrand) is planned for v5.5.0 and will remove half of the dependency chain. The other half waits on `better-sqlite3` migrating to `node-gyp-build` upstream.
+- **Upgrade nudge on first CLI invocation.** Tracks `last_seen_version` in central DB meta. When the installed version differs from what's stored, prints a one-line stderr notice, then updates meta. Skipped for `gnosys upgrade`, when `GNOSYS_SKIP_UPGRADE_NUDGE=1`, or when the central DB is unavailable.
+- **`CODE_OF_CONDUCT.md`** at the repository root.
 
 ## [5.4.2] — 2026-05-01
 
@@ -1177,6 +1174,22 @@ The pattern is now consistent: `gnosys setup` runs the full wizard, and `gnosys 
 - 735+/738 main tests pass (3 pre-existing xAI keychain failures unchanged).
 - gnosys-tests regression suite extended with `dream-log.test.ts`, `setup-dream.test.ts`, `removed-commands.test.ts`, plus DREAM HEALTH assertion in `dashboard.test.ts`.
 - Manual smoke: dashboard surfaces DREAM HEALTH; designated machine probe runs at MCP boot; dream log filters work; removed commands return non-zero with "unknown command".
+
+## [5.4.1] — 2026-05-01
+
+### Added
+
+- **Remote-first architecture.** Reads hit the remote NAS DB when reachable; local DB is an offline-only cache with a stderr fallback notice when remote is unreachable. `GnosysDB.openLocal()` for explicit local sync ops; `GNOSYS_LOCAL_ONLY=1` forces local-only mode.
+- **ULID memory IDs** for new memories (`prefix-<ULID>`); existing prefix-N IDs unchanged.
+- **Regression suite** extended for the v5.4.x architecture changes.
+
+### Changed
+
+- **Sync now includes the projects table** — `push()`, `pull()`, `sync()`, and `migrate()` sync project rows as well as memories. `SyncResult` gains `projectsPushed` / `projectsPulled` counters.
+
+### Fixed
+
+- Ten-bug sweep (B1–B10): central-DB routing for `gnosys graph` and dashboard project counts; removed stale dashboard labels; ESM-safe keychain lookup with Linux `secret-tool` support; dashboard border alignment; live ollama/lmstudio probes; deep-merge for `loadConfig`; SQLITE_CORRUPT recovery hints in MCP write errors; WAL autocheckpoint pragma; LLM error messages reference the configured provider's env var.
 
 ## [5.4.0] — 2026-04-30
 
