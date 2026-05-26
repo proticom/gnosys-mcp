@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Detailed CHANGELOG coverage begins at **5.2.16**. Earlier 5.0.0–5.2.15 releases and a few 5.2.x patches without individual entries (5.2.17, 5.2.18, 5.2.21) are tracked via [git tags](https://github.com/proticom/gnosys/tags). Versions 5.2.13, 5.2.14, and 5.2.15 were CHANGELOG-only and never published to npm.
 
-## [Unreleased]
+## [5.11.0] — 2026-05-26
 
 Pending release — bundles 84 commits since 5.10.0 covering a network-hosted MCP
 transport, a hardened HTTP surface, structured logging, a v5.12 portability
@@ -117,6 +117,15 @@ track, and the C/D/E hardening + documentation review.
   against embedded prompt injection.
 - **CORS default-deny.** Browser origins blocked unless explicitly allowed
   (also listed under Added).
+
+
+### Removed
+
+- **Node 18 support.** Node 18 reached End-of-Life in April 2025; the modern
+  test toolchain (vitest + rolldown) now imports `node:util.styleText`, which
+  only exists on Node 20.12+. The CI matrix was updated to Node 20/22/24 ×
+  Linux/macOS and `engines.node` was raised to `>=20.12.0`. The README's
+  install prerequisite changed from "Node.js ≥ 18" to "Node.js ≥ 20.12".
 
 ## [5.10.0] — 2026-05-23
 

@@ -12,7 +12,10 @@ coverage/
 # Agent config, rules & skills (local-only — AGENTS.md stays public)
 rules/
 .gnosys/
-CLAUDE.md
+/CLAUDE.md
 .claude/
 .cursor/
 .codex/
+
+# Negate the CLAUDE.md ignore for this golden fixture (macOS case-insensitive FS)
+!src/test/fixtures/ide-init/claude.md

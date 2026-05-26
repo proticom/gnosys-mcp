@@ -24,7 +24,7 @@ The central brain is a single SQLite database at `~/.gnosys/gnosys.db` with sub-
 
 ## Install
 
-> **Requires Node.js ≥ 18.**
+> **Requires Node.js ≥ 20.12.**
 
 ```bash
 npm install -g gnosys
