@@ -13,13 +13,13 @@
 import { existsSync, statSync, mkdirSync, writeFileSync, unlinkSync } from "fs";
 import os from "os";
 import * as path from "path";
-import { GnosysDB, DbMemory } from "./db.js";
+import { GnosysDB, type DbMemory } from "./db.js";
 import { readMachineConfig } from "./machineConfig.js";
 import type { ProgressCallback } from "./progress.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
-export interface RemoteConfig {
+interface RemoteConfig {
   /** Path to remote .gnosys directory (e.g., /Volumes/nas/gnosys) */
   path: string;
   /** Run sync automatically in background */
@@ -30,7 +30,7 @@ export interface RemoteConfig {
   conflictStrategy?: "skip-and-flag" | "newer-wins";
 }
 
-export interface ConflictInfo {
+interface ConflictInfo {
   memoryId: string;
   title: string;
   localModified: string;
@@ -192,6 +192,8 @@ const META_LAST_SYNC = "remote_last_synced_at";
 const META_AUDIT_PUSH = "audit_last_pushed_at";
 const META_AUDIT_PULL = "audit_last_pulled_at";
 const META_MACHINE_ID = "machine_id";
+/** Machine-local sync observability — not replicated between databases. */
+const SYNC_META_AUDIT_OPS = new Set(["remote_push", "remote_pull"]);
 
 export class RemoteSync {
   private localDb: GnosysDB;
@@ -380,6 +382,10 @@ export class RemoteSync {
     if (localChanges.length === 0) return;
     let lastPushed = cursor;
     for (const entry of localChanges) {
+      if (SYNC_META_AUDIT_OPS.has(entry.operation)) {
+        if (entry.timestamp > lastPushed) lastPushed = entry.timestamp;
+        continue;
+      }
       try {
         remoteDb.logAudit({
           timestamp: entry.timestamp,
@@ -414,6 +420,10 @@ export class RemoteSync {
       // pushCursor is the most recent timestamp we pushed; entries up to and
       // including it on the remote are either ours or already local.
       if (entry.timestamp <= pushCursor) {
+        if (entry.timestamp > lastPulled) lastPulled = entry.timestamp;
+        continue;
+      }
+      if (SYNC_META_AUDIT_OPS.has(entry.operation)) {
         if (entry.timestamp > lastPulled) lastPulled = entry.timestamp;
         continue;
       }
@@ -585,6 +595,18 @@ export class RemoteSync {
       kind: "done",
       text: `Push complete: ${result.pushed} pushed, ${result.skipped} skipped, ${result.conflicts.length} conflicts`,
     });
+    this.localDb.logAudit({
+      timestamp: new Date().toISOString(),
+      operation: "remote_push",
+      memory_id: null,
+      details: JSON.stringify({
+        pushed: result.pushed,
+        skipped: result.skipped,
+        conflicts: result.conflicts.length,
+      }),
+      duration_ms: null,
+      trace_id: null,
+    });
     return result;
   }
 
@@ -676,6 +698,18 @@ export class RemoteSync {
     onProgress?.({
       kind: "done",
       text: `Pull complete: ${result.pulled} pulled, ${result.skipped} skipped, ${result.conflicts.length} conflicts`,
+    });
+    this.localDb.logAudit({
+      timestamp: new Date().toISOString(),
+      operation: "remote_pull",
+      memory_id: null,
+      details: JSON.stringify({
+        pulled: result.pulled,
+        skipped: result.skipped,
+        conflicts: result.conflicts.length,
+      }),
+      duration_ms: null,
+      trace_id: null,
     });
     return result;
   }
@@ -848,7 +882,7 @@ function isStaleUnknownId(id: string): boolean {
  * to `os.hostname()` so macOS shells without `HOSTNAME` still get a real
  * name. Returns `"unknown"` only when everything fails.
  */
-export function resolveHostname(): string {
+function resolveHostname(): string {
   const fromEnv = process.env.HOSTNAME || process.env.COMPUTERNAME;
   if (fromEnv) return fromEnv;
   try {

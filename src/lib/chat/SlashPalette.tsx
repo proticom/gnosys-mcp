@@ -14,9 +14,9 @@
  * and reuse.
  */
 
-import React from "react";
+import type React from "react";
 import { Box, Text } from "ink";
-import { CommandSpec } from "./commands.js";
+import type { CommandSpec } from "./commands.js";
 
 export interface SlashPaletteProps {
   /** Full text currently in the input buffer (used to filter). */

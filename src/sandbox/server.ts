@@ -13,13 +13,14 @@ import net from "net";
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { GnosysDB, DbMemory } from "../lib/db.js";
+import { GnosysDB, type DbMemory } from "../lib/db.js";
 import { federatedSearch } from "../lib/federated.js";
 import { setPreference, getPreference, getAllPreferences, deletePreference, searchPreferences, Preference } from "../lib/preferences.js";
-import { GnosysDreamEngine, DreamScheduler, DreamConfig, DreamReport, DEFAULT_DREAM_CONFIG } from "../lib/dream.js";
-import { DEFAULT_CONFIG, GnosysConfig } from "../lib/config.js";
+import { GnosysDreamEngine, DreamScheduler, type DreamConfig, type DreamReport, DEFAULT_DREAM_CONFIG } from "../lib/dream.js";
+import { DEFAULT_CONFIG, type GnosysConfig } from "../lib/config.js";
 import { syncRules, generateRulesBlock, RulesGenResult } from "../lib/rulesGen.js";
 import { getSandboxDir as getSandboxDirImpl } from "../lib/paths.js";
+import { logError, logWarn } from "../lib/log.js";
 
 // ─── Socket + PID paths ─────────────────────────────────────────────────
 
@@ -66,7 +67,7 @@ export interface DreamState {
   isDreaming: boolean;
 }
 
-let dreamState: DreamState = {
+const dreamState: DreamState = {
   enabled: false,
   idleMinutes: DEFAULT_DREAM_CONFIG.idleMinutes,
   lastDreamReport: null,
@@ -102,14 +103,14 @@ export function initDreamMode(
 
   // Monkey-patch the scheduler's private checkIdle to track dream state
   const originalStart = scheduler.start.bind(scheduler);
-  scheduler.start = function () {
+  scheduler.start = () => {
     originalStart();
 
     // Override the internal check interval to track state
     const CHECK_INTERVAL = 60_000;
     const origCheckIdle = (scheduler as any).checkIdle;
     if (origCheckIdle) {
-      (scheduler as any).checkIdle = async function () {
+      (scheduler as any).checkIdle = async () => {
         dreamState.isDreaming = scheduler.isDreaming();
         await origCheckIdle.call(scheduler);
         dreamState.isDreaming = scheduler.isDreaming();
@@ -675,9 +676,9 @@ export function startServer(dbPath?: string): net.Server {
   const db = new GnosysDB(dbDir, isNetworkPath ? { retries: 5, retryDelayMs: 1000 } : undefined);
 
   if (!db.isAvailable()) {
-    console.error("Failed to open GnosysDB. Is better-sqlite3 installed?");
+    logError(new Error("Failed to open GnosysDB"), { module: "sandbox", op: "openDb", hint: "Install it with: npm install better-sqlite3" });
     if (isNetworkPath) {
-      console.error(`Network path "${dbDir}" may be unavailable. Check the path is mounted and accessible.`);
+      logWarn(`Network path "${dbDir}" may be unavailable`, { module: "sandbox", dbDir });
     }
     process.exit(1);
   }
@@ -706,7 +707,7 @@ export function startServer(dbPath?: string): net.Server {
         console.log(`Dream Mode enabled (idle threshold: ${dreamState.idleMinutes}min)`);
       }
     } catch (err) {
-      console.error(`Dream Mode init failed: ${err instanceof Error ? err.message : String(err)}`);
+      logError(err instanceof Error ? err : new Error(String(err)), { module: "sandbox", op: "dreamInit" });
     }
   }
 

@@ -7,7 +7,7 @@
  * directly via `gnosys setup routing` or from the summary-first menu.
  */
 
-import { Interface as ReadlineInterface } from "readline/promises";
+import type { Interface as ReadlineInterface } from "readline/promises";
 import {
   loadConfig,
   updateConfig,

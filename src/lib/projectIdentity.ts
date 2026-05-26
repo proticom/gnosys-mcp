@@ -13,7 +13,8 @@ import fsSync from "fs";
 import path from "path";
 import crypto from "crypto";
 import os from "os";
-import { GnosysDB, DbProject } from "./db.js";
+import type { GnosysDB, DbProject } from "./db.js";
+import { logWarn } from "./log.js";
 
 /** Shape of .gnosys/gnosys.json (project identity) */
 export interface ProjectIdentity {
@@ -141,9 +142,9 @@ export async function createProjectIdentity(
     // operators a hint.
     const existingRow = opts.centralDb.getProject(identity.projectId);
     if (existingRow && existingRow.working_directory !== identity.workingDirectory) {
-      console.error(
-        `gnosys: project ${identity.projectName} moved: ` +
-          `${existingRow.working_directory} → ${identity.workingDirectory}`,
+      logWarn(
+        `project ${identity.projectName} moved: ${existingRow.working_directory} → ${identity.workingDirectory}`,
+        { module: "projectIdentity", op: "registerProject" },
       );
     }
 
@@ -317,6 +318,7 @@ async function registerMcpServer(
   projectDir: string,
 ): Promise<{ success: boolean; message: string }> {
   try {
+    // Intentional dynamic import — lazy-load setup to avoid a static cycle with setup.ts.
     const { setupIDE } = await import("./setup.js");
     return await setupIDE(ide, projectDir);
   } catch (err) {
@@ -544,8 +546,8 @@ export async function migrateProject(opts: MigrateOptions): Promise<MigrateResul
   }
 
   // 4. Copy entire .gnosys/ tree from source to target
-  const { execSync } = await import("child_process");
-  execSync(`cp -a "${sourceStore}" "${targetStore}"`, { stdio: "pipe" });
+  const { execFileSync } = await import("child_process");
+  execFileSync("cp", ["-a", sourceStore, targetStore], { stdio: "pipe" });
 
   // 5. Count memory markdown files (for reporting)
   const { glob } = await import("glob");

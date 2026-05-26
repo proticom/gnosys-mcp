@@ -17,7 +17,7 @@
  * the full id when available.
  */
 
-import React from "react";
+import type React from "react";
 import { Text } from "ink";
 import { THEME } from "../theme.js";
 import { memoryUri, osc8Wrap } from "../../idFormat.js";

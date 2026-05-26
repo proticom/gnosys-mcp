@@ -9,8 +9,8 @@
 
 import { readdirSync, statSync } from "fs";
 import * as path from "path";
-import { createInterface, Interface } from "readline/promises";
-import { GnosysDB } from "./db.js";
+import { createInterface, type Interface } from "readline/promises";
+import type { GnosysDB } from "./db.js";
 import { RemoteSync, validateLocation } from "./remote.js";
 import { safeQuestion } from "./setup/ui/safePrompt.js";
 import { Spinner } from "./setup/ui/spinner.js";

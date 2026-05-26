@@ -10,13 +10,13 @@
  * All operations produce safe Git commits with rollback on failure.
  */
 
-import { GnosysStore, Memory, MemoryFrontmatter } from "./store.js";
+import type { GnosysStore, Memory, MemoryFrontmatter } from "./store.js";
 import { GnosysEmbeddings } from "./embeddings.js";
-import { GnosysConfig, DEFAULT_CONFIG } from "./config.js";
-import { LLMProvider, getLLMProvider } from "./llm.js";
-import { GnosysResolver, ResolvedStore } from "./resolver.js";
+import { type GnosysConfig, DEFAULT_CONFIG } from "./config.js";
+import { type LLMProvider, getLLMProvider } from "./llm.js";
+import type { GnosysResolver, ResolvedStore } from "./resolver.js";
 import { GnosysArchive, getArchiveEligible } from "./archive.js";
-import { GnosysDB } from "./db.js";
+import type { GnosysDB } from "./db.js";
 import { syncMemoryToDb, syncUpdateToDb, syncConfidenceToDb, syncReinforcementToDb } from "./dbWrite.js";
 import { acquireWriteLock } from "./lock.js";
 import { auditLog } from "./audit.js";

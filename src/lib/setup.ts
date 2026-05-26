@@ -8,7 +8,7 @@
  * Uses Node.js built-in readline/promises — no external dependencies.
  */
 
-import { createInterface, Interface as ReadlineInterface } from "readline/promises";
+import { createInterface, type Interface as ReadlineInterface } from "readline/promises";
 import { stdin, stdout } from "process";
 import fs from "fs/promises";
 import fsSync from "fs";
@@ -67,7 +67,7 @@ export interface ModelTier {
 }
 
 /** Per-task routing override chosen during setup. */
-export interface TaskRouting {
+interface TaskRouting {
   provider: string;
   model: string;
 }
@@ -157,7 +157,7 @@ interface OpenRouterModel {
  * Fetch models from OpenRouter, cache for 24 hours, fall back to hardcoded.
  * Returns updated PROVIDER_TIERS for cloud providers only.
  */
-export async function fetchDynamicModels(): Promise<Record<string, ModelTier[]>> {
+async function fetchDynamicModels(): Promise<Record<string, ModelTier[]>> {
   // Check cache first
   try {
     const stat = await fs.stat(CACHE_FILE);
@@ -340,7 +340,7 @@ export async function fetchDynamicModels(): Promise<Record<string, ModelTier[]>>
 /**
  * Get model tiers for a provider — tries dynamic first, falls back to hardcoded.
  */
-export async function getModelTiers(provider: string): Promise<ModelTier[]> {
+async function getModelTiers(provider: string): Promise<ModelTier[]> {
   const dynamic = await fetchDynamicModels();
   if (dynamic[provider] && dynamic[provider].length > 0) {
     return dynamic[provider];
@@ -419,7 +419,8 @@ export async function writeApiKey(provider: string, key: string): Promise<void> 
   if (!envVar) return;
 
   const configDir = path.join(os.homedir(), ".config", "gnosys");
-  await fs.mkdir(configDir, { recursive: true });
+  await fs.mkdir(configDir, { recursive: true, mode: 0o700 });
+  await fs.chmod(configDir, 0o700);
 
   const envPath = path.join(configDir, ".env");
 
@@ -450,6 +451,7 @@ export async function writeApiKey(provider: string, key: string): Promise<void> 
   }
 
   await fs.writeFile(envPath, lines.join("\n") + "\n", "utf-8");
+  await fs.chmod(envPath, 0o600);
 }
 
 /**
@@ -457,7 +459,7 @@ export async function writeApiKey(provider: string, key: string): Promise<void> 
  * Uses the -U flag to update if the entry already exists.
  * Returns true on success, false on failure.
  */
-export function writeApiKeyToKeychain(envVar: string, key: string): boolean {
+function writeApiKeyToKeychain(envVar: string, key: string): boolean {
   if (process.platform !== "darwin") return false;
   try {
     // The -U flag updates if the password already exists
@@ -797,12 +799,12 @@ export async function setupIDE(
           const before = existing;
           // Old shape (pre-v5.8.4): [gnosys] command/args
           existing = existing.replace(
-            /\n?\[gnosys\][^\[]*?command\s*=\s*"gnosys"[^\[]*?args\s*=\s*\[[^\]]*\]\s*\n?/,
+            /\n?\[gnosys\][^[]*?command\s*=\s*"gnosys"[^[]*?args\s*=\s*\[[^\]]*\]\s*\n?/,
             "\n",
           );
           // v5.8.4 shape: [mcp.gnosys] type/command
           existing = existing.replace(
-            /\n?\[mcp\.gnosys\][^\[]*?type\s*=\s*"local"[^\[]*?command\s*=\s*\[[^\]]*\]\s*\n?/,
+            /\n?\[mcp\.gnosys\][^[]*?type\s*=\s*"local"[^[]*?command\s*=\s*\[[^\]]*\]\s*\n?/,
             "\n",
           );
           if (existing !== before) {
@@ -1294,6 +1296,7 @@ export async function runSetup(opts: {
         }
 
         if (shouldUpgrade) {
+          // Intentional dynamic import — lazy-load projectIdentity to avoid a static cycle.
           const { createProjectIdentity } = await import("./projectIdentity.js");
 
           for (const project of projects) {
@@ -1419,7 +1422,8 @@ export async function runSetup(opts: {
       if (baseUrl) {
         // Write GNOSYS_LLM_BASE_URL to env file
         const configDir = path.join(os.homedir(), ".config", "gnosys");
-        await fs.mkdir(configDir, { recursive: true });
+        await fs.mkdir(configDir, { recursive: true, mode: 0o700 });
+        await fs.chmod(configDir, 0o700);
         const envPath = path.join(configDir, ".env");
 
         let lines: string[] = [];
@@ -1445,6 +1449,7 @@ export async function runSetup(opts: {
           lines.push(`GNOSYS_LLM_BASE_URL=${baseUrl}`);
         }
         await fs.writeFile(envPath, lines.join("\n") + "\n", "utf-8");
+        await fs.chmod(envPath, 0o600);
       }
     } else if (isSkip) {
       // Skip step 2 entirely
@@ -2398,7 +2403,7 @@ export async function runModelsSetup(opts: ModelsSetupOpts = {}): Promise<void> 
 
 // ─── Quick `gnosys models` command ───────────────────────────────────────────
 
-export interface ModelsCommandOpts {
+interface ModelsCommandOpts {
   list?: boolean;
   refresh?: boolean;
   set?: string;
@@ -2411,7 +2416,7 @@ export interface ModelsCommandOpts {
  *   --refresh: clear the OpenRouter cache and re-fetch
  *   --set X:   update the default model in gnosys.json (no prompts)
  */
-export async function runModelsCommand(opts: ModelsCommandOpts = {}): Promise<void> {
+async function runModelsCommand(opts: ModelsCommandOpts = {}): Promise<void> {
   const projectDir = opts.directory ? path.resolve(opts.directory) : process.cwd();
   const existingConfig = await loadExistingConfig(projectDir);
   const currentProvider = existingConfig?.llm.defaultProvider;

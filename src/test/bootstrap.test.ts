@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
-import { discoverFiles, parseFileForImport, bootstrap, BootstrapOptions } from "../lib/bootstrap.js";
+import { discoverFiles, parseFileForImport, bootstrap, type BootstrapOptions } from "../lib/bootstrap.js";
 import { GnosysStore } from "../lib/store.js";
 
 let tempDir: string;

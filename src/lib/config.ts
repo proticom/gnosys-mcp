@@ -8,6 +8,7 @@ import fs from "fs/promises";
 import path from "path";
 import { execSync } from "child_process";
 import { getGnosysHome } from "./paths.js";
+import { atomicWriteFile } from "./atomicWrite.js";
 
 // ─── LLM Provider Schemas ───────────────────────────────────────────────
 
@@ -638,7 +639,7 @@ export async function writeConfig(
 ): Promise<void> {
   const configPath = path.join(storePath, "gnosys.json");
   const merged = GnosysConfigSchema.parse(config);
-  await fs.writeFile(configPath, JSON.stringify(merged, null, 2) + "\n", "utf-8");
+  await atomicWriteFile(configPath, JSON.stringify(merged, null, 2) + "\n");
 }
 
 /**
@@ -662,7 +663,7 @@ export async function updateConfig(
   // Validate for shape/type errors. The validated object has defaults
   // applied; we deliberately throw it away and persist `merged` instead.
   const validated = GnosysConfigSchema.parse(merged);
-  await fs.writeFile(configPath, JSON.stringify(merged, null, 2) + "\n", "utf-8");
+  await atomicWriteFile(configPath, JSON.stringify(merged, null, 2) + "\n");
   return validated;
 }
 

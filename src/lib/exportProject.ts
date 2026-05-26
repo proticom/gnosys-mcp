@@ -7,7 +7,7 @@
 import { gzipSync } from "zlib";
 import { writeFileSync } from "fs";
 import { hostname, userInfo } from "os";
-import { GnosysDB, DbMemory, DbProject, DbRelationship, DbAuditEntry } from "./db.js";
+import type { GnosysDB, DbMemory, DbProject, DbRelationship, DbAuditEntry } from "./db.js";
 import { readFileSync as readPkg } from "fs";
 import { fileURLToPath } from "url";
 import { join, dirname } from "path";
@@ -15,7 +15,7 @@ import { join, dirname } from "path";
 export const BUNDLE_FORMAT = "gnosys-project-bundle";
 export const BUNDLE_VERSION = 1;
 
-export interface BundleManifest {
+interface BundleManifest {
   format: typeof BUNDLE_FORMAT;
   version: number;
   created: string;
@@ -51,6 +51,7 @@ export interface ExportProjectOptions {
 export interface ExportProjectResult {
   outputPath: string;
   memoryCount: number;
+  archivedExcluded: number;
   relationshipCount: number;
   auditEntryCount: number;
   uncompressedBytes: number;
@@ -81,6 +82,8 @@ export function exportProject(
   }
 
   const rawMemories = db.getMemoriesByProject(opts.projectId, !!opts.includeArchived);
+  const totalIncludingArchived = db.getMemoriesByProject(opts.projectId, true).length;
+  const archivedExcluded = opts.includeArchived ? 0 : totalIncludingArchived - rawMemories.length;
 
   const memories: PortableMemory[] = rawMemories.map((m) => {
     const { embedding: _embedding, ...rest } = m;
@@ -118,6 +121,7 @@ export function exportProject(
   return {
     outputPath: opts.outputPath,
     memoryCount: memories.length,
+    archivedExcluded,
     relationshipCount: relationships.length,
     auditEntryCount: audit_log.length,
     uncompressedBytes: Buffer.byteLength(json, "utf-8"),

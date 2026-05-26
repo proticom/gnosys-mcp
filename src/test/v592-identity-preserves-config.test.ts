@@ -19,7 +19,7 @@ import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
-import { writeProjectIdentity, ProjectIdentity } from "../lib/projectIdentity.js";
+import { writeProjectIdentity, type ProjectIdentity } from "../lib/projectIdentity.js";
 
 describe("v5.9.2 regression: writeProjectIdentity preserves user config", () => {
   it("does NOT wipe llm config or other user fields when re-writing identity", async () => {

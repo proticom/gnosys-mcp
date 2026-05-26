@@ -5,6 +5,8 @@ talks to an LLM provider you configure, and stores memories in a SQLite
 database you control. Most of its attack surface is local, but we take
 security seriously and welcome responsible disclosure.
 
+**Companion document:** [docs/threat-model.md](docs/threat-model.md) — the per-asset threat model with mitigation references.
+
 ## Supported Versions
 
 Gnosys ships frequent patch releases. Security fixes land on the latest
@@ -18,6 +20,22 @@ published minor and are released as a new patch.
 
 Always run the latest version: `npm install -g gnosys@latest` (or
 `gnosys upgrade`). Check your version with `gnosys --version`.
+
+## Update integrity
+
+`gnosys upgrade` delegates to your package manager (`npm install -g gnosys@latest`,
+or the pnpm/yarn equivalent). Integrity is verified by the package manager, not
+re-implemented by Gnosys:
+
+- The package manager verifies the downloaded tarball against the registry's
+  SHA-512 integrity hash (SRI) on every install.
+- Gnosys is published from CI via npm **OIDC trusted publishing**, so releases
+  carry **provenance attestations**. Verify them with:
+  `npm audit signatures` (after install) or view the "Provenance" panel on the
+  package's npm page.
+
+Gnosys does not add a separate signature step — it relies on the package
+manager's verified install path.
 
 ## Reporting a Vulnerability
 

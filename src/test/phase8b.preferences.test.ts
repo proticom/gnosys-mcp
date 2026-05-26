@@ -26,7 +26,7 @@ import {
 import {
   createTestEnv,
   cleanupTestEnv,
-  TestEnv,
+  type TestEnv,
 } from "./_helpers.js";
 
 let env: TestEnv;

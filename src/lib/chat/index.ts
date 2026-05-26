@@ -9,7 +9,7 @@
  *   - On exit, flush a session_end event
  */
 
-import { GnosysConfig } from "../config.js";
+import type { GnosysConfig } from "../config.js";
 import { GnosysDB } from "../db.js";
 import {
   startSession,
@@ -17,10 +17,11 @@ import {
   readSession,
   listSessions,
   searchSessions,
-  SessionEvent,
+  type SessionEvent,
 } from "./session.js";
-import { Turn, ChatHeaderInfo } from "./types.js";
+import type { Turn, ChatHeaderInfo } from "./types.js";
 import { resolveTaskModel } from "../config.js";
+import { logError } from "../log.js";
 
 export interface StartChatOptions {
   config: GnosysConfig;
@@ -98,7 +99,7 @@ export async function startChat(opts: StartChatOptions): Promise<void> {
   if (opts.resume) {
     const events = readSession(opts.resume);
     if (events.length === 0) {
-      console.error(`Session not found: ${opts.resume}`);
+      logError(new Error(`Session not found: ${opts.resume}`), { module: "chat", op: "resume" });
       process.exit(1);
     }
     sessionId = opts.resume;

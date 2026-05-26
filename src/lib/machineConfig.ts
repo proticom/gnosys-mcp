@@ -29,10 +29,11 @@ import os from "os";
 import path from "path";
 import { randomUUID } from "crypto";
 import { getMachineConfigPath } from "./paths.js";
+import { atomicWriteFileSync } from "./atomicWrite.js";
 
-export const MACHINE_CONFIG_VERSION = 1;
+const MACHINE_CONFIG_VERSION = 1;
 
-export interface MachineRemoteConfig {
+interface MachineRemoteConfig {
   /** Whether remote sync is configured/active on this machine. */
   enabled: boolean;
   /** Absolute path or URL to the remote DB on this machine (NAS mount / Tailscale). */
@@ -99,7 +100,7 @@ export function readMachineConfig(): MachineConfig | null {
 export function writeMachineConfig(cfg: MachineConfig): void {
   const p = getMachineConfigPath();
   fs.mkdirSync(path.dirname(p), { recursive: true });
-  fs.writeFileSync(p, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
+  atomicWriteFileSync(p, JSON.stringify(cfg, null, 2) + "\n");
 }
 
 export interface EnsureResult {
@@ -123,8 +124,20 @@ export interface EnsureResult {
  * genuine foreign file gets corrected when the user re-runs `projects scan`).
  */
 export function ensureMachineConfig(): EnsureResult {
+  const override = process.env.GNOSYS_MACHINE_ID?.trim();
   const existing = readMachineConfig();
   const host = os.hostname();
+
+  if (override) {
+    const base = existing ?? defaultMachineConfig();
+    const cfg: MachineConfig = {
+      ...base,
+      machineId: override,
+      hostname: host,
+    };
+    writeMachineConfig(cfg);
+    return { config: cfg, created: !existing, regenerated: false };
+  }
 
   if (!existing) {
     const fresh = defaultMachineConfig();

@@ -18,7 +18,7 @@
  *     onProgress?.({ kind: "done", text: "Pushed 42" });
  */
 
-export type ProgressEvent =
+type ProgressEvent =
   | { kind: "header"; text: string }
   | { kind: "step"; text: string }
   | { kind: "tick"; text: string }

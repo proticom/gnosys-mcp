@@ -20,8 +20,8 @@ import { Box, Text, useApp, useInput } from "ink";
 import TextInput from "ink-text-input";
 import SelectInput from "ink-select-input";
 import Spinner from "ink-spinner";
-import { ChatHeaderInfo, ChatStatus, Turn } from "./types.js";
-import { dispatchCommand, CommandContext, listCommands } from "./commands.js";
+import type { ChatHeaderInfo, ChatStatus, Turn } from "./types.js";
+import { dispatchCommand, type CommandContext, listCommands } from "./commands.js";
 import { SlashPalette, filterCommands } from "./SlashPalette.js";
 import { THEME, ROLES } from "./theme.js";
 import { BootSplash } from "./boot-splash.js";
@@ -29,7 +29,7 @@ import { MarkdownRenderer } from "./components/MarkdownRenderer.js";
 import { ToolCallCard } from "./components/ToolCallCard.js";
 import { appendEvent } from "./session.js";
 import { runTurn, buildProvider } from "./llmTurn.js";
-import { runRecall, reinforceMemory, buildRecallQuery, RecallScope } from "./recall.js";
+import { runRecall, reinforceMemory, buildRecallQuery, type RecallScope } from "./recall.js";
 import { promoteToMemory, lastExchange, formatExchange, detectAutoPromote } from "./write.js";
 import {
   inferIntent,
@@ -38,19 +38,19 @@ import {
   shouldAutoAccept,
   recordAcceptance,
   newAcceptanceLog,
-  IntentAcceptanceLog,
-  InferredIntent,
+  type IntentAcceptanceLog,
+  type InferredIntent,
 } from "./intent.js";
-import { extractChooseFence, ChooseBlock, ChooseOption, formatSelection } from "./choose.js";
+import { extractChooseFence, type ChooseBlock, type ChooseOption, formatSelection } from "./choose.js";
 import {
   newFocusState,
   applyFocus,
   applyBranch,
   applyResumeFocus,
   popBranch,
-  FocusState,
+  type FocusState,
 } from "./focus.js";
-import { GnosysConfig, LLMProviderName } from "../config.js";
+import type { GnosysConfig, LLMProviderName } from "../config.js";
 import { GnosysDB } from "../db.js";
 
 export interface ChatAppProps {

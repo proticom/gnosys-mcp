@@ -19,20 +19,20 @@ import net from "net";
 import { GnosysDB } from "../lib/db.js";
 import {
   handleRequest,
-  SandboxRequest,
+  type SandboxRequest,
   SandboxResponse,
   initDreamMode,
-  DreamState,
+  type DreamState,
 } from "../sandbox/server.js";
 import { SandboxClient } from "../sandbox/client.js";
-import { setPreference, getPreference, getAllPreferences, Preference } from "../lib/preferences.js";
+import { setPreference, getPreference, getAllPreferences, type Preference } from "../lib/preferences.js";
 import { injectRules, generateRulesBlock } from "../lib/rulesGen.js";
 import { DEFAULT_DREAM_CONFIG, DreamScheduler, GnosysDreamEngine } from "../lib/dream.js";
 import { DEFAULT_CONFIG } from "../lib/config.js";
 import {
   createTestEnv,
   cleanupTestEnv,
-  TestEnv,
+  type TestEnv,
 } from "./_helpers.js";
 
 let env: TestEnv;

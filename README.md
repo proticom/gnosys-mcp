@@ -24,10 +24,14 @@ The central brain is a single SQLite database at `~/.gnosys/gnosys.db` with sub-
 
 ## Install
 
+> **Requires Node.js ≥ 20.12.**
+
 ```bash
 npm install -g gnosys
 gnosys setup          # configures provider, API key, and your IDE/agent
 ```
+
+> **Optional native deps.** Gnosys auto-installs **better-sqlite3** (the SQLite engine) and **@huggingface/transformers** (local embeddings). If your environment lacks build tools and either fails to install, run `npm install better-sqlite3 @huggingface/transformers` — or configure an external embedding API. Both degrade gracefully if absent.
 
 ## Quick start
 
@@ -50,6 +54,68 @@ That's the 60-second tour. **Everything else lives on [gnosys.ai](https://gnosys
 - **Dream Mode** — idle-time consolidation: confidence decay, summaries, relationship discovery. Never deletes — only suggests.
 - **Multi-machine sync** — share your brain across machines; conflict detection with skip-and-flag resolution.
 - **Obsidian export** — `gnosys export` regenerates a full vault with frontmatter, `[[wikilinks]]`, and graph data.
+
+## MCP Tool Reference
+
+All tools are exposed over stdio and HTTP transports. Many tools accept an optional `projectRoot` parameter to target a specific project store.
+
+This package installs two binaries:
+
+- **`gnosys`** — the CLI. `gnosys serve` starts the MCP server (stdio by default, `--transport http` for the central-server topology). `gnosys init <ide>` wires this into your IDE/agent automatically.
+- **`gnosys-mcp`** — a direct alias for the MCP stdio server entry, for MCP clients that prefer to spawn the server binary directly (e.g. `npx -y gnosys-mcp`). Equivalent to `gnosys serve`.
+
+| Tool | Description |
+|------|-------------|
+| `gnosys_discover` | Discover relevant memories by describing what you're working on. |
+| `gnosys_read` | Read a specific memory. |
+| `gnosys_search` | Search memories by keyword across all stores. |
+| `gnosys_list` | List memories across all stores, optionally filtered by category, tag, or store layer. |
+| `gnosys_add` | Add a new memory. |
+| `gnosys_add_structured` | Add a memory with structured input (no LLM needed). |
+| `gnosys_tags` | List all tags in the registry, grouped by category. |
+| `gnosys_tags_add` | Add a new tag to the registry. |
+| `gnosys_reinforce` | Signal whether a memory was useful. |
+| `gnosys_init` | Initialize Gnosys in a project directory. |
+| `gnosys_migrate` | Migrate a Gnosys store (.gnosys/) from one directory to another. |
+| `gnosys_update` | Update an existing memory's frontmatter and/or content. |
+| `gnosys_stale` | Find memories that haven't been modified or reviewed within a given number of days. |
+| `gnosys_commit_context` | Pre-compaction memory sweep. |
+| `gnosys_history` | View audit history for a memory. |
+| `gnosys_lens` | Filtered view of memories. |
+| `gnosys_timeline` | View memory creation and modification activity over time. |
+| `gnosys_stats` | Summary statistics across all memories — totals by category, status, author, authority, average confidence, and date ranges. |
+| `gnosys_links` | Show wikilinks for a specific memory — outgoing [[links]] and backlinks from other memories. |
+| `gnosys_graph` | Show the full cross-reference graph across all memories. |
+| `gnosys_bootstrap` | Batch-import existing documents from a directory into the memory store. |
+| `gnosys_import` | Bulk import structured data (CSV, JSON, JSONL) into Gnosys memories. |
+| `gnosys_hybrid_search` | Search memories using hybrid keyword + semantic search with Reciprocal Rank Fusion. |
+| `gnosys_semantic_search` | Search memories using semantic similarity only (no keyword matching). |
+| `gnosys_reindex` | Rebuild all semantic embeddings from every memory file. |
+| `gnosys_ask` | Ask a natural-language question and get a synthesized answer with citations from the entire vault. |
+| `gnosys_maintain` | Run vault maintenance: detect duplicate memories, apply confidence decay, consolidate similar memories. |
+| `gnosys_dearchive` | Force-dearchive memories from archive.db back to active. |
+| `gnosys_reindex_graph` | Build or rebuild the wikilink graph (.gnosys/graph.json). |
+| `gnosys_dream` | Run a Dream Mode cycle — idle-time consolidation that decays confidence, generates category summaries, discovers relationships, and creates review suggestions. |
+| `gnosys_export` | Export gnosys.db to Obsidian-compatible vault — atomic Markdown files with YAML frontmatter, [[wikilinks]], category summaries, and relationship graph. |
+| `gnosys_dashboard` | Show the Gnosys system dashboard: memory counts, maintenance health, graph stats, LLM provider status. |
+| `gnosys_stores` | Debug tool — lists all detected Gnosys stores across registered projects, MCP workspace roots, cwd, and environment variables. |
+| `gnosys_recall` | Fast memory recall — inject relevant memories as context. |
+| `gnosys_audit` | View the audit trail of all memory operations (reads, writes, reinforcements, dearchives, maintenance). |
+| `gnosys_preference_set` | Set a user preference. |
+| `gnosys_preference_get` | Get a user preference by key, or list all preferences. |
+| `gnosys_preference_delete` | Delete a user preference by key. |
+| `gnosys_sync` | Get the current user preferences + project conventions formatted as a GNOSYS:START/GNOSYS:END block. |
+| `gnosys_federated_search` | Search across all scopes (project → user → global) with tier boosting. |
+| `gnosys_detect_ambiguity` | Check if a query matches memories in multiple projects. |
+| `gnosys_briefing` | Generate a project briefing — a summary of memory state, categories, recent activity, and top tags. |
+| `gnosys_portfolio` | Portfolio dashboard — shows all registered projects with memory counts, categories, status snapshots, roadmap items, and recent activity. |
+| `gnosys_remote_status` | Check the status of remote sync (multi-machine). |
+| `gnosys_remote_push` | Push local memory changes to the remote (NAS) database. |
+| `gnosys_remote_pull` | Pull remote memory changes to the local database. |
+| `gnosys_remote_resolve` | Resolve a sync conflict by choosing which version to keep. |
+| `gnosys_update_status` | Get the prompt/template for writing a dashboard-compatible status memory for this project. |
+| `gnosys_working_set` | Get the implicit working set — recently modified memories for the current project. |
+| `gnosys_ingest_file` | Ingest a file (PDF, DOCX, TXT, MD) into Gnosys memory. |
 
 ## Documentation
 

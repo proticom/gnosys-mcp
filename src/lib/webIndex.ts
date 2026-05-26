@@ -17,8 +17,6 @@ import type {
   IndexEntry,
 } from "./staticSearch.js";
 
-// Re-export types for convenience
-export type { GnosysWebIndex, DocumentManifest, IndexEntry };
 
 // ─── Options ─────────────────────────────────────────────────────────────
 

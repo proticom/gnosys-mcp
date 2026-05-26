@@ -5,9 +5,9 @@
  */
 
 import {
-  GnosysConfig,
+  type GnosysConfig,
   DEFAULT_CONFIG,
-  LLMProviderName,
+  type LLMProviderName,
   resolveTaskModel,
   getAnthropicApiKey,
   getOllamaBaseUrl,
@@ -23,15 +23,29 @@ import {
 } from "./config.js";
 import { withRetry, isTransientError } from "./retry.js";
 
+/** Per-request timeout for LLM generation calls (ms). */
+const LLM_TIMEOUT_MS = 60_000;
+/** Shorter timeout for connectivity probes (testConnection, model lists). */
+const PROBE_TIMEOUT_MS = 10_000;
+
+/** Strip literal API keys and known key-prefix patterns from provider error text. */
+export function redactKey(text: string, apiKey?: string): string {
+  let out = text;
+  if (apiKey && apiKey.length >= 8) {
+    out = out.split(apiKey).join("***");
+  }
+  return out.replace(/(?:sk-ant-|sk-|gsk_|xai-|Bearer\s+)[^\s"']+/g, "***");
+}
+
 // ─── Interfaces ──────────────────────────────────────────────────────────
 
-export interface LLMGenerateOptions {
+interface LLMGenerateOptions {
   system?: string;
   maxTokens?: number;
   stream?: boolean;
 }
 
-export interface LLMStreamCallbacks {
+interface LLMStreamCallbacks {
   onToken: (token: string) => void;
 }
 
@@ -73,7 +87,7 @@ export interface LLMProvider {
 
 // ─── Anthropic Provider ──────────────────────────────────────────────────
 
-export class AnthropicProvider implements LLMProvider {
+class AnthropicProvider implements LLMProvider {
   readonly name: LLMProviderName = "anthropic";
   readonly model: string;
   private client: any = null; // Anthropic SDK client (lazy-initialized)
@@ -92,7 +106,7 @@ export class AnthropicProvider implements LLMProvider {
     if (!this.clientPromise) {
       this.clientPromise = import("@anthropic-ai/sdk").then((mod) => {
         const Anthropic = mod.default || mod;
-        this.client = new Anthropic({ apiKey: this.apiKey });
+        this.client = new Anthropic({ apiKey: this.apiKey, timeout: LLM_TIMEOUT_MS });
         return this.client;
       });
     }
@@ -214,14 +228,14 @@ export class AnthropicProvider implements LLMProvider {
     } catch (err) {
       // Sanitize error message to prevent API key leakage
       const msg = err instanceof Error ? err.message : String(err);
-      throw new Error(`Anthropic connection failed: ${msg.replace(/sk-ant-[^\s"']+/g, "sk-ant-***")}`);
+      throw new Error(`Anthropic connection failed: ${redactKey(msg, this.apiKey)}`);
     }
   }
 }
 
 // ─── Ollama Provider ─────────────────────────────────────────────────────
 
-export class OllamaProvider implements LLMProvider {
+class OllamaProvider implements LLMProvider {
   readonly name: LLMProviderName = "ollama";
   readonly model: string;
   private baseUrl: string;
@@ -263,6 +277,7 @@ export class OllamaProvider implements LLMProvider {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
+          signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
         }),
       {
         maxAttempts: this.config.llmRetryAttempts,
@@ -353,6 +368,7 @@ export class OllamaProvider implements LLMProvider {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
+          signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
         }),
       {
         maxAttempts: this.config.llmRetryAttempts,
@@ -377,7 +393,9 @@ export class OllamaProvider implements LLMProvider {
 
   async testConnection(): Promise<boolean> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/tags`);
+      const response = await fetch(`${this.baseUrl}/api/tags`, {
+        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+      });
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
@@ -420,7 +438,7 @@ export class OllamaProvider implements LLMProvider {
  * Generic OpenAI-compatible provider. Works with any service that implements
  * the OpenAI /v1/chat/completions API: OpenAI, Groq, LM Studio, etc.
  */
-export class OpenAICompatibleProvider implements LLMProvider {
+class OpenAICompatibleProvider implements LLMProvider {
   readonly name: LLMProviderName;
   readonly model: string;
   private baseUrl: string;
@@ -471,6 +489,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
             ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
           },
           body: JSON.stringify(body),
+          signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
         }),
       {
         maxAttempts: this.config.llmRetryAttempts,
@@ -482,7 +501,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
     if (!response.ok) {
       const errorText = await response.text();
       // Sanitize error text to prevent API key leakage
-      const safeText = errorText.replace(/(?:sk-|gsk_|Bearer\s+)[^\s"']+/g, "***");
+      const safeText = redactKey(errorText, this.apiKey);
       throw new Error(
         `${this.name} request failed (${response.status}): ${safeText}`
       );
@@ -574,6 +593,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
             messages,
             max_tokens: maxTokens,
           }),
+          signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
         }),
       {
         maxAttempts: this.config.llmRetryAttempts,
@@ -584,10 +604,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
 
     if (!response.ok) {
       const errorText = await response.text();
-      const safeText = errorText.replace(
-        /(?:sk-|gsk_|Bearer\s+)[^\s"']+/g,
-        "***"
-      );
+      const safeText = redactKey(errorText, this.apiKey);
       throw new Error(
         `${this.name} vision request failed (${response.status}): ${safeText}`
       );
@@ -605,6 +622,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
         headers: {
           ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
         },
+        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
       });
 
       if (!response.ok) {

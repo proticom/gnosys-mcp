@@ -10,7 +10,8 @@
  * and versioned just like any other memory.
  */
 
-import { GnosysDB, DbMemory, fnv1a } from "./db.js";
+import { type GnosysDB, type DbMemory, fnv1a } from "./db.js";
+import { levenshtein } from "./setup/configSetRender.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -37,6 +38,24 @@ export const KNOWN_PREFERENCE_KEYS = [
   "review-process",
   "deploy-workflow",
 ] as const;
+
+/**
+ * Suggest the closest known preference key for a likely typo, or null.
+ * Returns null for exact known keys and for far custom keys (distance > 3).
+ */
+export function suggestPreferenceKey(input: string): string | null {
+  if ((KNOWN_PREFERENCE_KEYS as readonly string[]).includes(input)) return null;
+  let best: string | null = null;
+  let bestDist = Infinity;
+  for (const candidate of KNOWN_PREFERENCE_KEYS) {
+    const d = levenshtein(input, candidate);
+    if (d < bestDist) {
+      bestDist = d;
+      best = candidate;
+    }
+  }
+  return bestDist <= 3 ? best : null;
+}
 
 // ─── Preference CRUD ────────────────────────────────────────────────────
 

@@ -10,9 +10,9 @@
  * work without modification.
  */
 
-import { GnosysDB, DbMemory } from "./db.js";
-import { SearchResult, DiscoverResult } from "./search.js";
-import { HybridSearchResult, SearchMode } from "./hybridSearch.js";
+import type { GnosysDB, DbMemory } from "./db.js";
+import type { SearchResult, DiscoverResult } from "./search.js";
+import type { HybridSearchResult, SearchMode } from "./searchTypes.js";
 
 // ─── Cosine similarity for inline embeddings ────────────────────────────
 

@@ -159,7 +159,6 @@ export function parseChooseYaml(yaml: string): ChooseBlock {
     const detailMatch = line.match(/^\s*detail:\s*(.+?)\s*$/);
     if (detailMatch) {
       current.detail = detailMatch[1];
-      continue;
     }
   }
 

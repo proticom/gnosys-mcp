@@ -19,7 +19,7 @@
  *       relationships.md   (relationship index)
  */
 
-import { GnosysDB, DbMemory, DbRelationship } from "./db.js";
+import type { GnosysDB, DbMemory, DbRelationship } from "./db.js";
 import path from "path";
 import fs from "fs/promises";
 
@@ -45,6 +45,7 @@ export interface ExportOptions {
 export interface ExportReport {
   memoriesExported: number;
   memoriesSkipped: number;
+  archivedExcluded: number;
   summariesExported: number;
   reviewsExported: boolean;
   graphExported: boolean;
@@ -78,6 +79,7 @@ export class GnosysExporter {
     const report: ExportReport = {
       memoriesExported: 0,
       memoriesSkipped: 0,
+      archivedExcluded: 0,
       summariesExported: 0,
       reviewsExported: false,
       graphExported: false,
@@ -92,6 +94,11 @@ export class GnosysExporter {
     const memories = activeOnly
       ? this.db.getActiveMemories()
       : this.db.getAllMemories();
+
+    if (activeOnly) {
+      report.archivedExcluded =
+        this.db.getAllMemories().length - this.db.getActiveMemories().length;
+    }
 
     const total = memories.length;
 
@@ -152,7 +159,8 @@ export class GnosysExporter {
     targetDir: string,
     overwrite: boolean
   ): Promise<boolean> {
-    const categoryDir = path.join(targetDir, mem.category);
+    const safeCategory = this.slugify(mem.category) || "uncategorized";
+    const categoryDir = path.join(targetDir, safeCategory);
     await fs.mkdir(categoryDir, { recursive: true });
 
     const filename = this.slugify(mem.title) + ".md";
@@ -201,6 +209,7 @@ export class GnosysExporter {
       content += `\n\n---\n\n## Related\n\n${wikilinks.join("\n")}`;
     }
 
+    this.assertWithin(targetDir, filePath);
     await fs.writeFile(filePath, content, "utf-8");
     return true;
   }
@@ -245,6 +254,7 @@ export class GnosysExporter {
         summary.content,
       ].join("\n");
 
+      this.assertWithin(targetDir, filePath);
       await fs.writeFile(filePath, content, "utf-8");
       exported++;
     }
@@ -302,6 +312,7 @@ export class GnosysExporter {
       }
     }
 
+    this.assertWithin(targetDir, filePath);
     await fs.writeFile(filePath, lines.join("\n"), "utf-8");
     return true;
   }
@@ -364,6 +375,7 @@ export class GnosysExporter {
       lines.push("No relationships discovered yet. Run `gnosys dream` to discover relationships.");
     }
 
+    this.assertWithin(targetDir, filePath);
     await fs.writeFile(filePath, lines.join("\n"), "utf-8");
     return true;
   }
@@ -425,6 +437,17 @@ export class GnosysExporter {
       .replace(/^-|-$/g, "")
       .substring(0, 80);
   }
+
+  /**
+   * Ensure a resolved file path stays within the export target directory.
+   */
+  private assertWithin(targetDir: string, filePath: string): void {
+    const root = path.resolve(targetDir);
+    const resolved = path.resolve(filePath);
+    if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+      throw new Error(`Refusing to write outside export dir: ${resolved}`);
+    }
+  }
 }
 
 // ─── Format Helper ───────────────────────────────────────────────────────
@@ -441,6 +464,11 @@ export function formatExportReport(report: ExportReport): string {
   lines.push(`Target: ${report.targetDir}`);
   lines.push(`Memories exported: ${report.memoriesExported}`);
   lines.push(`Memories skipped (already exist): ${report.memoriesSkipped}`);
+  if (report.archivedExcluded > 0) {
+    lines.push(
+      `Archived excluded: ${report.archivedExcluded} — re-run with --all for a full export`,
+    );
+  }
   lines.push(`Summaries exported: ${report.summariesExported}`);
   lines.push(`Reviews exported: ${report.reviewsExported ? "yes" : "no"}`);
   lines.push(`Graph exported: ${report.graphExported ? "yes" : "no"}`);

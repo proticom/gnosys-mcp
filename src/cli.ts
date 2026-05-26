@@ -20,15 +20,15 @@ import { GnosysResolver } from "./lib/resolver.js";
 import { getGnosysHome } from "./lib/paths.js";
 import { GnosysSearch } from "./lib/search.js";
 import { GnosysTagRegistry } from "./lib/tags.js";
-import { applyLens, LensFilter } from "./lib/lensing.js";
-import { getFileHistory, rollbackToCommit, hasGitHistory, getFileDiff } from "./lib/history.js";
-import { computeStats, TimePeriod } from "./lib/timeline.js";
+import { applyLens, type LensFilter } from "./lib/lensing.js";
+import { computeStats, type TimePeriod } from "./lib/timeline.js";
 import { buildLinkGraph, getBacklinks, getOutgoingLinks, formatGraphSummary } from "./lib/wikilinks.js";
-import { loadConfig, generateConfigTemplate, GnosysConfig, DEFAULT_CONFIG, writeConfig, updateConfig, resolveTaskModel, ALL_PROVIDERS, LLMProviderName, getProviderModel } from "./lib/config.js";
-import { getLLMProvider, isProviderAvailable, LLMProvider } from "./lib/llm.js";
+import { loadConfig, generateConfigTemplate, type GnosysConfig, DEFAULT_CONFIG, writeConfig, updateConfig, resolveTaskModel, ALL_PROVIDERS, type LLMProviderName, getProviderModel } from "./lib/config.js";
+import { getLLMProvider, isProviderAvailable, type LLMProvider } from "./lib/llm.js";
 import { GnosysDB } from "./lib/db.js";
+import { logError } from "./lib/log.js";
 import { createProjectIdentity, readProjectIdentity, findProjectIdentity, migrateProject } from "./lib/projectIdentity.js";
-import { setPreference, getPreference, getAllPreferences, deletePreference } from "./lib/preferences.js";
+import { setPreference, getPreference, getAllPreferences, deletePreference, KNOWN_PREFERENCE_KEYS, suggestPreferenceKey } from "./lib/preferences.js";
 import { syncRules, syncToTarget } from "./lib/rulesGen.js";
 // Lazy-loaded inside action handlers (each ~200ms-2.5s on cold cache):
 //   - ./lib/embeddings.js       (@huggingface/transformers — 80MB)
@@ -222,6 +222,46 @@ program
   )
   .option("--json", "Output as JSON")
   .action(async (memoryPath: string, opts: { json?: boolean }) => {
+    const centralDb = GnosysDB.openCentral();
+    if (centralDb.isAvailable()) {
+      const dbMem = centralDb.getMemory(memoryPath);
+      if (dbMem) {
+        try {
+          const tags = dbMem.tags || "[]";
+          const headerLines = [
+            `---`,
+            `id: ${dbMem.id}`,
+            `title: '${dbMem.title}'`,
+            `category: ${dbMem.category}`,
+            `tags: ${tags}`,
+            `relevance: ${dbMem.relevance}`,
+            `author: ${dbMem.author}`,
+            `authority: ${dbMem.authority}`,
+            `confidence: ${dbMem.confidence}`,
+            `status: ${dbMem.status}`,
+            `tier: ${dbMem.tier}`,
+            `created: '${dbMem.created}'`,
+            `modified: '${dbMem.modified}'`,
+          ];
+          if (dbMem.source_file) {
+            headerLines.push(
+              `source_file: ${dbMem.source_file}${dbMem.source_page != null ? ` (page ${Number(dbMem.source_page)})` : ""}`,
+            );
+          }
+          if (dbMem.source_path) headerLines.push(`source_path: ${dbMem.source_path}`);
+          headerLines.push(`---`);
+          const raw = `[Source: gnosys.db]\n\n${headerLines.join("\n")}\n\n${dbMem.content}`;
+          outputResult(!!opts.json, { path: memoryPath, source: "gnosys.db", content: raw, memory: dbMem }, () => {
+            console.log(raw);
+          });
+          return;
+        } finally {
+          centralDb.close();
+        }
+      }
+    }
+    centralDb.close();
+
     const resolver = await getResolver();
     const memory = await resolver.readMemory(memoryPath);
     if (!memory) {
@@ -271,7 +311,7 @@ program
           }
         });
       } catch (err) {
-        console.error(`Error: ${err instanceof Error ? err.message : err}`);
+        logError(err, { module: "cli", op: "discover" });
         process.exit(1);
       } finally {
         centralDb?.close();
@@ -312,7 +352,7 @@ program
         }
       });
     } catch (err) {
-      console.error(`Error: ${err instanceof Error ? err.message : err}`);
+      logError(err, { module: "cli", op: "discover" });
       process.exit(1);
     } finally {
       centralDb?.close();
@@ -358,7 +398,7 @@ program
           }
         });
       } catch (err) {
-        console.error(`Error: ${err instanceof Error ? err.message : err}`);
+        logError(err, { module: "cli", op: "search" });
         process.exit(1);
       } finally {
         centralDb?.close();
@@ -401,7 +441,7 @@ program
         }
       });
     } catch (err) {
-      console.error(`Error: ${err instanceof Error ? err.message : err}`);
+      logError(err, { module: "cli", op: "search" });
       process.exit(1);
     } finally {
       centralDb?.close();
@@ -485,7 +525,7 @@ program
           }
         });
       } catch (err) {
-        console.error(`Error: ${err instanceof Error ? err.message : err}`);
+        logError(err, { module: "cli", op: "list" });
         process.exit(1);
       } finally {
         centralDb?.close();
@@ -2156,6 +2196,7 @@ program
   .option("--modified-after <date>", "Modified after ISO date")
   .option("--modified-before <date>", "Modified before ISO date")
   .option("--or", "Combine filters with OR instead of AND (default: AND)")
+  .option("--json", "Output as JSON")
   .action(
     async (opts: {
       category?: string;
@@ -2171,6 +2212,7 @@ program
       modifiedAfter?: string;
       modifiedBefore?: string;
       or?: boolean;
+      json?: boolean;
     }) => {
       const resolver = await getResolver();
       const allMemories = await resolver.getAllMemories();
@@ -2189,93 +2231,83 @@ program
       if (opts.modifiedBefore) lens.modifiedBefore = opts.modifiedBefore;
 
       const result = applyLens(allMemories, lens);
+      const items = result.map((m) => ({
+        title: m.frontmatter.title,
+        status: m.frontmatter.status,
+        confidence: m.frontmatter.confidence,
+        sourceLabel: (m as any).sourceLabel || "",
+        relativePath: m.relativePath,
+      }));
 
-      if (result.length === 0) {
-        console.log("No memories match the lens filter.");
-        return;
-      }
+      outputResult(!!opts.json, { count: items.length, items }, () => {
+        if (result.length === 0) {
+          console.log("No memories match the lens filter.");
+          return;
+        }
 
-      console.log(`${result.length} memories match:\n`);
-      for (const m of result) {
-        const src = (m as any).sourceLabel || "";
-        console.log(`  [${m.frontmatter.status}] ${m.frontmatter.title} (${m.frontmatter.confidence})`);
-        console.log(`    ${src ? src + ":" : ""}${m.relativePath}`);
-        console.log();
-      }
+        console.log(`${result.length} memories match:\n`);
+        for (const m of result) {
+          const src = (m as any).sourceLabel || "";
+          console.log(`  [${m.frontmatter.status}] ${m.frontmatter.title} (${m.frontmatter.confidence})`);
+          console.log(`    ${src ? src + ":" : ""}${m.relativePath}`);
+          console.log();
+        }
+      });
     }
   );
 
 // ─── gnosys history <path> ───────────────────────────────────────────────
 program
   .command("history <memoryPath>")
-  .description("Show version history for a memory (git-backed)")
+  .description("Show audit history for a memory")
   .option("-n, --limit <number>", "Max entries", "20")
-  .option("--diff <hash>", "Show diff from this commit to current")
-  .action(async (memPath: string, opts: { limit: string; diff?: string }) => {
-    const resolver = await getResolver();
-    const memory = await resolver.readMemory(memPath);
-    if (!memory) {
-      console.error(`Memory not found: ${memPath}`);
+  .option("--json", "Output as JSON")
+  .action(async (memPath: string, opts: { limit: string; json?: boolean }) => {
+    const centralDb = GnosysDB.openCentral();
+    if (!centralDb.isAvailable()) {
+      console.error("Central DB not available.");
       process.exit(1);
     }
-
-    const sourceStore = resolver.getStores().find((s) => s.label === memory.sourceLabel);
-    if (!sourceStore) {
-      console.error("Could not locate source store.");
-      process.exit(1);
-    }
-
-    if (!hasGitHistory(sourceStore.path)) {
-      console.error("No git history available for this store.");
-      process.exit(1);
-    }
-
-    if (opts.diff) {
-      const diff = getFileDiff(sourceStore.path, memory.relativePath, opts.diff, "HEAD");
-      if (!diff) {
-        console.error("Could not generate diff.");
+    try {
+      const dbMem = centralDb.getMemory(memPath);
+      if (!dbMem) {
+        console.error(`Memory not found: ${memPath}`);
         process.exit(1);
       }
-      console.log(diff);
-      return;
-    }
 
-    const history = getFileHistory(sourceStore.path, memory.relativePath, parseInt(opts.limit));
-    if (history.length === 0) {
-      console.log("No history found for this memory.");
-      return;
-    }
+      const limit = parseInt(opts.limit, 10) || 20;
+      const audits = centralDb.getAuditLog(dbMem.id, limit);
 
-    console.log(`History for ${memory.frontmatter.title}:\n`);
-    for (const entry of history) {
-      console.log(`  ${entry.commitHash.substring(0, 7)}  ${entry.date}  ${entry.message}`);
-    }
-  });
+      outputResult(
+        !!opts.json,
+        {
+          memoryId: dbMem.id,
+          title: dbMem.title,
+          created: dbMem.created,
+          modified: dbMem.modified,
+          entries: audits,
+        },
+        () => {
+          if (audits.length === 0) {
+            console.log(`Memory: ${dbMem.title} (${dbMem.id})`);
+            console.log(`Created: ${dbMem.created}`);
+            console.log(`Modified: ${dbMem.modified}`);
+            console.log("No audit history recorded.");
+            return;
+          }
 
-// ─── gnosys rollback <path> <hash> ──────────────────────────────────────
-program
-  .command("rollback <memoryPath> <commitHash>")
-  .description("Rollback a memory to its state at a specific commit")
-  .action(async (memPath: string, commitHash: string) => {
-    const resolver = await getResolver();
-    const memory = await resolver.readMemory(memPath);
-    if (!memory) {
-      console.error(`Memory not found: ${memPath}`);
-      process.exit(1);
-    }
-
-    const sourceStore = resolver.getStores().find((s) => s.label === memory.sourceLabel);
-    if (!sourceStore?.writable) {
-      console.error("Cannot rollback: store is read-only.");
-      process.exit(1);
-    }
-
-    const success = rollbackToCommit(sourceStore.path, memory.relativePath, commitHash);
-    if (success) {
-      console.log(`Rolled back ${memory.frontmatter.title} to commit ${commitHash.substring(0, 7)}.`);
-    } else {
-      console.error(`Rollback failed. Check that the commit hash is valid.`);
-      process.exit(1);
+          console.log(`History for ${dbMem.title} (${dbMem.id}, ${audits.length} entries):\n`);
+          console.log(`Created: ${dbMem.created}`);
+          console.log(`Modified: ${dbMem.modified}\n`);
+          for (const entry of audits) {
+            const date = entry.timestamp.split("T")[0];
+            const detail = entry.details ? ` (${entry.details})` : "";
+            console.log(`  ${date}  ${entry.operation}${detail}`);
+          }
+        },
+      );
+    } finally {
+      centralDb.close();
     }
   });
 
@@ -2286,7 +2318,8 @@ program
   .option("-p, --period <period>", "Group by: day, week, month (default), year", "month")
   .option("--project <id>", "Filter to a specific project ID (default: all projects)")
   .option("--limit-titles <n>", "Show titles inline when an entry has <= N memories (default 5)", "5")
-  .action(async (opts: { period: string; project?: string; limitTitles: string }) => {
+  .option("--json", "Output as JSON")
+  .action(async (opts: { period: string; project?: string; limitTitles: string; json?: boolean }) => {
     const { groupDbByPeriod } = await import("./lib/timeline.js");
     const centralDb = GnosysDB.openCentral();
     if (!centralDb.isAvailable()) {
@@ -2299,25 +2332,29 @@ program
         : centralDb.getActiveMemories();
 
       if (memories.length === 0) {
-        console.log("No memories found.");
+        outputResult(!!opts.json, { period: opts.period, count: 0, entries: [] }, () => {
+          console.log("No memories found.");
+        });
         return;
       }
 
       const entries = groupDbByPeriod(memories, opts.period as TimePeriod);
       const titleLimit = Math.max(0, parseInt(opts.limitTitles, 10) || 5);
 
-      console.log(`Knowledge Timeline (by ${opts.period}, ${memories.length} memories):\n`);
-      for (const entry of entries) {
-        const parts = [];
-        if (entry.created > 0) parts.push(`${entry.created} created`);
-        if (entry.modified > 0) parts.push(`${entry.modified} modified`);
-        console.log(`  ${entry.period}: ${parts.join(", ")}`);
-        if (entry.titles.length > 0 && entry.titles.length <= titleLimit) {
-          for (const t of entry.titles) {
-            console.log(`    + ${t}`);
+      outputResult(!!opts.json, { period: opts.period, count: memories.length, entries }, () => {
+        console.log(`Knowledge Timeline (by ${opts.period}, ${memories.length} memories):\n`);
+        for (const entry of entries) {
+          const parts = [];
+          if (entry.created > 0) parts.push(`${entry.created} created`);
+          if (entry.modified > 0) parts.push(`${entry.modified} modified`);
+          console.log(`  ${entry.period}: ${parts.join(", ")}`);
+          if (entry.titles.length > 0 && entry.titles.length <= titleLimit) {
+            for (const t of entry.titles) {
+              console.log(`    + ${t}`);
+            }
           }
         }
-      }
+      });
     } finally {
       centralDb.close();
     }
@@ -2474,7 +2511,8 @@ program
 program
   .command("links <memoryPath>")
   .description("Show wikilinks for a memory — both outgoing [[links]] and backlinks from other memories")
-  .action(async (memPath: string) => {
+  .option("--json", "Output as JSON")
+  .action(async (memPath: string, opts: { json?: boolean }) => {
     const resolver = await getResolver();
     const memory = await resolver.readMemory(memPath);
     if (!memory) {
@@ -2486,35 +2524,47 @@ program
     const outgoing = getOutgoingLinks(allMemories, memory.relativePath);
     const backlinks = getBacklinks(allMemories, memory.relativePath);
 
-    console.log(`Links for ${memory.frontmatter.title}:\n`);
+    outputResult(
+      !!opts.json,
+      {
+        memoryPath: memPath,
+        title: memory.frontmatter.title,
+        outgoing,
+        backlinks,
+      },
+      () => {
+        console.log(`Links for ${memory.frontmatter.title}:\n`);
 
-    if (outgoing.length > 0) {
-      console.log(`  Outgoing (${outgoing.length}):`);
-      for (const link of outgoing) {
-        const display = link.displayText ? ` (${link.displayText})` : "";
-        console.log(`    → [[${link.target}]]${display}`);
-      }
-    } else {
-      console.log("  No outgoing links.");
-    }
+        if (outgoing.length > 0) {
+          console.log(`  Outgoing (${outgoing.length}):`);
+          for (const link of outgoing) {
+            const display = link.displayText ? ` (${link.displayText})` : "";
+            console.log(`    → [[${link.target}]]${display}`);
+          }
+        } else {
+          console.log("  No outgoing links.");
+        }
 
-    console.log();
+        console.log();
 
-    if (backlinks.length > 0) {
-      console.log(`  Backlinks (${backlinks.length}):`);
-      for (const link of backlinks) {
-        console.log(`    ← ${link.sourceTitle} (${link.sourcePath})`);
-      }
-    } else {
-      console.log("  No backlinks.");
-    }
+        if (backlinks.length > 0) {
+          console.log(`  Backlinks (${backlinks.length}):`);
+          for (const link of backlinks) {
+            console.log(`    ← ${link.sourceTitle} (${link.sourcePath})`);
+          }
+        } else {
+          console.log("  No backlinks.");
+        }
+      },
+    );
   });
 
 // ─── gnosys graph ───────────────────────────────────────────────────────
 program
   .command("graph")
   .description("Show the [[wikilink]] cross-reference graph between memories. Empty until you start using [[Title]] in memory content — then this shows which memories reference each other.")
-  .action(async () => {
+  .option("--json", "Output as JSON")
+  .action(async (opts: { json?: boolean }) => {
     // v5.4.1: Query the central DB directly. Previously this used the
     // filesystem resolver, which returns nothing in v5.x DB-only mode
     // because memories no longer live as markdown files.
@@ -2528,7 +2578,9 @@ program
 
       const dbMemories = centralDb.getAllMemories();
       if (dbMemories.length === 0) {
-        console.log("No memories found.");
+        outputResult(!!opts.json, { totalLinks: 0, orphanedLinks: [], nodes: [] }, () => {
+          console.log("No memories found.");
+        });
         return;
       }
 
@@ -2566,7 +2618,17 @@ program
       });
 
       const graph = buildLinkGraph(adapted);
-      console.log(formatGraphSummary(graph));
+      outputResult(
+        !!opts.json,
+        {
+          totalLinks: graph.totalLinks,
+          orphanedLinks: graph.orphanedLinks,
+          nodes: Array.from(graph.nodes.values()),
+        },
+        () => {
+          console.log(formatGraphSummary(graph));
+        },
+      );
     } finally {
       centralDb?.close();
     }
@@ -3005,7 +3067,8 @@ program
   .command("semantic-search <query>")
   .description("Search using semantic similarity only (requires embeddings)")
   .option("-l, --limit <n>", "Max results", "15")
-  .action(async (query: string, opts: { limit: string }) => {
+  .option("--json", "Output as JSON")
+  .action(async (query: string, opts: { limit: string; json?: boolean }) => {
     const resolver = await getResolver();
     const stores = resolver.getStores();
     if (stores.length === 0) {
@@ -3027,17 +3090,33 @@ program
 
     const results = await hybridSearch.hybridSearch(query, parseInt(opts.limit), "semantic");
 
-    if (results.length === 0) {
-      console.log(`No semantic results for "${query}". Run gnosys reindex first.`);
-    } else {
-      console.log(`Found ${results.length} semantic results for "${query}":\n`);
-      for (const r of results) {
-        console.log(`  ${r.title}`);
-        console.log(`    Path: ${r.relativePath}`);
-        console.log(`    Similarity: ${r.score.toFixed(4)}`);
-        console.log(`    ${r.snippet.substring(0, 120)}...\n`);
-      }
-    }
+    outputResult(
+      !!opts.json,
+      {
+        query,
+        count: results.length,
+        results: results.map((r) => ({
+          title: r.title,
+          relativePath: r.relativePath,
+          score: r.score,
+          snippet: r.snippet,
+        })),
+      },
+      () => {
+        if (results.length === 0) {
+          console.log(`No semantic results for "${query}". Run gnosys reindex first.`);
+          return;
+        }
+
+        console.log(`Found ${results.length} semantic results for "${query}":\n`);
+        for (const r of results) {
+          console.log(`  ${r.title}`);
+          console.log(`    Path: ${r.relativePath}`);
+          console.log(`    Similarity: ${r.score.toFixed(4)}`);
+          console.log(`    ${r.snippet.substring(0, 120)}...\n`);
+        }
+      },
+    );
     search.close();
     embeddings.close();
   });
@@ -3054,7 +3133,8 @@ program
   .option("--federated", "Use federated search with tier boosting (project > user > global)")
   .option("--scope <scope>", "Filter by scope: project, user, global (comma-separated)")
   .option("-d, --directory <dir>", "Project directory for context")
-  .action(async (question: string, opts: { limit: string; mode: string; stream: boolean; federated?: boolean; scope?: string; directory?: string }) => {
+  .option("--json", "Output as JSON")
+  .action(async (question: string, opts: { limit: string; mode: string; stream: boolean; federated?: boolean; scope?: string; directory?: string; json?: boolean }) => {
     const resolver = await getResolver();
     const stores = resolver.getStores();
     if (stores.length === 0) {
@@ -3135,7 +3215,7 @@ program
     }
 
     const mode = opts.mode as "keyword" | "semantic" | "hybrid";
-    const useStream = opts.stream !== false;
+    const useStream = opts.stream !== false && !opts.json;
 
     try {
       const result = await ask.ask(question, {
@@ -3156,18 +3236,36 @@ program
           : undefined,
       });
 
-      if (!useStream) {
-        console.log(result.answer);
-      }
+      outputResult(
+        !!opts.json,
+        {
+          question,
+          answer: result.answer,
+          sources: result.sources.map((s) => ({
+            title: s.title,
+            relativePath: s.relativePath,
+          })),
+          deepQueryUsed: result.deepQueryUsed ?? false,
+        },
+        () => {
+          if (!useStream) {
+            console.log(result.answer);
+          }
 
-      // Print sources
+          if (result.sources.length > 0) {
+            console.log("\n\n--- Sources ---");
+            for (const s of result.sources) {
+              console.log(`  [[${s.relativePath.split("/").pop()}]] — ${s.title}`);
+            }
+          }
+
+          if (result.deepQueryUsed) {
+            console.log("\n(Deep query was used — a follow-up search expanded the context)");
+          }
+        },
+      );
+
       if (result.sources.length > 0) {
-        console.log("\n\n--- Sources ---");
-        for (const s of result.sources) {
-          console.log(`  [[${s.relativePath.split("/").pop()}]] — ${s.title}`);
-        }
-
-        // Reinforce used memories (best-effort)
         const writeTarget = resolver.getWriteTarget();
         if (writeTarget) {
           const { GnosysMaintenanceEngine } = await import("./lib/maintenance.js");
@@ -3176,10 +3274,6 @@ program
             result.sources.map((s) => s.relativePath)
           ).catch(() => {});
         }
-      }
-
-      if (result.deepQueryUsed) {
-        console.log("\n(Deep query was used — a follow-up search expanded the context)");
       }
     } catch (err) {
       console.error(`Ask failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -3623,7 +3717,7 @@ program
 
     const archive = new GnosysArchive(writeTarget.path);
     if (!archive.isAvailable()) {
-      console.error("Archive not available. Is better-sqlite3 installed?");
+      console.error("Archive not available. Install it with: npm install better-sqlite3");
       process.exit(1);
     }
 
@@ -3996,20 +4090,31 @@ program
 // global binary (see src/lib/upgrade.ts).
 program
   .command("upgrade")
-  .description("Upgrade gnosys itself (npm install -g gnosys@latest) and signal running MCP servers to restart. After upgrading, suggests running 'gnosys setup sync-projects'.")
+  .description("Upgrade gnosys itself and signal running MCP servers to restart. After upgrading, suggests running 'gnosys setup sync-projects'.")
   .option("--yes", "Skip the post-upgrade sync-projects prompt and exit")
   .option("--no-sync", "Don't suggest running sync-projects afterward")
   .action(async (opts: { yes?: boolean; sync?: boolean }) => {
     const currentVersion = pkg.version;
     console.log(`Gnosys CLI: currently v${currentVersion}`);
-    console.log(`Running: npm install -g gnosys@latest ...`);
+
+    const { detectPackageManager, upgradeCommand } = await import("./lib/packageManager.js");
+    const pm = detectPackageManager();
+    const cmd = upgradeCommand(pm);
+    if (!cmd) {
+      console.log(
+        "Running under npx — there's no global install to upgrade. Use `npx gnosys@latest` to run the latest.",
+      );
+      return;
+    }
+
+    console.log(`Running: ${cmd} ...`);
 
     const { execSync } = await import("child_process");
     try {
-      execSync("npm install -g gnosys@latest", { stdio: "inherit" });
+      execSync(cmd, { stdio: "inherit" });
     } catch (err) {
       console.error(`\nUpgrade failed: ${err instanceof Error ? err.message : err}`);
-      console.error(`Try running 'npm install -g gnosys@latest' manually.`);
+      console.error(`Try running '${cmd}' manually.`);
       process.exit(1);
     }
 
@@ -4302,6 +4407,7 @@ async function isLegacyStoreSafeToRemove(localDbPath: string): Promise<{ ok: boo
   try {
     const Database = (await import("better-sqlite3")).default;
     const localDb = new Database(localDbPath, { readonly: true });
+    localDb.pragma("busy_timeout = 5000");
     let localIds: string[] = [];
     try {
       const rows = localDb.prepare("SELECT id FROM memories").all() as Array<{ id: string }>;
@@ -4780,6 +4886,11 @@ exportCmd
         const ratio = (result.compressedBytes / result.uncompressedBytes * 100).toFixed(1);
         console.log(`Exported project ${projectId}`);
         console.log(`  Memories:      ${result.memoryCount}`);
+        if (result.archivedExcluded > 0) {
+          console.log(
+            `  Archived:      ${result.archivedExcluded} excluded — re-run with --include-archived for a full backup`,
+          );
+        }
         console.log(`  Relationships: ${result.relationshipCount}`);
         console.log(`  Audit entries: ${result.auditEntryCount}`);
         console.log(`  Bundle:        ${result.outputPath}`);
@@ -4797,7 +4908,17 @@ program
     "Start the MCP server (stdio mode). Used by IDE integrations — Claude Code/Desktop, Cursor, Codex, etc. spawn this command in the background to talk to gnosys via the Model Context Protocol. You don't normally invoke this yourself; `gnosys init <ide>` wires it into the IDE config.",
   )
   .option("--with-maintenance", "Run maintenance every 6 hours in background")
-  .action(async (opts: { withMaintenance?: boolean }) => {
+  .option("--transport <mode>", "Transport: 'stdio' (default) or 'http' (central-server topology)", "stdio")
+  .option("--host <addr>", "HTTP bind address — http transport (default 127.0.0.1; use a tailnet addr to share)", "127.0.0.1")
+  .option("--port <n>", "HTTP port — http transport", "7777")
+  .option("--token <token>", "Require 'Authorization: Bearer <token>' — http transport")
+  .action(async (opts: { withMaintenance?: boolean; transport?: string; host?: string; port?: string; token?: string }) => {
+    if (opts.transport === "http") {
+      process.env.GNOSYS_TRANSPORT = "http";
+      process.env.GNOSYS_HTTP_HOST = opts.host || "127.0.0.1";
+      process.env.GNOSYS_HTTP_PORT = String(opts.port || "7777");
+      if (opts.token) process.env.GNOSYS_SERVE_TOKEN = opts.token;
+    }
     if (opts.withMaintenance) {
       // Start background maintenance loop
       const SIX_HOURS = 6 * 60 * 60 * 1000;
@@ -5189,6 +5310,55 @@ function isDeadProjectDir(dir: string): boolean {
   return !existsSync(dir);
 }
 
+program
+  .command("connect")
+  .description("Point an IDE at a remote gnosys server (central-server topology) instead of spawning a local one")
+  .requiredOption("--url <url>", "Remote MCP URL, e.g. http://studio.tailnet.ts.net:7777/mcp")
+  .option("--token <token>", "Bearer token if the server requires auth")
+  .option("--ide <ide>", "IDE config to write: cursor | claude-desktop", "cursor")
+  .option("--dir <dir>", "Project dir for cursor config (default: cwd)")
+  .option("--print", "Print the config snippet instead of writing files")
+  .action(async (opts: { url: string; token?: string; ide?: string; dir?: string; print?: boolean }) => {
+    const m = await import("./lib/mcpClientConfig.js");
+    const remote = { url: opts.url, token: opts.token };
+    if (opts.print) {
+      console.log(JSON.stringify({ mcpServers: { gnosys: m.remoteMcpEntry(remote) } }, null, 2));
+      return;
+    }
+    const ide: "cursor" | "claude-desktop" = opts.ide === "claude-desktop" ? "claude-desktop" : "cursor";
+    try {
+      const file = await m.writeRemoteClientConfig(ide, opts.dir || process.cwd(), remote);
+      console.log(`✓ Pointed ${ide} at ${opts.url}`);
+      console.log(`  wrote: ${file}${opts.token ? "  (bearer token included)" : ""}`);
+      console.log("  Restart the IDE / MCP servers to pick it up.");
+    } catch (e) {
+      console.error(`connect failed: ${e instanceof Error ? e.message : e}`);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("centralize")
+  .description("Copy this machine's local brain (~/.gnosys/gnosys.db) to seed a central server — a Docker volume or another host")
+  .requiredOption("--to <dir>", "Target directory to write gnosys.db into (e.g. a mounted volume)")
+  .option("--from-local", "Source is this machine's local brain (default)")
+  .option("--force", "Overwrite an existing gnosys.db at the target")
+  .action(async (opts: { to: string; force?: boolean }) => {
+    const { centralizeDb } = await import("./lib/centralize.js");
+    try {
+      const r = await centralizeDb({ to: opts.to, force: opts.force });
+      const mb = (r.bytes / 1024 / 1024).toFixed(1);
+      console.log("✓ Seeded central brain:");
+      console.log(`  from: ${r.source}`);
+      console.log(`  to:   ${r.target} (${mb} MB)`);
+      console.log("");
+      console.log(`Run the server against it with GNOSYS_HOME=${opts.to}, or mount this dir as the container's /data volume.`);
+    } catch (e) {
+      console.error(`centralize failed: ${e instanceof Error ? e.message : e}`);
+      process.exit(1);
+    }
+  });
+
 const machineCmd = program
   .command("machine")
   .description("Manage this machine's local config (machine.json: machineId, roots, remote)");
@@ -5450,6 +5620,14 @@ prefCmd
       if (!centralDb.isAvailable()) {
         console.error("Central DB not available (better-sqlite3 missing).");
         process.exit(1);
+      }
+
+      if (!(KNOWN_PREFERENCE_KEYS as readonly string[]).includes(key)) {
+        const suggestion = suggestPreferenceKey(key);
+        if (suggestion) {
+          console.error(`Unknown preference key \`${key}\` — did you mean \`${suggestion}\`?`);
+          process.exit(1);
+        }
       }
 
       const tags = opts.tags ? opts.tags.split(",").map((t) => t.trim()) : undefined;
@@ -5868,8 +6046,8 @@ program
         const dashboardPath = path.join(home, "gnosys-dashboard.html");
         const { writeFileSync } = await import("fs");
         writeFileSync(dashboardPath, generatePortfolioHtml(report, dashboardPath), "utf-8");
-        const { exec } = await import("child_process");
-        exec(`open "${dashboardPath}"`);
+        const { execFile } = await import("child_process");
+        execFile("open", [dashboardPath]);
         console.log(`Dashboard opened: ${dashboardPath}`);
         return;
       }
@@ -6199,7 +6377,7 @@ program
       const db = new GnosysDB(dbDir);
 
       if (!db.isAvailable()) {
-        console.error("Error: GnosysDB not available. Is better-sqlite3 installed?");
+        console.error("Error: GnosysDB not available. Install it with: npm install better-sqlite3");
         process.exit(1);
       }
 
@@ -6248,7 +6426,7 @@ program
       const db = new GnosysDB(dbDir);
 
       if (!db.isAvailable()) {
-        console.error("Error: GnosysDB not available. Is better-sqlite3 installed?");
+        console.error("Error: GnosysDB not available. Install it with: npm install better-sqlite3");
         process.exit(1);
       }
 
@@ -6311,7 +6489,7 @@ program
       const db = new GnosysDB(dbDir);
 
       if (!db.isAvailable()) {
-        console.error("Error: GnosysDB not available. Is better-sqlite3 installed?");
+        console.error("Error: GnosysDB not available. Install it with: npm install better-sqlite3");
         process.exit(1);
       }
 

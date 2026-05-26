@@ -6,7 +6,7 @@
  */
 
 import net from "net";
-import { getSocketPath, SandboxRequest, SandboxResponse } from "./server.js";
+import { getSocketPath, type SandboxRequest, type SandboxResponse } from "./server.js";
 
 export class SandboxClient {
   private socketPath: string;

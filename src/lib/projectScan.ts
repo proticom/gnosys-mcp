@@ -24,7 +24,7 @@ const SKIP_DIRS = new Set([
   ".cache", "vendor", ".next", ".gnosys",
 ]);
 
-export interface ScanEntry {
+interface ScanEntry {
   projectId: string;
   name: string;
   absPath: string;

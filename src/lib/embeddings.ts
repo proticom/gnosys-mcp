@@ -58,7 +58,14 @@ export class GnosysEmbeddings {
     // Dynamic import — keeps @huggingface/transformers out of the main bundle.
     // dtype 'q8' replaces the v2-era `quantized: true` option (8-bit quantized,
     // ~80 MB vs ~280 MB for fp32). Smaller is fine for sentence embeddings.
-    const { pipeline } = await import("@huggingface/transformers");
+    let pipeline: typeof import("@huggingface/transformers")["pipeline"];
+    try {
+      ({ pipeline } = await import("@huggingface/transformers"));
+    } catch {
+      throw new Error(
+        "Local embeddings require @huggingface/transformers. Install it with: npm install @huggingface/transformers"
+      );
+    }
     this.pipeline = (await pipeline("feature-extraction", MODEL_NAME, {
       dtype: "q8",
     })) as unknown as Pipeline;
@@ -262,4 +269,3 @@ export class GnosysEmbeddings {
   }
 }
 
-export { EMBEDDING_DIM };

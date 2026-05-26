@@ -12,7 +12,7 @@ try {
   // better-sqlite3 native module not available — search degrades gracefully
 }
 import path from "path";
-import { GnosysStore } from "./store.js";
+import type { GnosysStore } from "./store.js";
 
 export interface SearchResult {
   relative_path: string;
@@ -47,6 +47,7 @@ export class GnosysSearch {
     try {
       const dbPath = path.join(storePath, ".config", "search.db");
       this.db = new Database(dbPath);
+      this.db.pragma("busy_timeout = 5000");
       this.initSchema();
       // Smoke-test: insert + delete to confirm journal ops work
       this.db.exec(

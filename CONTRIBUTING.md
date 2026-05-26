@@ -169,6 +169,10 @@ src/
   └── prompts/               # System prompts
 ```
 
+## Documentation
+
+For where each kind of doc belongs (user-facing site vs in-repo source of truth vs Gnosys memory), see [`docs/source-of-truth.md`](docs/source-of-truth.md).
+
 ## Testing
 
 ### Test Structure

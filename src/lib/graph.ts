@@ -6,13 +6,13 @@
 
 import fs from "fs/promises";
 import path from "path";
-import { GnosysResolver } from "./resolver.js";
-import { buildLinkGraph, LinkGraph } from "./wikilinks.js";
-import { Memory } from "./store.js";
+import type { GnosysResolver } from "./resolver.js";
+import { buildLinkGraph, type LinkGraph } from "./wikilinks.js";
+import type { Memory } from "./store.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
-export interface GraphNode {
+interface GraphNode {
   id: string; // relativePath
   title: string;
   edges: number; // total connections (outgoing + incoming)
@@ -20,7 +20,7 @@ export interface GraphNode {
   incoming: number;
 }
 
-export interface GraphEdge {
+interface GraphEdge {
   source: string; // relativePath
   target: string; // relativePath
   label: string; // wikilink target text

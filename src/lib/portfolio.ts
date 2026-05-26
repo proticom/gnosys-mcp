@@ -6,7 +6,7 @@
  * open questions, and roadmap status.
  */
 
-import { GnosysDB, DbProject } from "./db.js";
+import type { GnosysDB, DbProject } from "./db.js";
 import { readMachineConfig } from "./machineConfig.js";
 import { effectiveProjectPath } from "./projectPaths.js";
 

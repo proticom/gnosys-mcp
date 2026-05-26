@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { GnosysDB, DbMemory } from "../lib/db.js";
+import { GnosysDB, type DbMemory } from "../lib/db.js";
 import {
   federatedSearch,
   federatedDiscover,

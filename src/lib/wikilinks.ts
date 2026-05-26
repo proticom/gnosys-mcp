@@ -5,7 +5,7 @@
  * Supports both [[title]] and [[path|display text]] formats.
  */
 
-import { Memory } from "./store.js";
+import type { Memory } from "./store.js";
 
 /** A single link found in a memory. */
 export interface WikiLink {
@@ -20,7 +20,7 @@ export interface WikiLink {
 }
 
 /** A node in the link graph with both outgoing and incoming links. */
-export interface LinkNode {
+interface LinkNode {
   /** This memory's relative path */
   path: string;
   /** This memory's title */

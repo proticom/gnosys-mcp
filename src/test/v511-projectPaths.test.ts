@@ -12,8 +12,8 @@ import {
   resolveAllProjects,
   recordLocation,
 } from "../lib/projectPaths.js";
-import { type MachineConfig } from "../lib/machineConfig.js";
-import { type DbProject } from "../lib/db.js";
+import type { MachineConfig } from "../lib/machineConfig.js";
+import type { DbProject } from "../lib/db.js";
 import { createTestEnv, cleanupTestEnv, type TestEnv } from "./_helpers.js";
 
 const STUDIO: MachineConfig = {

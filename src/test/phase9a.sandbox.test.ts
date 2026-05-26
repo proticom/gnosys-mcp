@@ -24,7 +24,7 @@ import {
   getSandboxDir,
   getSocketPath,
   getPidPath,
-  SandboxRequest,
+  type SandboxRequest,
   SandboxResponse,
 } from "../sandbox/server.js";
 import { SandboxClient } from "../sandbox/client.js";
@@ -32,7 +32,7 @@ import { generateHelper } from "../sandbox/helper-template.js";
 import {
   createTestEnv,
   cleanupTestEnv,
-  TestEnv,
+  type TestEnv,
 } from "./_helpers.js";
 
 let env: TestEnv;

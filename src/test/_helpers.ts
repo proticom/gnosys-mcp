@@ -10,8 +10,8 @@ import fsp from "fs/promises";
 import path from "path";
 import os from "os";
 import { execSync } from "child_process";
-import { GnosysDB, DbMemory, DbProject } from "../lib/db.js";
-import { GnosysStore, MemoryFrontmatter } from "../lib/store.js";
+import { GnosysDB, type DbMemory, type DbProject } from "../lib/db.js";
+import { GnosysStore, type MemoryFrontmatter } from "../lib/store.js";
 
 // ─── Constants ──────────────────────────────────────────────────────────
 

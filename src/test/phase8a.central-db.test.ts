@@ -23,7 +23,7 @@ import {
   makeProject,
   CLI,
   cliInit,
-  TestEnv,
+  type TestEnv,
 } from "./_helpers.js";
 
 let env: TestEnv;

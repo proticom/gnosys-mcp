@@ -7,7 +7,7 @@ import {
   getOutgoingLinks,
   formatGraphSummary,
 } from "../lib/wikilinks.js";
-import { Memory, MemoryFrontmatter } from "../lib/store.js";
+import type { Memory, MemoryFrontmatter } from "../lib/store.js";
 
 function makeMem(
   overrides: Partial<MemoryFrontmatter> & { content?: string } = {}

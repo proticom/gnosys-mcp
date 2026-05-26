@@ -9,7 +9,7 @@
  * Recency boost: memories accessed/modified in the last 24h get a 1.3x boost
  */
 
-import { GnosysDB, DbMemory, DbProject, MemoryScope } from "./db.js";
+import type { GnosysDB, DbMemory, DbProject, MemoryScope } from "./db.js";
 import { findProjectIdentity } from "./projectIdentity.js";
 import { readMachineConfig, type MachineConfig } from "./machineConfig.js";
 import { effectiveProjectPath } from "./projectPaths.js";

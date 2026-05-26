@@ -27,7 +27,6 @@ export default defineConfig({
 
         // LLM provider calls (Anthropic, Ollama, Groq, OpenAI, LM Studio)
         "src/lib/llm.ts",
-        "src/lib/retry.ts",
 
         // Interactive setup wizard (1700 lines of prompts + I/O)
         "src/lib/setup.ts",
@@ -42,9 +41,8 @@ export default defineConfig({
         "src/lib/pdfExtract.ts",
         "src/lib/videoExtract.ts",
 
-        // Dream mode engine (requires LLM + idle scheduler)
+        // Maintenance / recall (require LLM or long-running scheduler)
         "src/lib/maintenance.ts",
-        "src/lib/dream.ts",
 
         // Recall context injection (depends on LLM for summarization)
         "src/lib/recall.ts",

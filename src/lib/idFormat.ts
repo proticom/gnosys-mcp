@@ -43,7 +43,7 @@ const OSC8_START = "\x1b]8;;";
 const OSC8_BREAK = "\x1b\\";
 const OSC8_END = "\x1b]8;;\x1b\\";
 
-export function isTtyStdout(): boolean {
+function isTtyStdout(): boolean {
   return Boolean(process.stdout.isTTY);
 }
 

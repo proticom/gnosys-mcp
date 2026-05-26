@@ -5,7 +5,7 @@
  * Self-contained HTML with embedded data and styling.
  */
 
-import { PortfolioReport, ProjectSnapshot, ActionItem, STATUS_UPDATE_PROMPT } from "./portfolio.js";
+import { type PortfolioReport, type ProjectSnapshot, type ActionItem, STATUS_UPDATE_PROMPT } from "./portfolio.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────
 

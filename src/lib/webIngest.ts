@@ -10,6 +10,7 @@ import fs from "fs/promises";
 import { existsSync, readFileSync, mkdirSync } from "fs";
 import path from "path";
 import { createHash } from "crypto";
+import { isIP } from "node:net";
 import matter from "gray-matter";
 import TurndownService from "turndown";
 import { getLLMProvider, type LLMProvider } from "./llm.js";
@@ -69,40 +70,134 @@ const MAX_SITEMAP_DEPTH = 3;
 /** Maximum total URLs collected from sitemaps. */
 const MAX_SITEMAP_URLS = 10_000;
 
+/** Maximum redirect hops when fetching remote URLs. */
+const MAX_FETCH_REDIRECTS = 5;
+
+export interface SafeUrlOptions {
+  /** Allow loopback hosts (127.0.0.1, localhost, ::1). Defaults to false. */
+  allowLoopback?: boolean;
+}
+
 /**
  * Validate a URL is safe to fetch (blocks SSRF to internal networks).
- * Only allows http/https schemes and rejects private/loopback IPs.
+ * Only allows http/https schemes and rejects private/loopback/metadata targets.
  */
-function isSafeUrl(urlStr: string): boolean {
+export function isSafeUrl(urlStr: string, options?: SafeUrlOptions): boolean {
   try {
     const url = new URL(urlStr);
     // Only allow http/https
     if (url.protocol !== "http:" && url.protocol !== "https:") return false;
 
-    const hostname = url.hostname;
-
-    // Block loopback
-    if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname === "[::1]") {
-      return true; // Allow localhost for local dev — but block metadata endpoints below
-    }
+    const allowLoopback = options?.allowLoopback ?? false;
+    const hostname = url.hostname.replace(/^\[|\]$/g, "");
 
     // Block cloud metadata endpoints
     if (hostname === "169.254.169.254" || hostname === "metadata.google.internal") return false;
 
-    // Block private IPv4 ranges
-    const ipv4Match = hostname.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
-    if (ipv4Match) {
-      const [, a, b] = ipv4Match.map(Number);
-      if (a === 10) return false;                          // 10.0.0.0/8
-      if (a === 172 && b >= 16 && b <= 31) return false;   // 172.16.0.0/12
-      if (a === 192 && b === 168) return false;             // 192.168.0.0/16
-      if (a === 169 && b === 254) return false;             // 169.254.0.0/16 (link-local)
+    // Block hex-encoded IP hostnames (e.g. 0x7f000001)
+    if (/^0x[0-9a-f]+$/i.test(hostname)) return false;
+
+    // Block dotted hosts with hex octets (e.g. 0x7f.0.0.1)
+    if (hostname.includes(".") && hostname.split(".").some((part) => /^0x[0-9a-f]+$/i.test(part))) {
+      return false;
+    }
+
+    const ipKind = isIP(hostname);
+    if (ipKind === 4) {
+      return isSafeIpv4(hostname, allowLoopback);
+    }
+    if (ipKind === 6) {
+      return isSafeIpv6(hostname, allowLoopback);
+    }
+
+    // All-numeric hostname (decimal IP encoding, e.g. 2130706433 = 127.0.0.1)
+    if (/^\d+$/.test(hostname)) {
+      const asInt = Number(hostname);
+      if (!Number.isFinite(asInt) || asInt < 0 || asInt > 0xffffffff) return false;
+      const octets = [
+        (asInt >>> 24) & 0xff,
+        (asInt >>> 16) & 0xff,
+        (asInt >>> 8) & 0xff,
+        asInt & 0xff,
+      ];
+      return isSafeIpv4(octets.join("."), allowLoopback);
+    }
+
+    if (!allowLoopback && (hostname === "localhost" || hostname.endsWith(".localhost"))) {
+      return false;
     }
 
     return true;
   } catch {
     return false;
   }
+}
+
+function isSafeIpv4(dotted: string, allowLoopback: boolean): boolean {
+  const match = dotted.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (!match) return false;
+
+  const octets = match.slice(1).map(Number);
+  if (octets.some((n) => n > 255)) return false;
+
+  const [a, b] = octets;
+  if (a === 0 && octets.every((n) => n === 0)) return false; // 0.0.0.0
+  if (!allowLoopback && a === 127) return false; // 127.0.0.0/8
+  if (a === 10) return false; // 10.0.0.0/8
+  if (a === 172 && b >= 16 && b <= 31) return false; // 172.16.0.0/12
+  if (a === 192 && b === 168) return false; // 192.168.0.0/16
+  if (a === 169 && b === 254) return false; // 169.254.0.0/16
+
+  return true;
+}
+
+function isSafeIpv6(addr: string, allowLoopback: boolean): boolean {
+  const lower = addr.toLowerCase();
+
+  if (!allowLoopback && (lower === "::1" || lower === "0:0:0:0:0:0:0:1")) return false;
+
+  // Unique local addresses fc00::/7
+  if (/^f[cd]/i.test(lower)) return false;
+
+  // Link-local fe80::/10
+  if (/^fe[89ab]/i.test(lower)) return false;
+
+  // IPv4-mapped IPv6 (::ffff:x.x.x.x)
+  const mapped = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  if (mapped) {
+    return isSafeIpv4(mapped[1], allowLoopback);
+  }
+
+  return true;
+}
+
+/**
+ * Fetch a URL with manual redirect handling; re-validates each hop through isSafeUrl.
+ */
+export async function safeFetch(
+  startUrl: string,
+  init?: RequestInit,
+  options?: SafeUrlOptions,
+): Promise<Response> {
+  let url = startUrl;
+
+  for (let hop = 0; hop <= MAX_FETCH_REDIRECTS; hop++) {
+    if (!isSafeUrl(url, options)) {
+      throw new Error(`Refusing to fetch unsafe URL: ${url}`);
+    }
+
+    const response = await fetch(url, { ...init, redirect: "manual" });
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      if (!location) return response;
+      url = new URL(location, url).toString();
+      continue;
+    }
+
+    return response;
+  }
+
+  throw new Error("Too many redirects");
 }
 
 // ─── URL utilities ───────────────────────────────────────────────────────
@@ -172,7 +267,7 @@ async function fetchSitemapUrls(sitemapUrl: string, depth: number = 0): Promise<
     throw new Error(`Refusing to fetch unsafe URL: ${sitemapUrl}`);
   }
 
-  const response = await fetch(sitemapUrl);
+  const response = await safeFetch(sitemapUrl);
   if (!response.ok) {
     throw new Error(`Failed to fetch sitemap: ${response.status} ${response.statusText}`);
   }
@@ -207,7 +302,7 @@ async function fetchPage(url: string): Promise<string> {
   if (!isSafeUrl(url)) {
     throw new Error(`Refusing to fetch unsafe URL: ${url}`);
   }
-  const response = await fetch(url);
+  const response = await safeFetch(url);
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
   }
@@ -634,7 +729,6 @@ async function applyTfIdfRelevance(outputDir: string): Promise<void> {
       const id = (parsed.data.id as string) || path.basename(filePath, ".md");
       docs.push({ id, content: parsed.content, path: filePath });
     } catch {
-      continue;
     }
   }
 
@@ -655,7 +749,6 @@ async function applyTfIdfRelevance(outputDir: string): Promise<void> {
       const updated = matter.stringify(parsed.content, parsed.data);
       await fs.writeFile(doc.path, updated, "utf-8");
     } catch {
-      continue;
     }
   }
 }

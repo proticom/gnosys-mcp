@@ -13,7 +13,7 @@
  * surrounding text so the renderer can show the conversation cleanly.
  */
 
-export interface ParsedToolCall {
+interface ParsedToolCall {
   tool: string;
   args: Record<string, string>;
   /** Source text of the full fence (for fail-soft display when needed). */

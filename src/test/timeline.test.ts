@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { groupByPeriod, computeStats } from "../lib/timeline.js";
-import { Memory, MemoryFrontmatter } from "../lib/store.js";
+import type { Memory, MemoryFrontmatter } from "../lib/store.js";
 
 function makeMem(overrides: Partial<MemoryFrontmatter> = {}): Memory {
   const frontmatter: MemoryFrontmatter = {

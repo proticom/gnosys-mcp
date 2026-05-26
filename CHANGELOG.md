@@ -5,6 +5,128 @@ All notable changes to Gnosys are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+### Historical versions
+
+Detailed CHANGELOG coverage begins at **5.2.16**. Earlier 5.0.0–5.2.15 releases and a few 5.2.x patches without individual entries (5.2.17, 5.2.18, 5.2.21) are tracked via [git tags](https://github.com/proticom/gnosys/tags). Versions 5.2.13, 5.2.14, and 5.2.15 were CHANGELOG-only and never published to npm.
+
+## [5.11.0] — 2026-05-26
+
+Pending release — bundles 84 commits since 5.10.0 covering a network-hosted MCP
+transport, a hardened HTTP surface, structured logging, a v5.12 portability
+track, and the C/D/E hardening + documentation review.
+
+### Added
+
+- **Network-hosted MCP transport (v5.12 Phases A–E).** Run Gnosys as a remote
+  MCP server over Streamable HTTP, containerize it, and point local IDEs at it.
+  - `gnosys serve --transport http` — Streamable HTTP transport for network MCP
+    (v5.12 Phase A + C).
+  - Capability registrations collected as replayable thunks so HTTP sessions
+    replay the same tool surface as stdio (v5.12 Phase A foundation).
+  - `gnosys connect` — point an IDE at a remote Gnosys server (v5.12 Phase B).
+  - `gnosys centralize` — seed a central server's brain from a local one
+    (v5.12 Phase E).
+  - Docker support for the network-hosted MCP server (v5.12 Phase D).
+- **Structured logging (D.5).** Text, JSON, and file sinks for operational
+  visibility across CLI and server modes.
+- **Audit rows for remote sync.** Push/pull operations now emit audit rows for
+  sync observability.
+- **HTTP CORS guard.** Default-deny browser origins on the HTTP transport.
+- **Atomic config writes.** Config updates use temp-then-rename for crash safety.
+- **Preference key validation.** Invalid preference keys get did-you-mean hints.
+- **`--json` on read-only commands.** Seven read-only CLI commands now support
+  machine-readable output.
+- **Provenance in reads.** `source_file` surfaced in reads; audit file ingestion
+  tracked.
+- **Export transparency.** Excluded-archived count surfaced so exports do not
+  silently drop memories.
+- **`gnosys upgrade` package-manager detection.** Upgrade command detects npm,
+  pnpm, or yarn automatically.
+- **npm discoverability.** Added `model-context-protocol` and `agent-memory`
+  keywords to package.json.
+- **Documentation and ADRs (E.4–E.8).**
+  - Generated `docs/cli.md` from `src/cli.ts` (E.5) and `docs/mcp-tools.md`
+    from `src/index.ts` (E.4).
+  - Backfilled 8 ADRs from Gnosys memory (E.6).
+  - `docs/source-of-truth.md` — content map for where docs live (E.8).
+  - `docs/threat-model.md` — security threat model (A.13).
+  - `docs/coverage-baseline.md` — C.1 coverage gate baseline (CC.5).
+  - Setup walkthrough, configuration precedence chains, LLM provider contract,
+    search-modes comparison, cost model, update-integrity notes, and network-MCP
+    rate-limiting rationale.
+- **Acceptance smokes (C.9).** MCP, WebKB, and sync smoke tests at the
+  acceptance layer.
+- **Test coverage expansion.** Extended suites for ingest (100% lines), dream
+  (95%), db (88%), remote (80%), HTTP session isolation, bearer-token contract,
+  MCP registration replay, search golden corpus, lifecycle invariants, DB
+  recovery, and adversarial ingest fixtures.
+
+### Changed
+
+- **CI test matrix on Linux + macOS (C.7).** Tests now run on both platforms.
+- **Node 18 & 20 in CI.** Matrix expanded so `engines.node >=18` is verified.
+- **Biome linter (B.2).** Adopted Biome as the project linter.
+- **Dependency cleanup (B.3/B.4).** Removed dead exports, declared jszip,
+  added knip; resolved circular dependencies.
+- **DB-only history (B.3).** Removed legacy git-backed rollback/history paths;
+  SQLite is the sole source of truth.
+- **CHANGELOG backfill (E.2).** Added 5.4.1/5.4.3 entries and the Historical
+  versions preamble note.
+- **README updates.** Slimmed and repositioned; documents both `gnosys` and
+  `gnosys-mcp` bins, Node.js >= 18 prerequisite, optional native deps with
+  install hints, and a complete MCP Tool Reference table (all 51 tools).
+- **DB performance.** Indexed `memories.modified` and `memories.created`.
+
+### Fixed
+
+- **Path traversal in export (A.5).** `gnosys export` no longer allows
+  directory escape via crafted paths.
+- **Shell injection (A.8).** `cp` and `open` subprocess calls use argv arrays
+  instead of shell strings.
+- **File permissions (A.11).** `.env` and `gnosys.db` created with `0600`
+  permissions.
+- **Clean build / clean dist (20.13).** `dist/` cleaned before build so deleted modules are
+  not shipped to npm.
+- **Legacy schema migration.** DB migrates v1/v2 legacy schema before applying
+  current `SCHEMA_SQL`.
+- **npm provenance.** Canonicalized `repository.url` for npm provenance.
+- **README tool table.** Removed stale `gnosys_rollback` reference.
+- **Package assets.** `docs/logo.svg` shipped so the README logo renders on npm.
+- **MCP error envelopes.** Tool errors normalized via `formatMcpError`.
+- **Machine ID stability.** `GNOSYS_MACHINE_ID` env override for stable id
+  across hostname changes.
+- **DB busy timeout.** All file-based `Database()` opens set `busy_timeout`.
+- **Embeddings install hint.** One-line hint when `@xenova/transformers` is
+  missing.
+- **LLM request timeouts.** Enforced on all provider calls.
+- **HTTP session cleanup.** Idle sessions reaped to stop disconnect leaks.
+
+### Security
+
+- **HTTP auth on non-loopback bind.** Server refuses to start without an auth
+  token when bound beyond loopback; bearer-token contract locked by tests.
+- **HTTP DoS hardening.** Request body size bounded; receive-time limits
+  enforced.
+- **SSRF parity (17.4).** `safeFetch` used for import-from-URL; web ingest
+  closes redirect bypass, loopback, and IP-encoding holes.
+- **DOCX zip-bomb guard.** DOCX extractor rejects archives that exceed safe
+  size limits.
+- **API key redaction.** Format-agnostic redaction in LLM provider error
+  messages.
+- **Prompt injection hardening.** Synthesis prompt in `gnosys ask` hardened
+  against embedded prompt injection.
+- **CORS default-deny.** Browser origins blocked unless explicitly allowed
+  (also listed under Added).
+
+
+### Removed
+
+- **Node 18 support.** Node 18 reached End-of-Life in April 2025; the modern
+  test toolchain (vitest + rolldown) now imports `node:util.styleText`, which
+  only exists on Node 20.12+. The CI matrix was updated to Node 20/22/24 ×
+  Linux/macOS and `engines.node` was raised to `>=20.12.0`. The README's
+  install prerequisite changed from "Node.js ≥ 18" to "Node.js ≥ 20.12".
+
 ## [5.10.0] — 2026-05-23
 
 Machine-portable project paths, plus repository/community-standards groundwork.
@@ -1127,24 +1249,17 @@ transitive, both functional, neither breaking. Tracked in road-006.
 
 - **`gnosys dream run` — explicit manual trigger.** The bare `gnosys dream` already runs a cycle, but users naturally type `dream run` to match the `dream log` pattern. Added an alias subcommand. Both forms now check the central DB's `dream_machine_id` designation before running and refuse on non-designated machines unless `--force` is passed.
 
-
+## [5.4.3] — 2026-05-02
 
 ### Fixed
 
-- **Postinstall output now visible during `npm install -g`.** npm 7+ hides postinstall stdout for global installs but shows stderr — switched our messages to stderr so users actually see "Gnosys v5.4.3 installed / Run `gnosys upgrade`" after a global install.
-- **Postinstall version read fixed.** Previously printed "Gnosys vunknown" because `require("fs")` doesn't work in ESM modules. Replaced with proper top-level `import { readFileSync }` and `import.meta.url`-based path resolution.
+- **Postinstall output now visible during `npm install -g`.** npm 7+ hides postinstall stdout for global installs but shows stderr — switched messages to stderr so users see the installed version and upgrade hint after a global install.
+- **Postinstall version read fixed.** Previously printed "Gnosys vunknown" because `require("fs")` doesn't work in ESM modules. Replaced with top-level `readFileSync` and `import.meta.url`-based path resolution.
 
 ### Added
 
-- **Upgrade nudge on first CLI invocation.** Tracks `last_seen_version` in central DB meta. On every CLI command boot, if the installed version differs from what's stored, print a one-line stderr notice:
-  ```
-  gnosys: upgraded to v5.4.3 (from v5.4.2). Run 'gnosys upgrade' to sync registered projects.
-  ```
-  Fires once per upgrade, then updates the meta. Skipped when running `gnosys upgrade` itself, when `GNOSYS_SKIP_UPGRADE_NUDGE=1` is set, or when the central DB is unavailable. Belt-and-suspenders for cases where the postinstall hook silently fails (CI, Docker builds, `--ignore-scripts`).
-
-### Known issue (deferred to v5.5.0)
-
-- `npm install` still prints `npm warn deprecated prebuild-install@7.1.3: No longer maintained.` This is a transitive deprecation: `prebuild-install` is pulled in by `better-sqlite3` and (via `sharp`) by `@xenova/transformers`. The package still works correctly — the maintainer has just announced no future patches. Migrating `@xenova/transformers` (now a stale package) to `@huggingface/transformers@4.x` (the modern rebrand) is planned for v5.5.0 and will remove half of the dependency chain. The other half waits on `better-sqlite3` migrating to `node-gyp-build` upstream.
+- **Upgrade nudge on first CLI invocation.** Tracks `last_seen_version` in central DB meta. When the installed version differs from what's stored, prints a one-line stderr notice, then updates meta. Skipped for `gnosys upgrade`, when `GNOSYS_SKIP_UPGRADE_NUDGE=1`, or when the central DB is unavailable.
+- **`CODE_OF_CONDUCT.md`** at the repository root.
 
 ## [5.4.2] — 2026-05-01
 
@@ -1177,6 +1292,22 @@ The pattern is now consistent: `gnosys setup` runs the full wizard, and `gnosys 
 - 735+/738 main tests pass (3 pre-existing xAI keychain failures unchanged).
 - gnosys-tests regression suite extended with `dream-log.test.ts`, `setup-dream.test.ts`, `removed-commands.test.ts`, plus DREAM HEALTH assertion in `dashboard.test.ts`.
 - Manual smoke: dashboard surfaces DREAM HEALTH; designated machine probe runs at MCP boot; dream log filters work; removed commands return non-zero with "unknown command".
+
+## [5.4.1] — 2026-05-01
+
+### Added
+
+- **Remote-first architecture.** Reads hit the remote NAS DB when reachable; local DB is an offline-only cache with a stderr fallback notice when remote is unreachable. `GnosysDB.openLocal()` for explicit local sync ops; `GNOSYS_LOCAL_ONLY=1` forces local-only mode.
+- **ULID memory IDs** for new memories (`prefix-<ULID>`); existing prefix-N IDs unchanged.
+- **Regression suite** extended for the v5.4.x architecture changes.
+
+### Changed
+
+- **Sync now includes the projects table** — `push()`, `pull()`, `sync()`, and `migrate()` sync project rows as well as memories. `SyncResult` gains `projectsPushed` / `projectsPulled` counters.
+
+### Fixed
+
+- Ten-bug sweep (B1–B10): central-DB routing for `gnosys graph` and dashboard project counts; removed stale dashboard labels; ESM-safe keychain lookup with Linux `secret-tool` support; dashboard border alignment; live ollama/lmstudio probes; deep-merge for `loadConfig`; SQLITE_CORRUPT recovery hints in MCP write errors; WAL autocheckpoint pragma; LLM error messages reference the configured provider's env var.
 
 ## [5.4.0] — 2026-04-30
 

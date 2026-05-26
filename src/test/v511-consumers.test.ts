@@ -8,8 +8,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { effectiveProjectPath } from "../lib/projectPaths.js";
 import { generateBriefing } from "../lib/federated.js";
-import { type MachineConfig } from "../lib/machineConfig.js";
-import { type DbProject } from "../lib/db.js";
+import type { MachineConfig } from "../lib/machineConfig.js";
+import type { DbProject } from "../lib/db.js";
 import { createTestEnv, cleanupTestEnv, makeMemory, type TestEnv } from "./_helpers.js";
 
 const STUDIO: MachineConfig = {

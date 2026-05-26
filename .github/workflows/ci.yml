@@ -8,11 +8,20 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
 
     strategy:
+      fail-fast: false
       matrix:
-        node-version: [22, 24]
+        os: [ubuntu-latest, macos-latest]
+        node-version: [20, 22, 24]
+        exclude:
+          # macOS Node 20 truncates `gnosys --help` mid-output when stdout is a
+          # pipe (Node 20.x macOS stdout-flush-on-exit quirk). Affects only
+          # piped capture; interactive use is fine. Track separately; re-enable
+          # once on Node 22+ or when the stdout-flush bug is patched upstream.
+          - os: macos-latest
+            node-version: 20
 
     steps:
       - uses: actions/checkout@v5
@@ -36,11 +45,11 @@ jobs:
         run: npm test
 
       - name: Run tests with coverage
-        if: matrix.node-version == 24
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 24
         run: npm run test:coverage
 
       - name: Upload coverage report
-        if: matrix.node-version == 24
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 24
         uses: actions/upload-artifact@v5
         with:
           name: coverage-report
@@ -48,7 +57,7 @@ jobs:
           retention-days: 14
 
       - name: Check coverage thresholds
-        if: matrix.node-version == 24
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 24
         run: |
           if [ -f coverage/coverage-summary.json ]; then
             echo "Coverage summary:"
@@ -68,7 +77,7 @@ jobs:
       # failures (new modules without tests dropping the global average
       # under the 50% threshold).
       - name: Check coverage of newly-added files
-        if: matrix.node-version == 24
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 24
         run: |
           git fetch --depth=50 origin master:refs/remotes/origin/master 2>/dev/null || true
           COVERAGE_BASE_REF=origin/master node scripts/check-new-file-coverage.mjs

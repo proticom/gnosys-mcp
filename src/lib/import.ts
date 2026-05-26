@@ -6,10 +6,11 @@
 
 import { parse as csvParse } from "csv-parse/sync";
 import fs from "fs/promises";
-import { GnosysIngestion } from "./ingest.js";
-import { GnosysStore, MemoryFrontmatter } from "./store.js";
-import { GnosysDB } from "./db.js";
+import type { GnosysIngestion } from "./ingest.js";
+import type { GnosysStore, MemoryFrontmatter } from "./store.js";
+import type { GnosysDB } from "./db.js";
 import { syncMemoryToDb } from "./dbWrite.js";
+import { safeFetch } from "./webIngest.js";
 
 // ─── Interfaces ──────────────────────────────────────────────────────────
 
@@ -29,7 +30,7 @@ export interface ImportOptions {
   onProgress?: (progress: ImportProgress) => void;
 }
 
-export interface ImportProgress {
+interface ImportProgress {
   processed: number;
   total: number;
   current: string;
@@ -44,31 +45,9 @@ export interface ImportResult {
   duration: number;
 }
 
-// ─── URL Safety ──────────────────────────────────────────────────────────
-
-function isSafeImportUrl(urlStr: string): boolean {
-  try {
-    const url = new URL(urlStr);
-    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
-    const hostname = url.hostname;
-    if (hostname === "169.254.169.254" || hostname === "metadata.google.internal") return false;
-    const ipv4Match = hostname.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
-    if (ipv4Match) {
-      const [, a, b] = ipv4Match.map(Number);
-      if (a === 10) return false;
-      if (a === 172 && b >= 16 && b <= 31) return false;
-      if (a === 192 && b === 168) return false;
-      if (a === 169 && b === 254) return false;
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 // ─── Parsing ─────────────────────────────────────────────────────────────
 
-async function loadData(
+export async function loadData(
   data: string,
   format: "csv" | "json" | "jsonl"
 ): Promise<Record<string, unknown>[]> {
@@ -76,10 +55,7 @@ async function loadData(
 
   // Determine if data is a file path, URL, or inline
   if (data.startsWith("http://") || data.startsWith("https://")) {
-    if (!isSafeImportUrl(data)) {
-      throw new Error(`Refusing to fetch unsafe URL: ${data}`);
-    }
-    const response = await fetch(data);
+    const response = await safeFetch(data);
     if (!response.ok) {
       throw new Error(`Failed to fetch URL: ${response.status} ${response.statusText}`);
     }

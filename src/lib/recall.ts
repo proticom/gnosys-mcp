@@ -21,12 +21,12 @@
  * No LLM calls. No embeddings. Pure index lookup. Sub-50ms.
  */
 
-import { GnosysSearch } from "./search.js";
-import { GnosysResolver } from "./resolver.js";
+import type { GnosysSearch } from "./search.js";
+import type { GnosysResolver } from "./resolver.js";
 import { GnosysArchive } from "./archive.js";
-import { GnosysDB } from "./db.js";
+import type { GnosysDB } from "./db.js";
 import { auditLog } from "./audit.js";
-import { RecallConfig } from "./config.js";
+import type { RecallConfig } from "./config.js";
 
 export interface RecallResult {
   memories: RecallMemory[];
@@ -36,7 +36,7 @@ export interface RecallResult {
   aggressive: boolean;
 }
 
-export interface RecallMemory {
+interface RecallMemory {
   id: string;
   title: string;
   category: string;

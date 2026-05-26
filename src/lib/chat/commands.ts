@@ -12,7 +12,7 @@
  * /dream-here, /search-chats, /export.
  */
 
-import { Turn } from "./types.js";
+import type { Turn } from "./types.js";
 
 export interface CommandContext {
   /** Current session ID. */

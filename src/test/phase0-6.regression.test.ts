@@ -25,7 +25,7 @@ import {
   cleanupTestEnv,
   makeMemory,
   makeFrontmatter,
-  TestEnv,
+  type TestEnv,
 } from "./_helpers.js";
 
 let env: TestEnv;

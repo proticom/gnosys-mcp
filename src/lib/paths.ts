@@ -46,7 +46,7 @@ export function getSandboxDir(): string {
  * the project registry, .env, and other per-user CLI metadata that
  * lives OUTSIDE the central data store at `~/.gnosys/`.
  */
-export function getConfigDir(): string {
+function getConfigDir(): string {
   if (process.env.GNOSYS_CONFIG_DIR) return process.env.GNOSYS_CONFIG_DIR;
   const home = process.env.HOME || process.env.USERPROFILE || "/tmp";
   return path.join(home, ".config", "gnosys");

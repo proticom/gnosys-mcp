@@ -19,11 +19,12 @@
  */
 
 import os from "os";
-import { GnosysDB, DbMemory } from "./db.js";
-import { GnosysConfig, LLMProviderName } from "./config.js";
-import { LLMProvider, getLLMProvider } from "./llm.js";
+import type { GnosysDB, DbMemory } from "./db.js";
+import type { GnosysConfig, LLMProviderName } from "./config.js";
+import { type LLMProvider, getLLMProvider } from "./llm.js";
 import { notifyDesktop } from "./desktopNotify.js";
 import { syncConfidenceToDb, auditToDb } from "./dbWrite.js";
+import { logError } from "./log.js";
 
 /** Layer 4 alert threshold: fire desktop notification at this many consecutive provider failures. */
 const DREAM_FAILURE_NOTIFY_THRESHOLD = 3;
@@ -882,7 +883,7 @@ export class DreamScheduler {
           `[dream] Complete: ${report.decayUpdated} decay, ${report.summariesGenerated} summaries, ${report.reviewSuggestions.length} reviews, ${report.relationshipsDiscovered} relations (${(report.durationMs / 1000).toFixed(1)}s)`
         );
       } catch (err) {
-        console.error(`[dream] Error: ${err instanceof Error ? err.message : String(err)}`);
+        logError(err, { module: "dream", op: "scheduler" });
       } finally {
         this.running = false;
         this.currentDream = null;

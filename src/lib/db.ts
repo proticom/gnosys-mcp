@@ -22,6 +22,7 @@ import fs from "fs";
 import { enableWAL } from "./lock.js";
 import { getGnosysHome as getGnosysHomeImpl, getCentralDbPath as getCentralDbPathImpl } from "./paths.js";
 import { readMachineConfig } from "./machineConfig.js";
+import { logError } from "./log.js";
 import { ulid } from "ulidx";
 
 // ─── Types ──────────────────────────────────────────────────────────────
@@ -167,6 +168,8 @@ CREATE INDEX IF NOT EXISTS idx_memories_last_reinforced ON memories(last_reinfor
 CREATE INDEX IF NOT EXISTS idx_memories_content_hash ON memories(content_hash);
 CREATE INDEX IF NOT EXISTS idx_memories_project_id ON memories(project_id);
 CREATE INDEX IF NOT EXISTS idx_memories_scope ON memories(scope);
+CREATE INDEX IF NOT EXISTS idx_memories_modified ON memories(modified);
+CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(created);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
   id,
@@ -409,9 +412,10 @@ export class GnosysDB {
       // Quiet fallback notice on stderr — visible to humans, doesn't pollute
       // stdout that scripts/agents are piping. Only emitted when remote is
       // CONFIGURED but unreachable (the user expected it to work).
-      process.stderr.write(
-        `gnosys: remote unreachable (${remotePath}), using local cache\n`
-      );
+      logError(new Error(`remote unreachable (${remotePath}), using local cache`), {
+        module: "db",
+        op: "open",
+      });
       return localDb;
     }
 
@@ -431,7 +435,12 @@ export class GnosysDB {
    */
   static openLocal(): GnosysDB {
     const dir = GnosysDB.getGnosysHome();
-    fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    try {
+      fs.chmodSync(dir, 0o700);
+    } catch {
+      // best-effort (Windows / network FS)
+    }
     return new GnosysDB(dir);
   }
 
@@ -446,9 +455,21 @@ export class GnosysDB {
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        fs.mkdirSync(storePath, { recursive: true });
+        fs.mkdirSync(storePath, { recursive: true, mode: 0o700 });
         this.db = new Database(this.dbFilePath);
         enableWAL(this.db);
+        try {
+          fs.chmodSync(storePath, 0o700);
+          fs.chmodSync(this.dbFilePath, 0o600);
+          for (const ext of ["-wal", "-shm"]) {
+            const sidecar = this.dbFilePath + ext;
+            if (fs.existsSync(sidecar)) {
+              fs.chmodSync(sidecar, 0o600);
+            }
+          }
+        } catch {
+          // best-effort (Windows / network FS)
+        }
         this.db.pragma("foreign_keys = ON");
         // Longer busy timeout for network shares (10s)
         this.db.pragma("busy_timeout = 10000");
@@ -607,6 +628,15 @@ export class GnosysDB {
   }
 
   private applySchema(): void {
+    const currentVersion = this.db.pragma("user_version", { simple: true }) as number;
+
+    // Legacy DBs (user_version >= 1) must migrate before the full current
+    // schema is applied — SCHEMA_SQL creates indexes on columns (project_id,
+    // scope, …) that do not exist on v1/v2 databases yet.
+    if (currentVersion > 0 && currentVersion < SCHEMA_VERSION) {
+      this.migrateSchema(currentVersion);
+    }
+
     // Apply main schema
     this.db.exec(SCHEMA_SQL);
 
@@ -617,10 +647,11 @@ export class GnosysDB {
       // Triggers may already exist — that's fine
     }
 
-    // Schema migration: v1 → v2 (add project_id, scope, projects table)
-    const currentVersion = this.db.pragma("user_version", { simple: true }) as number;
-    if (currentVersion < SCHEMA_VERSION) {
-      this.migrateSchema(currentVersion);
+    // Fresh DBs (user_version 0) get the full schema first, then migrate
+    // to stamp user_version and apply any incremental steps idempotently.
+    const versionAfterSchema = this.db.pragma("user_version", { simple: true }) as number;
+    if (versionAfterSchema < SCHEMA_VERSION) {
+      this.migrateSchema(versionAfterSchema);
     }
   }
 

@@ -84,8 +84,8 @@ describe("audit_log sync", () => {
     expect(result.auditPulled).toBe(1);
 
     const localEntries = local.queryAuditLog({ limit: 10 });
-    expect(localEntries).toHaveLength(1);
-    expect(localEntries[0].operation).toBe("dream_complete");
+    expect(localEntries.find((e) => e.operation === "dream_complete")).toBeDefined();
+    expect(localEntries.some((e) => e.operation === "remote_pull")).toBe(true);
   });
 
   it("does not double-push entries already on the remote", async () => {
@@ -173,9 +173,11 @@ describe("audit_log sync", () => {
 
     const result = await sync.sync();
 
-    // After sync, both sides should see both entries
+    // After sync, both sides should see both memory-audit entries; local also
+    // records machine-local remote_push / remote_pull observability rows.
     const localEntries = local.queryAuditLog({ limit: 10 });
-    expect(localEntries).toHaveLength(2);
+    const memoryAudits = localEntries.filter((e) => e.operation === "write" || e.operation === "read");
+    expect(memoryAudits).toHaveLength(2);
 
     const remote2 = new GnosysDB(remoteTmp);
     const remoteEntries = remote2.queryAuditLog({ limit: 10 });

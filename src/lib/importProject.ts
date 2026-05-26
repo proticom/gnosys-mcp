@@ -6,15 +6,15 @@
 
 import { gunzipSync } from "zlib";
 import { readFileSync } from "fs";
-import { GnosysDB, DbMemory, DbProject } from "./db.js";
+import type { GnosysDB, DbMemory, DbProject } from "./db.js";
 import {
   BUNDLE_FORMAT,
   BUNDLE_VERSION,
-  ProjectBundle,
-  PortableMemory,
+  type ProjectBundle,
+  type PortableMemory,
 } from "./exportProject.js";
 
-export type ImportStrategy =
+type ImportStrategy =
   /** Skip rows that already exist; insert new ones. Safe default. */
   | "merge"
   /** Replace existing project + its memories. Destructive — deletes target project's memories first. */
@@ -82,7 +82,7 @@ export function importProject(
 
   const existing = db.getProject(project.id);
   let projectId = project.id;
-  let memoryIdRewrites = new Map<string, string>();
+  const memoryIdRewrites = new Map<string, string>();
   let memoriesReplaced = 0;
 
   if (existing) {

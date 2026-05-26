@@ -22,10 +22,10 @@ try {
 import path from "path";
 import fs from "fs/promises";
 import { statSync } from "fs";
-import { GnosysStore, Memory, MemoryFrontmatter } from "./store.js";
-import { GnosysDB } from "./db.js";
+import type { GnosysStore, Memory, MemoryFrontmatter } from "./store.js";
+import type { GnosysDB } from "./db.js";
 import { syncMemoryToDb, syncDearchiveToDb } from "./dbWrite.js";
-import { GnosysConfig } from "./config.js";
+import type { GnosysConfig } from "./config.js";
 import { enableWAL } from "./lock.js";
 import { auditLog } from "./audit.js";
 
