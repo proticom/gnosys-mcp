@@ -433,7 +433,12 @@ export class GnosysDB {
    */
   static openLocal(): GnosysDB {
     const dir = GnosysDB.getGnosysHome();
-    fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    try {
+      fs.chmodSync(dir, 0o700);
+    } catch {
+      // best-effort (Windows / network FS)
+    }
     return new GnosysDB(dir);
   }
 
@@ -448,9 +453,21 @@ export class GnosysDB {
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        fs.mkdirSync(storePath, { recursive: true });
+        fs.mkdirSync(storePath, { recursive: true, mode: 0o700 });
         this.db = new Database(this.dbFilePath);
         enableWAL(this.db);
+        try {
+          fs.chmodSync(storePath, 0o700);
+          fs.chmodSync(this.dbFilePath, 0o600);
+          for (const ext of ["-wal", "-shm"]) {
+            const sidecar = this.dbFilePath + ext;
+            if (fs.existsSync(sidecar)) {
+              fs.chmodSync(sidecar, 0o600);
+            }
+          }
+        } catch {
+          // best-effort (Windows / network FS)
+        }
         this.db.pragma("foreign_keys = ON");
         // Longer busy timeout for network shares (10s)
         this.db.pragma("busy_timeout = 10000");

@@ -419,7 +419,8 @@ export async function writeApiKey(provider: string, key: string): Promise<void> 
   if (!envVar) return;
 
   const configDir = path.join(os.homedir(), ".config", "gnosys");
-  await fs.mkdir(configDir, { recursive: true });
+  await fs.mkdir(configDir, { recursive: true, mode: 0o700 });
+  await fs.chmod(configDir, 0o700);
 
   const envPath = path.join(configDir, ".env");
 
@@ -450,6 +451,7 @@ export async function writeApiKey(provider: string, key: string): Promise<void> 
   }
 
   await fs.writeFile(envPath, lines.join("\n") + "\n", "utf-8");
+  await fs.chmod(envPath, 0o600);
 }
 
 /**
@@ -1419,7 +1421,8 @@ export async function runSetup(opts: {
       if (baseUrl) {
         // Write GNOSYS_LLM_BASE_URL to env file
         const configDir = path.join(os.homedir(), ".config", "gnosys");
-        await fs.mkdir(configDir, { recursive: true });
+        await fs.mkdir(configDir, { recursive: true, mode: 0o700 });
+        await fs.chmod(configDir, 0o700);
         const envPath = path.join(configDir, ".env");
 
         let lines: string[] = [];
@@ -1445,6 +1448,7 @@ export async function runSetup(opts: {
           lines.push(`GNOSYS_LLM_BASE_URL=${baseUrl}`);
         }
         await fs.writeFile(envPath, lines.join("\n") + "\n", "utf-8");
+        await fs.chmod(envPath, 0o600);
       }
     } else if (isSkip) {
       // Skip step 2 entirely
