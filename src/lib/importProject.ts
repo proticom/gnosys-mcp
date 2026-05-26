@@ -14,7 +14,7 @@ import {
   type PortableMemory,
 } from "./exportProject.js";
 
-export type ImportStrategy =
+type ImportStrategy =
   /** Skip rows that already exist; insert new ones. Safe default. */
   | "merge"
   /** Replace existing project + its memories. Destructive — deletes target project's memories first. */

@@ -67,7 +67,7 @@ export interface ModelTier {
 }
 
 /** Per-task routing override chosen during setup. */
-export interface TaskRouting {
+interface TaskRouting {
   provider: string;
   model: string;
 }
@@ -157,7 +157,7 @@ interface OpenRouterModel {
  * Fetch models from OpenRouter, cache for 24 hours, fall back to hardcoded.
  * Returns updated PROVIDER_TIERS for cloud providers only.
  */
-export async function fetchDynamicModels(): Promise<Record<string, ModelTier[]>> {
+async function fetchDynamicModels(): Promise<Record<string, ModelTier[]>> {
   // Check cache first
   try {
     const stat = await fs.stat(CACHE_FILE);
@@ -340,7 +340,7 @@ export async function fetchDynamicModels(): Promise<Record<string, ModelTier[]>>
 /**
  * Get model tiers for a provider — tries dynamic first, falls back to hardcoded.
  */
-export async function getModelTiers(provider: string): Promise<ModelTier[]> {
+async function getModelTiers(provider: string): Promise<ModelTier[]> {
   const dynamic = await fetchDynamicModels();
   if (dynamic[provider] && dynamic[provider].length > 0) {
     return dynamic[provider];
@@ -459,7 +459,7 @@ export async function writeApiKey(provider: string, key: string): Promise<void> 
  * Uses the -U flag to update if the entry already exists.
  * Returns true on success, false on failure.
  */
-export function writeApiKeyToKeychain(envVar: string, key: string): boolean {
+function writeApiKeyToKeychain(envVar: string, key: string): boolean {
   if (process.platform !== "darwin") return false;
   try {
     // The -U flag updates if the password already exists
@@ -2402,7 +2402,7 @@ export async function runModelsSetup(opts: ModelsSetupOpts = {}): Promise<void> 
 
 // ─── Quick `gnosys models` command ───────────────────────────────────────────
 
-export interface ModelsCommandOpts {
+interface ModelsCommandOpts {
   list?: boolean;
   refresh?: boolean;
   set?: string;
@@ -2415,7 +2415,7 @@ export interface ModelsCommandOpts {
  *   --refresh: clear the OpenRouter cache and re-fetch
  *   --set X:   update the default model in gnosys.json (no prompts)
  */
-export async function runModelsCommand(opts: ModelsCommandOpts = {}): Promise<void> {
+async function runModelsCommand(opts: ModelsCommandOpts = {}): Promise<void> {
   const projectDir = opts.directory ? path.resolve(opts.directory) : process.cwd();
   const existingConfig = await loadExistingConfig(projectDir);
   const currentProvider = existingConfig?.llm.defaultProvider;

@@ -19,7 +19,7 @@ import type { ProgressCallback } from "./progress.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
-export interface RemoteConfig {
+interface RemoteConfig {
   /** Path to remote .gnosys directory (e.g., /Volumes/nas/gnosys) */
   path: string;
   /** Run sync automatically in background */
@@ -30,7 +30,7 @@ export interface RemoteConfig {
   conflictStrategy?: "skip-and-flag" | "newer-wins";
 }
 
-export interface ConflictInfo {
+interface ConflictInfo {
   memoryId: string;
   title: string;
   localModified: string;
@@ -882,7 +882,7 @@ function isStaleUnknownId(id: string): boolean {
  * to `os.hostname()` so macOS shells without `HOSTNAME` still get a real
  * name. Returns `"unknown"` only when everything fails.
  */
-export function resolveHostname(): string {
+function resolveHostname(): string {
   const fromEnv = process.env.HOSTNAME || process.env.COMPUTERNAME;
   if (fromEnv) return fromEnv;
   try {

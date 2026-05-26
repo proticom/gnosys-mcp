@@ -20,7 +20,7 @@ export interface WikiLink {
 }
 
 /** A node in the link graph with both outgoing and incoming links. */
-export interface LinkNode {
+interface LinkNode {
   /** This memory's relative path */
   path: string;
   /** This memory's title */

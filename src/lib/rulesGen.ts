@@ -242,7 +242,7 @@ function getGlobalClaudeMdPath(): string {
  * Determine which targets to sync based on what exists in the project directory.
  * Returns an array of relative file paths.
  */
-export function detectAllTargets(projectDir: string): string[] {
+function detectAllTargets(projectDir: string): string[] {
   const targets: string[] = [];
 
   // Check for Cursor

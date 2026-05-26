@@ -16,7 +16,7 @@
 
 import type { Turn } from "./types.js";
 
-export interface FocusSnapshot {
+interface FocusSnapshot {
   /** Focus name. */
   topic: string;
   /** When this snapshot was created. */

@@ -36,7 +36,7 @@ export interface RecallResult {
   aggressive: boolean;
 }
 
-export interface RecallMemory {
+interface RecallMemory {
   id: string;
   title: string;
   category: string;

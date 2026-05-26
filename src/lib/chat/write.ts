@@ -17,7 +17,7 @@ import type { GnosysConfig } from "../config.js";
 import { getLLMProvider } from "../llm.js";
 import type { Turn } from "./types.js";
 
-export type PromoteSource = "remember" | "save-turn" | "auto" | "attach";
+type PromoteSource = "remember" | "save-turn" | "auto" | "attach";
 
 export interface PromoteOptions {
   /** Free-form text to save. */

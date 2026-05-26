@@ -27,7 +27,7 @@ export type InferredIntent =
   | { command: "/attach"; args: string[]; confidence: "high" | "medium"; matchedPattern?: string }
   | { command: "/quit"; args: string[]; confidence: "high" | "medium"; matchedPattern?: string };
 
-export interface PatternRule {
+interface PatternRule {
   /** Regex to match. Capture group 1 is the args text (joined as `args[0]` if present). */
   pattern: RegExp;
   command: InferredIntent["command"];
@@ -38,7 +38,7 @@ export interface PatternRule {
 }
 
 // Patterns are ordered most specific → most general. First match wins.
-export const PATTERNS: PatternRule[] = [
+const PATTERNS: PatternRule[] = [
   // Quit/exit
   {
     pattern: /^\s*(?:thanks[,.\s]*)?(?:that(?:'s| is) all|i'?m done|goodbye|bye|quit|exit)\s*[.!]?\s*$/i,
@@ -137,7 +137,7 @@ export function hasImperativeSignal(userInput: string): boolean {
  * Optional: ask a cheap LLM to classify the intent.
  * Returns null when the LLM is unavailable or the response can't be parsed.
  */
-export async function classifyWithLLM(
+async function classifyWithLLM(
   config: GnosysConfig,
   userInput: string,
 ): Promise<InferredIntent | null> {

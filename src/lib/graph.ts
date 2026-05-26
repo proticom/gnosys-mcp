@@ -12,7 +12,7 @@ import type { Memory } from "./store.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
-export interface GraphNode {
+interface GraphNode {
   id: string; // relativePath
   title: string;
   edges: number; // total connections (outgoing + incoming)
@@ -20,7 +20,7 @@ export interface GraphNode {
   incoming: number;
 }
 
-export interface GraphEdge {
+interface GraphEdge {
   source: string; // relativePath
   target: string; // relativePath
   label: string; // wikilink target text

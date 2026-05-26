@@ -234,7 +234,7 @@ export async function sandboxStatus(): Promise<SandboxStatus> {
  * Ensure the sandbox is running (auto-start if needed).
  * Used by the helper library to transparently start the sandbox.
  */
-export async function ensureSandbox(opts?: { dbPath?: string }): Promise<SandboxClient> {
+async function ensureSandbox(opts?: { dbPath?: string }): Promise<SandboxClient> {
   const client = new SandboxClient();
 
   if (await client.isRunning()) {

@@ -15,7 +15,7 @@ import { join, dirname } from "path";
 export const BUNDLE_FORMAT = "gnosys-project-bundle";
 export const BUNDLE_VERSION = 1;
 
-export interface BundleManifest {
+interface BundleManifest {
   format: typeof BUNDLE_FORMAT;
   version: number;
   created: string;

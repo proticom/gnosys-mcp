@@ -22,7 +22,7 @@ import type { GnosysDB } from "../db.js";
 import type { GnosysConfig } from "../config.js";
 
 /** Where the active dream state came from. */
-export type DreamStateSource = "config" | "local-db" | "remote-db" | "default";
+type DreamStateSource = "config" | "local-db" | "remote-db" | "default";
 
 export interface DreamState {
   /** True if any source advertises dream mode as active. */

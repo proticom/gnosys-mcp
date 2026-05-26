@@ -25,7 +25,7 @@ export function remoteMcpEntry(opts: RemoteOpts): Record<string, unknown> {
 }
 
 /** Platform-specific Claude Desktop config path (mirrors setup.ts). */
-export function claudeDesktopConfigPath(): string {
+function claudeDesktopConfigPath(): string {
   const home = os.homedir();
   if (process.platform === "darwin") {
     return path.join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json");
@@ -60,7 +60,7 @@ export async function writeCursorRemote(projectDir: string, opts: RemoteOpts): P
 }
 
 /** Write the remote entry into the Claude Desktop config. Returns the path. */
-export async function writeClaudeDesktopRemote(opts: RemoteOpts): Promise<string> {
+async function writeClaudeDesktopRemote(opts: RemoteOpts): Promise<string> {
   const file = claudeDesktopConfigPath();
   await mergeJsonMcpServer(file, remoteMcpEntry(opts));
   return file;

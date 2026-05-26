@@ -31,9 +31,9 @@ import { randomUUID } from "crypto";
 import { getMachineConfigPath } from "./paths.js";
 import { atomicWriteFileSync } from "./atomicWrite.js";
 
-export const MACHINE_CONFIG_VERSION = 1;
+const MACHINE_CONFIG_VERSION = 1;
 
-export interface MachineRemoteConfig {
+interface MachineRemoteConfig {
   /** Whether remote sync is configured/active on this machine. */
   enabled: boolean;
   /** Absolute path or URL to the remote DB on this machine (NAS mount / Tailscale). */

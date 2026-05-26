@@ -16,7 +16,7 @@ import type { GnosysDB } from "./db.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
-export interface TraceNode {
+interface TraceNode {
   name: string;           // function/class/method name
   file: string;           // relative file path
   kind: "function" | "class" | "method" | "export";
@@ -26,7 +26,7 @@ export interface TraceNode {
   imports: string[];      // imported modules/symbols
 }
 
-export interface TraceGraph {
+interface TraceGraph {
   nodes: Map<string, TraceNode>;
   files: string[];
   rootDir: string;

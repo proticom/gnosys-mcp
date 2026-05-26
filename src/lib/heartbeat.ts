@@ -16,7 +16,7 @@ const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "
 const FRAME_MS = 80;
 const GRACE_MS = 500;
 
-export interface Heartbeat {
+interface Heartbeat {
   /** Update the message shown next to the spinner. Safe to call repeatedly. */
   setMessage(msg: string): void;
   /** Stop the spinner and clear the line. */
@@ -54,7 +54,7 @@ function paint(state: State): void {
  *
  * In non-TTY contexts (pipes, CI), returns a no-op handle.
  */
-export function startHeartbeat(message: string): Heartbeat {
+function startHeartbeat(message: string): Heartbeat {
   if (!isTty()) {
     return {
       setMessage: () => {},

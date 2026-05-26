@@ -269,4 +269,3 @@ export class GnosysEmbeddings {
   }
 }
 
-export { EMBEDDING_DIM };

@@ -17,7 +17,7 @@ import fsSync from "fs";
 import type { GnosysDB, DbProject } from "./db.js";
 import { type MachineConfig, absPathFromRoot, relPathUnderRoot } from "./machineConfig.js";
 
-export type LocationSource = "override" | "root" | "none";
+type LocationSource = "override" | "root" | "none";
 
 export interface ResolvedProject {
   project: DbProject;

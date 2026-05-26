@@ -30,7 +30,7 @@ export interface ImportOptions {
   onProgress?: (progress: ImportProgress) => void;
 }
 
-export interface ImportProgress {
+interface ImportProgress {
   processed: number;
   total: number;
   current: string;

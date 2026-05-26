@@ -39,13 +39,13 @@ export function redactKey(text: string, apiKey?: string): string {
 
 // ─── Interfaces ──────────────────────────────────────────────────────────
 
-export interface LLMGenerateOptions {
+interface LLMGenerateOptions {
   system?: string;
   maxTokens?: number;
   stream?: boolean;
 }
 
-export interface LLMStreamCallbacks {
+interface LLMStreamCallbacks {
   onToken: (token: string) => void;
 }
 
@@ -87,7 +87,7 @@ export interface LLMProvider {
 
 // ─── Anthropic Provider ──────────────────────────────────────────────────
 
-export class AnthropicProvider implements LLMProvider {
+class AnthropicProvider implements LLMProvider {
   readonly name: LLMProviderName = "anthropic";
   readonly model: string;
   private client: any = null; // Anthropic SDK client (lazy-initialized)
@@ -235,7 +235,7 @@ export class AnthropicProvider implements LLMProvider {
 
 // ─── Ollama Provider ─────────────────────────────────────────────────────
 
-export class OllamaProvider implements LLMProvider {
+class OllamaProvider implements LLMProvider {
   readonly name: LLMProviderName = "ollama";
   readonly model: string;
   private baseUrl: string;
@@ -438,7 +438,7 @@ export class OllamaProvider implements LLMProvider {
  * Generic OpenAI-compatible provider. Works with any service that implements
  * the OpenAI /v1/chat/completions API: OpenAI, Groq, LM Studio, etc.
  */
-export class OpenAICompatibleProvider implements LLMProvider {
+class OpenAICompatibleProvider implements LLMProvider {
   readonly name: LLMProviderName;
   readonly model: string;
   private baseUrl: string;
