@@ -29,6 +29,7 @@
     "test:coverage": "vitest run --coverage",
     "lint": "biome check src/",
     "lint:fix": "biome check --write src/",
+    "docs:mcp-tools": "node scripts/gen-mcp-tools.mjs --write",
     "postinstall": "node dist/postinstall.js || true",
     "prepublishOnly": "npm run build"
   },
