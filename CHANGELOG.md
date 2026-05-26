@@ -9,6 +9,115 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Detailed CHANGELOG coverage begins at **5.2.16**. Earlier 5.0.0–5.2.15 releases and a few 5.2.x patches without individual entries (5.2.17, 5.2.18, 5.2.21) are tracked via [git tags](https://github.com/proticom/gnosys/tags). Versions 5.2.13, 5.2.14, and 5.2.15 were CHANGELOG-only and never published to npm.
 
+## [Unreleased]
+
+Pending release — bundles 84 commits since 5.10.0 covering a network-hosted MCP
+transport, a hardened HTTP surface, structured logging, a v5.12 portability
+track, and the C/D/E hardening + documentation review.
+
+### Added
+
+- **Network-hosted MCP transport (v5.12 Phases A–E).** Run Gnosys as a remote
+  MCP server over Streamable HTTP, containerize it, and point local IDEs at it.
+  - `gnosys serve --transport http` — Streamable HTTP transport for network MCP
+    (v5.12 Phase A + C).
+  - Capability registrations collected as replayable thunks so HTTP sessions
+    replay the same tool surface as stdio (v5.12 Phase A foundation).
+  - `gnosys connect` — point an IDE at a remote Gnosys server (v5.12 Phase B).
+  - `gnosys centralize` — seed a central server's brain from a local one
+    (v5.12 Phase E).
+  - Docker support for the network-hosted MCP server (v5.12 Phase D).
+- **Structured logging (D.5).** Text, JSON, and file sinks for operational
+  visibility across CLI and server modes.
+- **Audit rows for remote sync.** Push/pull operations now emit audit rows for
+  sync observability.
+- **HTTP CORS guard.** Default-deny browser origins on the HTTP transport.
+- **Atomic config writes.** Config updates use temp-then-rename for crash safety.
+- **Preference key validation.** Invalid preference keys get did-you-mean hints.
+- **`--json` on read-only commands.** Seven read-only CLI commands now support
+  machine-readable output.
+- **Provenance in reads.** `source_file` surfaced in reads; audit file ingestion
+  tracked.
+- **Export transparency.** Excluded-archived count surfaced so exports do not
+  silently drop memories.
+- **`gnosys upgrade` package-manager detection.** Upgrade command detects npm,
+  pnpm, or yarn automatically.
+- **npm discoverability.** Added `model-context-protocol` and `agent-memory`
+  keywords to package.json.
+- **Documentation and ADRs (E.4–E.8).**
+  - Generated `docs/cli.md` from `src/cli.ts` (E.5) and `docs/mcp-tools.md`
+    from `src/index.ts` (E.4).
+  - Backfilled 8 ADRs from Gnosys memory (E.6).
+  - `docs/source-of-truth.md` — content map for where docs live (E.8).
+  - `docs/threat-model.md` — security threat model (A.13).
+  - `docs/coverage-baseline.md` — C.1 coverage gate baseline (CC.5).
+  - Setup walkthrough, configuration precedence chains, LLM provider contract,
+    search-modes comparison, cost model, update-integrity notes, and network-MCP
+    rate-limiting rationale.
+- **Acceptance smokes (C.9).** MCP, WebKB, and sync smoke tests at the
+  acceptance layer.
+- **Test coverage expansion.** Extended suites for ingest (100% lines), dream
+  (95%), db (88%), remote (80%), HTTP session isolation, bearer-token contract,
+  MCP registration replay, search golden corpus, lifecycle invariants, DB
+  recovery, and adversarial ingest fixtures.
+
+### Changed
+
+- **CI test matrix on Linux + macOS (C.7).** Tests now run on both platforms.
+- **Node 18 & 20 in CI.** Matrix expanded so `engines.node >=18` is verified.
+- **Biome linter (B.2).** Adopted Biome as the project linter.
+- **Dependency cleanup (B.3/B.4).** Removed dead exports, declared jszip,
+  added knip; resolved circular dependencies.
+- **DB-only history (B.3).** Removed legacy git-backed rollback/history paths;
+  SQLite is the sole source of truth.
+- **CHANGELOG backfill (E.2).** Added 5.4.1/5.4.3 entries and the Historical
+  versions preamble note.
+- **README updates.** Slimmed and repositioned; documents both `gnosys` and
+  `gnosys-mcp` bins, Node.js >= 18 prerequisite, optional native deps with
+  install hints, and a complete MCP Tool Reference table (all 51 tools).
+- **DB performance.** Indexed `memories.modified` and `memories.created`.
+
+### Fixed
+
+- **Path traversal in export (A.5).** `gnosys export` no longer allows
+  directory escape via crafted paths.
+- **Shell injection (A.8).** `cp` and `open` subprocess calls use argv arrays
+  instead of shell strings.
+- **File permissions (A.11).** `.env` and `gnosys.db` created with `0600`
+  permissions.
+- **Clean build / clean dist (20.13).** `dist/` cleaned before build so deleted modules are
+  not shipped to npm.
+- **Legacy schema migration.** DB migrates v1/v2 legacy schema before applying
+  current `SCHEMA_SQL`.
+- **npm provenance.** Canonicalized `repository.url` for npm provenance.
+- **README tool table.** Removed stale `gnosys_rollback` reference.
+- **Package assets.** `docs/logo.svg` shipped so the README logo renders on npm.
+- **MCP error envelopes.** Tool errors normalized via `formatMcpError`.
+- **Machine ID stability.** `GNOSYS_MACHINE_ID` env override for stable id
+  across hostname changes.
+- **DB busy timeout.** All file-based `Database()` opens set `busy_timeout`.
+- **Embeddings install hint.** One-line hint when `@xenova/transformers` is
+  missing.
+- **LLM request timeouts.** Enforced on all provider calls.
+- **HTTP session cleanup.** Idle sessions reaped to stop disconnect leaks.
+
+### Security
+
+- **HTTP auth on non-loopback bind.** Server refuses to start without an auth
+  token when bound beyond loopback; bearer-token contract locked by tests.
+- **HTTP DoS hardening.** Request body size bounded; receive-time limits
+  enforced.
+- **SSRF parity (17.4).** `safeFetch` used for import-from-URL; web ingest
+  closes redirect bypass, loopback, and IP-encoding holes.
+- **DOCX zip-bomb guard.** DOCX extractor rejects archives that exceed safe
+  size limits.
+- **API key redaction.** Format-agnostic redaction in LLM provider error
+  messages.
+- **Prompt injection hardening.** Synthesis prompt in `gnosys ask` hardened
+  against embedded prompt injection.
+- **CORS default-deny.** Browser origins blocked unless explicitly allowed
+  (also listed under Added).
+
 ## [5.10.0] — 2026-05-23
 
 Machine-portable project paths, plus repository/community-standards groundwork.
