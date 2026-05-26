@@ -5,6 +5,8 @@ talks to an LLM provider you configure, and stores memories in a SQLite
 database you control. Most of its attack surface is local, but we take
 security seriously and welcome responsible disclosure.
 
+**Companion document:** [docs/threat-model.md](docs/threat-model.md) — the per-asset threat model with mitigation references.
+
 ## Supported Versions
 
 Gnosys ships frequent patch releases. Security fixes land on the latest
