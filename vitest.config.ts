@@ -27,7 +27,6 @@ export default defineConfig({
 
         // LLM provider calls (Anthropic, Ollama, Groq, OpenAI, LM Studio)
         "src/lib/llm.ts",
-        "src/lib/retry.ts",
 
         // Interactive setup wizard (1700 lines of prompts + I/O)
         "src/lib/setup.ts",
