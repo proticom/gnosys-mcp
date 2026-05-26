@@ -20,6 +20,7 @@ import { GnosysDreamEngine, DreamScheduler, type DreamConfig, type DreamReport, 
 import { DEFAULT_CONFIG, type GnosysConfig } from "../lib/config.js";
 import { syncRules, generateRulesBlock, RulesGenResult } from "../lib/rulesGen.js";
 import { getSandboxDir as getSandboxDirImpl } from "../lib/paths.js";
+import { logError, logWarn } from "../lib/log.js";
 
 // ─── Socket + PID paths ─────────────────────────────────────────────────
 
@@ -675,9 +676,9 @@ export function startServer(dbPath?: string): net.Server {
   const db = new GnosysDB(dbDir, isNetworkPath ? { retries: 5, retryDelayMs: 1000 } : undefined);
 
   if (!db.isAvailable()) {
-    console.error("Failed to open GnosysDB. Is better-sqlite3 installed?");
+    logError(new Error("Failed to open GnosysDB"), { module: "sandbox", op: "openDb", hint: "Is better-sqlite3 installed?" });
     if (isNetworkPath) {
-      console.error(`Network path "${dbDir}" may be unavailable. Check the path is mounted and accessible.`);
+      logWarn(`Network path "${dbDir}" may be unavailable`, { module: "sandbox", dbDir });
     }
     process.exit(1);
   }
@@ -706,7 +707,7 @@ export function startServer(dbPath?: string): net.Server {
         console.log(`Dream Mode enabled (idle threshold: ${dreamState.idleMinutes}min)`);
       }
     } catch (err) {
-      console.error(`Dream Mode init failed: ${err instanceof Error ? err.message : String(err)}`);
+      logError(err instanceof Error ? err : new Error(String(err)), { module: "sandbox", op: "dreamInit" });
     }
   }
 

@@ -26,6 +26,7 @@ import { buildLinkGraph, getBacklinks, getOutgoingLinks, formatGraphSummary } fr
 import { loadConfig, generateConfigTemplate, type GnosysConfig, DEFAULT_CONFIG, writeConfig, updateConfig, resolveTaskModel, ALL_PROVIDERS, type LLMProviderName, getProviderModel } from "./lib/config.js";
 import { getLLMProvider, isProviderAvailable, type LLMProvider } from "./lib/llm.js";
 import { GnosysDB } from "./lib/db.js";
+import { logError } from "./lib/log.js";
 import { createProjectIdentity, readProjectIdentity, findProjectIdentity, migrateProject } from "./lib/projectIdentity.js";
 import { setPreference, getPreference, getAllPreferences, deletePreference, KNOWN_PREFERENCE_KEYS, suggestPreferenceKey } from "./lib/preferences.js";
 import { syncRules, syncToTarget } from "./lib/rulesGen.js";
@@ -310,7 +311,7 @@ program
           }
         });
       } catch (err) {
-        console.error(`Error: ${err instanceof Error ? err.message : err}`);
+        logError(err, { module: "cli", op: "discover" });
         process.exit(1);
       } finally {
         centralDb?.close();
@@ -351,7 +352,7 @@ program
         }
       });
     } catch (err) {
-      console.error(`Error: ${err instanceof Error ? err.message : err}`);
+      logError(err, { module: "cli", op: "discover" });
       process.exit(1);
     } finally {
       centralDb?.close();
@@ -397,7 +398,7 @@ program
           }
         });
       } catch (err) {
-        console.error(`Error: ${err instanceof Error ? err.message : err}`);
+        logError(err, { module: "cli", op: "search" });
         process.exit(1);
       } finally {
         centralDb?.close();
@@ -440,7 +441,7 @@ program
         }
       });
     } catch (err) {
-      console.error(`Error: ${err instanceof Error ? err.message : err}`);
+      logError(err, { module: "cli", op: "search" });
       process.exit(1);
     } finally {
       centralDb?.close();
@@ -524,7 +525,7 @@ program
           }
         });
       } catch (err) {
-        console.error(`Error: ${err instanceof Error ? err.message : err}`);
+        logError(err, { module: "cli", op: "list" });
         process.exit(1);
       } finally {
         centralDb?.close();

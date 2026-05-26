@@ -14,6 +14,7 @@ import path from "path";
 import crypto from "crypto";
 import os from "os";
 import type { GnosysDB, DbProject } from "./db.js";
+import { logWarn } from "./log.js";
 
 /** Shape of .gnosys/gnosys.json (project identity) */
 export interface ProjectIdentity {
@@ -141,9 +142,9 @@ export async function createProjectIdentity(
     // operators a hint.
     const existingRow = opts.centralDb.getProject(identity.projectId);
     if (existingRow && existingRow.working_directory !== identity.workingDirectory) {
-      console.error(
-        `gnosys: project ${identity.projectName} moved: ` +
-          `${existingRow.working_directory} → ${identity.workingDirectory}`,
+      logWarn(
+        `project ${identity.projectName} moved: ${existingRow.working_directory} → ${identity.workingDirectory}`,
+        { module: "projectIdentity", op: "registerProject" },
       );
     }
 
