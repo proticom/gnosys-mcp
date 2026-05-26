@@ -6045,8 +6045,8 @@ program
         const dashboardPath = path.join(home, "gnosys-dashboard.html");
         const { writeFileSync } = await import("fs");
         writeFileSync(dashboardPath, generatePortfolioHtml(report, dashboardPath), "utf-8");
-        const { exec } = await import("child_process");
-        exec(`open "${dashboardPath}"`);
+        const { execFile } = await import("child_process");
+        execFile("open", [dashboardPath]);
         console.log(`Dashboard opened: ${dashboardPath}`);
         return;
       }

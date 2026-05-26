@@ -544,8 +544,8 @@ export async function migrateProject(opts: MigrateOptions): Promise<MigrateResul
   }
 
   // 4. Copy entire .gnosys/ tree from source to target
-  const { execSync } = await import("child_process");
-  execSync(`cp -a "${sourceStore}" "${targetStore}"`, { stdio: "pipe" });
+  const { execFileSync } = await import("child_process");
+  execFileSync("cp", ["-a", sourceStore, targetStore], { stdio: "pipe" });
 
   // 5. Count memory markdown files (for reporting)
   const { glob } = await import("glob");
