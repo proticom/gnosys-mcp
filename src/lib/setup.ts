@@ -1296,6 +1296,7 @@ export async function runSetup(opts: {
         }
 
         if (shouldUpgrade) {
+          // Intentional dynamic import — lazy-load projectIdentity to avoid a static cycle.
           const { createProjectIdentity } = await import("./projectIdentity.js");
 
           for (const project of projects) {

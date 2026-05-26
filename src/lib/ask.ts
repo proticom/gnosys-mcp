@@ -9,7 +9,8 @@
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
-import type { GnosysHybridSearch, HybridSearchResult } from "./hybridSearch.js";
+import type { GnosysHybridSearch } from "./hybridSearch.js";
+import type { HybridSearchResult } from "./searchTypes.js";
 import { type GnosysConfig, DEFAULT_CONFIG } from "./config.js";
 import { type LLMProvider, getLLMProvider } from "./llm.js";
 import { GnosysArchive } from "./archive.js";

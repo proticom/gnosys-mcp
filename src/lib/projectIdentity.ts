@@ -317,6 +317,7 @@ async function registerMcpServer(
   projectDir: string,
 ): Promise<{ success: boolean; message: string }> {
   try {
+    // Intentional dynamic import — lazy-load setup to avoid a static cycle with setup.ts.
     const { setupIDE } = await import("./setup.js");
     return await setupIDE(ide, projectDir);
   } catch (err) {
