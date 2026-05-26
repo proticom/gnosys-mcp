@@ -9,7 +9,7 @@
  *   - On exit, flush a session_end event
  */
 
-import { GnosysConfig } from "../config.js";
+import type { GnosysConfig } from "../config.js";
 import { GnosysDB } from "../db.js";
 import {
   startSession,
@@ -17,9 +17,9 @@ import {
   readSession,
   listSessions,
   searchSessions,
-  SessionEvent,
+  type SessionEvent,
 } from "./session.js";
-import { Turn, ChatHeaderInfo } from "./types.js";
+import type { Turn, ChatHeaderInfo } from "./types.js";
 import { resolveTaskModel } from "../config.js";
 
 export interface StartChatOptions {

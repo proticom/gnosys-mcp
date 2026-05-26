@@ -8,12 +8,12 @@
  *   hybrid   — RRF fusion of both (default when embeddings exist)
  */
 
-import { GnosysSearch } from "./search.js";
+import type { GnosysSearch } from "./search.js";
 import { GnosysEmbeddings } from "./embeddings.js";
-import { GnosysResolver, LayeredMemory } from "./resolver.js";
+import type { GnosysResolver, LayeredMemory } from "./resolver.js";
 import { GnosysArchive } from "./archive.js";
 import { GnosysDbSearch } from "./dbSearch.js";
-import { GnosysDB } from "./db.js";
+import type { GnosysDB } from "./db.js";
 
 export type SearchMode = "keyword" | "semantic" | "hybrid";
 

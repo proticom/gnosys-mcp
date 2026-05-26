@@ -9,7 +9,7 @@
  * 4 visible rows × 29 cols — fits any terminal ≥80 cols comfortably.
  */
 
-import React from "react";
+import type React from "react";
 import { Box, Text } from "ink";
 import { THEME } from "./theme.js";
 

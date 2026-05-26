@@ -17,7 +17,7 @@ import {
   shouldAutoSummarize,
   buildSummaryPrompt,
 } from "../lib/chat/focus.js";
-import { Turn } from "../lib/chat/types.js";
+import type { Turn } from "../lib/chat/types.js";
 
 const NOW = "2026-05-04T12:00:00Z";
 

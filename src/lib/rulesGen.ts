@@ -16,8 +16,8 @@ import fs from "fs/promises";
 import fsSync from "fs";
 import path from "path";
 import os from "os";
-import { GnosysDB, DbMemory } from "./db.js";
-import { Preference, getAllPreferences } from "./preferences.js";
+import type { GnosysDB, DbMemory } from "./db.js";
+import { type Preference, getAllPreferences } from "./preferences.js";
 
 // ─── Block markers ──────────────────────────────────────────────────────
 

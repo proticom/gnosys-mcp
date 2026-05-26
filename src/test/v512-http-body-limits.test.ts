@@ -4,7 +4,7 @@
 
 import http from "node:http";
 import { describe, it, expect, afterEach } from "vitest";
-import { AddressInfo } from "node:net";
+import type { AddressInfo } from "node:net";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { startMcpHttpServer, type McpHttpHandle } from "../lib/mcpHttp.js";
 

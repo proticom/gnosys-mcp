@@ -5,9 +5,9 @@
  */
 
 import {
-  GnosysConfig,
+  type GnosysConfig,
   DEFAULT_CONFIG,
-  LLMProviderName,
+  type LLMProviderName,
   resolveTaskModel,
   getAnthropicApiKey,
   getOllamaBaseUrl,

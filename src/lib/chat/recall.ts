@@ -6,9 +6,9 @@
  * regardless of search relevance.
  */
 
-import { GnosysDB, DbMemory } from "../db.js";
+import type { GnosysDB, DbMemory } from "../db.js";
 import { federatedSearch } from "../federated.js";
-import { Turn } from "./types.js";
+import type { Turn } from "./types.js";
 
 export type RecallScope = "project" | "user" | "global" | "federated";
 
@@ -97,7 +97,7 @@ export function runRecall(db: GnosysDB, opts: RecallOptions): RecallResult {
     scopeFilter: scopeFilter as never,
   });
 
-  let considered = results.length + opts.pinnedIds.length;
+  const considered = results.length + opts.pinnedIds.length;
 
   for (const r of results) {
     if (memories.length - opts.pinnedIds.length >= limit) break;

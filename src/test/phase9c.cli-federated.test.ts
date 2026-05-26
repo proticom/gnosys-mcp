@@ -17,7 +17,7 @@ import os from "os";
 import {
   createTestEnv,
   cleanupTestEnv,
-  TestEnv,
+  type TestEnv,
   makeMemory,
   makeProject,
   CLI,

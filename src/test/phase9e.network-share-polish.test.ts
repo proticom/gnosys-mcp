@@ -20,11 +20,11 @@ import os from "os";
 import { execSync } from "child_process";
 import { GnosysDB } from "../lib/db.js";
 import { handleRequest, SandboxRequest } from "../sandbox/server.js";
-import { SandboxStatus } from "../sandbox/manager.js";
+import type { SandboxStatus } from "../sandbox/manager.js";
 import {
   createTestEnv,
   cleanupTestEnv,
-  TestEnv,
+  type TestEnv,
   makeMemory,
   CLI,
 } from "./_helpers.js";

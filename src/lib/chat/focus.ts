@@ -14,7 +14,7 @@
  * system reference. Transparent to the user.
  */
 
-import { Turn } from "./types.js";
+import type { Turn } from "./types.js";
 
 export interface FocusSnapshot {
   /** Focus name. */

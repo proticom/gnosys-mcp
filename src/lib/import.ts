@@ -6,9 +6,9 @@
 
 import { parse as csvParse } from "csv-parse/sync";
 import fs from "fs/promises";
-import { GnosysIngestion } from "./ingest.js";
-import { GnosysStore, MemoryFrontmatter } from "./store.js";
-import { GnosysDB } from "./db.js";
+import type { GnosysIngestion } from "./ingest.js";
+import type { GnosysStore, MemoryFrontmatter } from "./store.js";
+import type { GnosysDB } from "./db.js";
 import { syncMemoryToDb } from "./dbWrite.js";
 import { safeFetch } from "./webIngest.js";
 

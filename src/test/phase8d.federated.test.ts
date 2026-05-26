@@ -25,7 +25,7 @@ import {
   makeMemory,
   makeProject,
   seedMultiProjectMemories,
-  TestEnv,
+  type TestEnv,
 } from "./_helpers.js";
 
 let env: TestEnv;

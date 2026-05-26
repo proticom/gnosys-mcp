@@ -12,10 +12,10 @@
  *   tags.source: ["remember" | "save-turn" | "auto" | "attach"]
  */
 
-import { GnosysDB, DbMemory } from "../db.js";
-import { GnosysConfig } from "../config.js";
+import type { GnosysDB, DbMemory } from "../db.js";
+import type { GnosysConfig } from "../config.js";
 import { getLLMProvider } from "../llm.js";
-import { Turn } from "./types.js";
+import type { Turn } from "./types.js";
 
 export type PromoteSource = "remember" | "save-turn" | "auto" | "attach";
 

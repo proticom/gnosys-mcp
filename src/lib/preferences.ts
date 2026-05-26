@@ -10,7 +10,7 @@
  * and versioned just like any other memory.
  */
 
-import { GnosysDB, DbMemory, fnv1a } from "./db.js";
+import { type GnosysDB, type DbMemory, fnv1a } from "./db.js";
 import { levenshtein } from "./setup/configSetRender.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────

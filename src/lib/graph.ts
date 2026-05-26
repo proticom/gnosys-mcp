@@ -6,9 +6,9 @@
 
 import fs from "fs/promises";
 import path from "path";
-import { GnosysResolver } from "./resolver.js";
-import { buildLinkGraph, LinkGraph } from "./wikilinks.js";
-import { Memory } from "./store.js";
+import type { GnosysResolver } from "./resolver.js";
+import { buildLinkGraph, type LinkGraph } from "./wikilinks.js";
+import type { Memory } from "./store.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 

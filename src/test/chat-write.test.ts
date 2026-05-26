@@ -16,7 +16,7 @@ import {
   formatExchange,
   detectAutoPromote,
 } from "../lib/chat/write.js";
-import { Turn } from "../lib/chat/types.js";
+import type { Turn } from "../lib/chat/types.js";
 
 function makeDb() {
   const tmp = mkdtempSync(join(tmpdir(), "gnosys-write-test-"));

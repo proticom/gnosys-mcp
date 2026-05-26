@@ -6,11 +6,11 @@
  * Phase 6 adds gnosys-choose protocol; Phase 7 adds focus-aware system prompt.
  */
 
-import { GnosysConfig, getProviderModel } from "../config.js";
-import { LLMProvider, getLLMProvider, createProvider } from "../llm.js";
-import { LLMProviderName } from "../config.js";
-import { Turn } from "./types.js";
-import { RecalledMemory, formatRecallForPrompt } from "./recall.js";
+import { type GnosysConfig, getProviderModel } from "../config.js";
+import { type LLMProvider, getLLMProvider, createProvider } from "../llm.js";
+import type { LLMProviderName } from "../config.js";
+import type { Turn } from "./types.js";
+import { type RecalledMemory, formatRecallForPrompt } from "./recall.js";
 import { CHOOSE_SYSTEM_PROMPT_ADDENDUM } from "./choose.js";
 import { buildToolsSystemPrompt, findTool } from "./tools.js";
 import { extractToolFences } from "./toolFence.js";

@@ -9,12 +9,12 @@
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
-import { GnosysHybridSearch, HybridSearchResult } from "./hybridSearch.js";
-import { GnosysConfig, DEFAULT_CONFIG } from "./config.js";
-import { LLMProvider, getLLMProvider } from "./llm.js";
+import type { GnosysHybridSearch, HybridSearchResult } from "./hybridSearch.js";
+import { type GnosysConfig, DEFAULT_CONFIG } from "./config.js";
+import { type LLMProvider, getLLMProvider } from "./llm.js";
 import { GnosysArchive } from "./archive.js";
 import { GnosysMaintenanceEngine } from "./maintenance.js";
-import { GnosysResolver } from "./resolver.js";
+import type { GnosysResolver } from "./resolver.js";
 import { auditLog } from "./audit.js";
 
 const __filename = fileURLToPath(import.meta.url);

@@ -3,16 +3,16 @@
  * Combines memory stats, maintenance health, graph stats, and LLM routing.
  */
 
-import { GnosysResolver } from "./resolver.js";
+import type { GnosysResolver } from "./resolver.js";
 import {
-  GnosysConfig,
+  type GnosysConfig,
   resolveTaskModel,
   ALL_PROVIDERS,
-  LLMProviderName,
+  type LLMProviderName,
 } from "./config.js";
 import { isProviderAvailable } from "./llm.js";
 import { GnosysEmbeddings } from "./embeddings.js";
-import { GnosysDB } from "./db.js";
+import type { GnosysDB } from "./db.js";
 import { readMachineConfig } from "./machineConfig.js";
 import { effectiveProjectPath } from "./projectPaths.js";
 import fs from "fs/promises";

@@ -13,7 +13,7 @@
 import { existsSync, statSync, mkdirSync, writeFileSync, unlinkSync } from "fs";
 import os from "os";
 import * as path from "path";
-import { GnosysDB, DbMemory } from "./db.js";
+import { GnosysDB, type DbMemory } from "./db.js";
 import { readMachineConfig } from "./machineConfig.js";
 import type { ProgressCallback } from "./progress.js";
 

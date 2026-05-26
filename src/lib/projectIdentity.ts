@@ -13,7 +13,7 @@ import fsSync from "fs";
 import path from "path";
 import crypto from "crypto";
 import os from "os";
-import { GnosysDB, DbProject } from "./db.js";
+import type { GnosysDB, DbProject } from "./db.js";
 
 /** Shape of .gnosys/gnosys.json (project identity) */
 export interface ProjectIdentity {

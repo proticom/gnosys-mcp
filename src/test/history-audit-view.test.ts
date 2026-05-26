@@ -8,7 +8,7 @@ import * as fs from "fs";
 import * as fsp from "fs/promises";
 import * as os from "os";
 import * as path from "path";
-import { GnosysDB, DbMemory } from "../lib/db.js";
+import { GnosysDB, type DbMemory } from "../lib/db.js";
 
 const CLI = path.resolve("dist/cli.js");
 

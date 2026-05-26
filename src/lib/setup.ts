@@ -8,7 +8,7 @@
  * Uses Node.js built-in readline/promises — no external dependencies.
  */
 
-import { createInterface, Interface as ReadlineInterface } from "readline/promises";
+import { createInterface, type Interface as ReadlineInterface } from "readline/promises";
 import { stdin, stdout } from "process";
 import fs from "fs/promises";
 import fsSync from "fs";
@@ -799,12 +799,12 @@ export async function setupIDE(
           const before = existing;
           // Old shape (pre-v5.8.4): [gnosys] command/args
           existing = existing.replace(
-            /\n?\[gnosys\][^\[]*?command\s*=\s*"gnosys"[^\[]*?args\s*=\s*\[[^\]]*\]\s*\n?/,
+            /\n?\[gnosys\][^[]*?command\s*=\s*"gnosys"[^[]*?args\s*=\s*\[[^\]]*\]\s*\n?/,
             "\n",
           );
           // v5.8.4 shape: [mcp.gnosys] type/command
           existing = existing.replace(
-            /\n?\[mcp\.gnosys\][^\[]*?type\s*=\s*"local"[^\[]*?command\s*=\s*\[[^\]]*\]\s*\n?/,
+            /\n?\[mcp\.gnosys\][^[]*?type\s*=\s*"local"[^[]*?command\s*=\s*\[[^\]]*\]\s*\n?/,
             "\n",
           );
           if (existing !== before) {

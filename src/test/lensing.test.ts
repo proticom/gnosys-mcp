@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { applyLens, LensFilter } from "../lib/lensing.js";
-import { Memory, MemoryFrontmatter } from "../lib/store.js";
+import type { Memory, MemoryFrontmatter } from "../lib/store.js";
 
 function makeMem(overrides: Partial<MemoryFrontmatter> & { content?: string } = {}): Memory {
   const { content: body, ...fmOverrides } = overrides;

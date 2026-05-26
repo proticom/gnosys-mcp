@@ -12,7 +12,7 @@
 
 import fs from "fs";
 import path from "path";
-import { GnosysDB } from "./db.js";
+import type { GnosysDB } from "./db.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 

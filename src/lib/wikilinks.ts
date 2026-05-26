@@ -5,7 +5,7 @@
  * Supports both [[title]] and [[path|display text]] formats.
  */
 
-import { Memory } from "./store.js";
+import type { Memory } from "./store.js";
 
 /** A single link found in a memory. */
 export interface WikiLink {

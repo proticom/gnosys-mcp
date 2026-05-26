@@ -10,7 +10,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { findProjectDirs, scanProjects } from "../lib/projectScan.js";
-import { type MachineConfig } from "../lib/machineConfig.js";
+import type { MachineConfig } from "../lib/machineConfig.js";
 import { createTestEnv, cleanupTestEnv, type TestEnv } from "./_helpers.js";
 
 let env: TestEnv;

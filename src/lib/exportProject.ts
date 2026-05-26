@@ -7,7 +7,7 @@
 import { gzipSync } from "zlib";
 import { writeFileSync } from "fs";
 import { hostname, userInfo } from "os";
-import { GnosysDB, DbMemory, DbProject, DbRelationship, DbAuditEntry } from "./db.js";
+import type { GnosysDB, DbMemory, DbProject, DbRelationship, DbAuditEntry } from "./db.js";
 import { readFileSync as readPkg } from "fs";
 import { fileURLToPath } from "url";
 import { join, dirname } from "path";

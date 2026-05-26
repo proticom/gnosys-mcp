@@ -10,7 +10,7 @@
  * from the turn body. Errors render with the error red.
  */
 
-import React from "react";
+import type React from "react";
 import { Box, Text } from "ink";
 import type { ToolCallRecord } from "../types.js";
 import { THEME } from "../theme.js";

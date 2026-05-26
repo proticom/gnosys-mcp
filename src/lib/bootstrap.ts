@@ -9,7 +9,7 @@ import fs from "fs/promises";
 import path from "path";
 import matter from "gray-matter";
 import { glob } from "glob";
-import { GnosysStore, MemoryFrontmatter } from "./store.js";
+import type { GnosysStore, MemoryFrontmatter } from "./store.js";
 
 export interface BootstrapOptions {
   /** Source directory to scan */

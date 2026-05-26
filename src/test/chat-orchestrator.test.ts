@@ -8,7 +8,7 @@
 
 import { describe, it, expect } from "vitest";
 import { bufferFromEvents } from "../lib/chat/index.js";
-import { SessionEvent } from "../lib/chat/session.js";
+import type { SessionEvent } from "../lib/chat/session.js";
 
 describe("bufferFromEvents", () => {
   it("converts user + assistant events into Turn[] in order", () => {

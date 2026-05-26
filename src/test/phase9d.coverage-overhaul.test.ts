@@ -20,7 +20,7 @@ import os from "os";
 import {
   createTestEnv,
   cleanupTestEnv,
-  TestEnv,
+  type TestEnv,
   makeMemory,
   makeProject,
   makeFrontmatter,
@@ -59,7 +59,7 @@ import {
   findProjectIdentity,
   detectAgentRulesTarget,
 } from "../lib/projectIdentity.js";
-import { loadGraph, formatGraphStats, GraphStats } from "../lib/graph.js";
+import { loadGraph, formatGraphStats, type GraphStats } from "../lib/graph.js";
 
 // ─── TC-9d.1: GnosysDbSearch ─────────────────────────────────────────
 

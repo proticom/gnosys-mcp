@@ -41,15 +41,15 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import fs from "fs/promises";
-import { MemoryFrontmatter } from "./lib/store.js";
+import type { MemoryFrontmatter } from "./lib/store.js";
 import { GnosysSearch } from "./lib/search.js";
 import { GnosysTagRegistry } from "./lib/tags.js";
 import { GnosysResolver } from "./lib/resolver.js";
-import { applyLens, LensFilter } from "./lib/lensing.js";
-import { groupByPeriod, computeStats, TimePeriod } from "./lib/timeline.js";
+import { applyLens, type LensFilter } from "./lib/lensing.js";
+import { groupByPeriod, computeStats, type TimePeriod } from "./lib/timeline.js";
 import { buildLinkGraph, getBacklinks, getOutgoingLinks, formatGraphSummary } from "./lib/wikilinks.js";
-import { loadConfig, GnosysConfig, DEFAULT_CONFIG } from "./lib/config.js";
-import { getLLMProvider, isProviderAvailable, LLMProvider } from "./lib/llm.js";
+import { loadConfig, type GnosysConfig, DEFAULT_CONFIG } from "./lib/config.js";
+import { getLLMProvider, isProviderAvailable, type LLMProvider } from "./lib/llm.js";
 import { recall, formatRecall, formatRecallCLI } from "./lib/recall.js";
 import { initAudit, readAuditLog, formatAuditTimeline } from "./lib/audit.js";
 import { GnosysDB } from "./lib/db.js";
@@ -219,7 +219,7 @@ async function resolveToolContext(projectRoot?: string): Promise<ToolContext> {
   const scopedWriteTarget = scopedResolver.getWriteTarget();
   const scopedStorePath = scopedWriteTarget?.store.getStorePath() || "";
   let scopedConfig = DEFAULT_CONFIG;
-  let scopedDb: GnosysDB | null = null;
+  const scopedDb: GnosysDB | null = null;
   let scopedSearch: GnosysSearch | null = null;
 
   // v3.0: Read project identity

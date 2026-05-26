@@ -19,9 +19,9 @@
  */
 
 import os from "os";
-import { GnosysDB, DbMemory } from "./db.js";
-import { GnosysConfig, LLMProviderName } from "./config.js";
-import { LLMProvider, getLLMProvider } from "./llm.js";
+import type { GnosysDB, DbMemory } from "./db.js";
+import type { GnosysConfig, LLMProviderName } from "./config.js";
+import { type LLMProvider, getLLMProvider } from "./llm.js";
 import { notifyDesktop } from "./desktopNotify.js";
 import { syncConfidenceToDb, auditToDb } from "./dbWrite.js";
 

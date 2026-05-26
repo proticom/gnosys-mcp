@@ -15,7 +15,7 @@
  *   - View / delete an existing preference
  */
 
-import { Interface as ReadlineInterface } from "readline/promises";
+import type { Interface as ReadlineInterface } from "readline/promises";
 import { GnosysDB, type DbMemory } from "../../db.js";
 import {
   setPreference,
@@ -248,7 +248,9 @@ export async function runPreferencesReview(rl: ReadlineInterface): Promise<boole
           return `   ${num}  ${dot} ${line.slice(3)}`;
         },
       });
-      tableLines.forEach((line) => console.log(line));
+      tableLines.forEach((line) => {
+        console.log(line);
+      });
       console.log("");
       console.log(`   ${color(c.accent, glyph.dotFilled)} ${color(c.textDim, "added by you")}           ${color(c.textDim, glyph.dotHollow)} ${color(c.textDim, "imported / unknown")}`);
     }

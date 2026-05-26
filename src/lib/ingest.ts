@@ -4,10 +4,10 @@
  * Uses the LLM abstraction layer — works with Anthropic, Ollama, or any future provider.
  */
 
-import { GnosysTagRegistry } from "./tags.js";
-import { GnosysStore } from "./store.js";
-import { GnosysConfig, DEFAULT_CONFIG } from "./config.js";
-import { LLMProvider, getLLMProvider } from "./llm.js";
+import type { GnosysTagRegistry } from "./tags.js";
+import type { GnosysStore } from "./store.js";
+import { type GnosysConfig, DEFAULT_CONFIG } from "./config.js";
+import { type LLMProvider, getLLMProvider } from "./llm.js";
 
 interface IngestResult {
   title: string;

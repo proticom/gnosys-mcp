@@ -26,7 +26,7 @@ import {
   osc8Wrap,
 } from "../lib/idFormat.js";
 import { filterCommands } from "../lib/chat/SlashPalette.js";
-import { CommandSpec } from "../lib/chat/commands.js";
+import type { CommandSpec } from "../lib/chat/commands.js";
 import {
   getMarkerPath,
   writeUpgradeMarker,

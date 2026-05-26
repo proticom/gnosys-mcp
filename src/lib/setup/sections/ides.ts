@@ -7,7 +7,7 @@
  * `gnosys setup ides` or from the summary-first menu.
  */
 
-import { Interface as ReadlineInterface } from "readline/promises";
+import type { Interface as ReadlineInterface } from "readline/promises";
 import fs from "fs/promises";
 import path from "path";
 import { detectIDEs, setupIDE } from "../../setup.js";
@@ -147,7 +147,9 @@ export async function runIdesSetup(opts: IdesSetupOptions): Promise<boolean> {
       return `   ${num}  ${dot} ${line.slice(3)}`;
     },
   });
-  tableLines.forEach((line) => console.log(line));
+  tableLines.forEach((line) => {
+    console.log(line);
+  });
 
   const ideOptions: string[] = ALL_IDE_KEYS.map((ide) => IDE_LABELS[ide] ?? ide);
   const ideKeyForOption: string[] = [...ALL_IDE_KEYS];

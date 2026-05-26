@@ -13,11 +13,11 @@ import net from "net";
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { GnosysDB, DbMemory } from "../lib/db.js";
+import { GnosysDB, type DbMemory } from "../lib/db.js";
 import { federatedSearch } from "../lib/federated.js";
 import { setPreference, getPreference, getAllPreferences, deletePreference, searchPreferences, Preference } from "../lib/preferences.js";
-import { GnosysDreamEngine, DreamScheduler, DreamConfig, DreamReport, DEFAULT_DREAM_CONFIG } from "../lib/dream.js";
-import { DEFAULT_CONFIG, GnosysConfig } from "../lib/config.js";
+import { GnosysDreamEngine, DreamScheduler, type DreamConfig, type DreamReport, DEFAULT_DREAM_CONFIG } from "../lib/dream.js";
+import { DEFAULT_CONFIG, type GnosysConfig } from "../lib/config.js";
 import { syncRules, generateRulesBlock, RulesGenResult } from "../lib/rulesGen.js";
 import { getSandboxDir as getSandboxDirImpl } from "../lib/paths.js";
 
@@ -66,7 +66,7 @@ export interface DreamState {
   isDreaming: boolean;
 }
 
-let dreamState: DreamState = {
+const dreamState: DreamState = {
   enabled: false,
   idleMinutes: DEFAULT_DREAM_CONFIG.idleMinutes,
   lastDreamReport: null,
@@ -102,14 +102,14 @@ export function initDreamMode(
 
   // Monkey-patch the scheduler's private checkIdle to track dream state
   const originalStart = scheduler.start.bind(scheduler);
-  scheduler.start = function () {
+  scheduler.start = () => {
     originalStart();
 
     // Override the internal check interval to track state
     const CHECK_INTERVAL = 60_000;
     const origCheckIdle = (scheduler as any).checkIdle;
     if (origCheckIdle) {
-      (scheduler as any).checkIdle = async function () {
+      (scheduler as any).checkIdle = async () => {
         dreamState.isDreaming = scheduler.isDreaming();
         await origCheckIdle.call(scheduler);
         dreamState.isDreaming = scheduler.isDreaming();

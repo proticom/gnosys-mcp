@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
-import { GnosysStore, MemoryFrontmatter } from "../lib/store.js";
+import { GnosysStore, type MemoryFrontmatter } from "../lib/store.js";
 
 let tmpDir: string;
 let store: GnosysStore;

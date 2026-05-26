@@ -729,7 +729,6 @@ async function applyTfIdfRelevance(outputDir: string): Promise<void> {
       const id = (parsed.data.id as string) || path.basename(filePath, ".md");
       docs.push({ id, content: parsed.content, path: filePath });
     } catch {
-      continue;
     }
   }
 
@@ -750,7 +749,6 @@ async function applyTfIdfRelevance(outputDir: string): Promise<void> {
       const updated = matter.stringify(parsed.content, parsed.data);
       await fs.writeFile(doc.path, updated, "utf-8");
     } catch {
-      continue;
     }
   }
 }

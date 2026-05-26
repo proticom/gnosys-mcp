@@ -5,8 +5,8 @@
  * Compute summary statistics across the store.
  */
 
-import { Memory } from "./store.js";
-import { DbMemory } from "./db.js";
+import type { Memory } from "./store.js";
+import type { DbMemory } from "./db.js";
 
 export type TimePeriod = "day" | "week" | "month" | "year";
 
@@ -146,9 +146,9 @@ function toPeriodKey(dateStr: string | undefined | null, period: TimePeriod): st
   const parts = dateStr.split("-");
   if (parts.length < 3) return null;
 
-  const year = parseInt(parts[0]);
-  const month = parseInt(parts[1]);
-  const day = parseInt(parts[2]);
+  const year = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10);
+  const day = parseInt(parts[2], 10);
 
   switch (period) {
     case "day":

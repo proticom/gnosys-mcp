@@ -86,7 +86,7 @@ describe("Phase E — Screen 14 — config init", () => {
       const parsed = JSON.parse(raw) as { llm?: Record<string, unknown> };
       expect(parsed.llm).toBeDefined();
       // Per design §14.2, defaultProvider must NOT be in the written template.
-      expect(Object.prototype.hasOwnProperty.call(parsed.llm ?? {}, "defaultProvider")).toBe(false);
+      expect(Object.hasOwn(parsed.llm ?? {}, "defaultProvider")).toBe(false);
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }

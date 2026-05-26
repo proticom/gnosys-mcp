@@ -10,7 +10,7 @@
 
 import fs from "fs/promises";
 import path from "path";
-import { GnosysStore, Memory } from "./store.js";
+import { GnosysStore, type Memory } from "./store.js";
 
 /**
  * v5.9.1 (#98): read just the projectId from a project's gnosys.json

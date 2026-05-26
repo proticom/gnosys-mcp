@@ -8,7 +8,7 @@
 
 import * as fs from "fs/promises";
 import * as path from "path";
-import { detectFileType, FileType } from "./fileDetect.js";
+import { detectFileType, type FileType } from "./fileDetect.js";
 import { storeAttachment, linkMemoryToAttachment, type AttachmentRecord } from "./attachments.js";
 import { extractPdfText } from "./pdfExtract.js";
 import { extractDocxText } from "./docxExtract.js";

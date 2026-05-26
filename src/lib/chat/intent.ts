@@ -14,7 +14,7 @@
  * /focus and /branch (Phase 7) are added in their own phase.
  */
 
-import { GnosysConfig } from "../config.js";
+import type { GnosysConfig } from "../config.js";
 import { getLLMProvider } from "../llm.js";
 
 export type InferredIntent =

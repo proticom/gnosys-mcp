@@ -48,7 +48,7 @@ function readPid(): number | null {
   try {
     const content = fs.readFileSync(pidPath, "utf8").trim();
     const pid = parseInt(content, 10);
-    return isNaN(pid) ? null : pid;
+    return Number.isNaN(pid) ? null : pid;
   } catch {
     return null;
   }

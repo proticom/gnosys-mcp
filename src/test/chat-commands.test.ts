@@ -15,9 +15,9 @@ import {
   dispatchCommand,
   findCommand,
   listCommands,
-  CommandContext,
+  type CommandContext,
 } from "../lib/chat/commands.js";
-import { Turn } from "../lib/chat/types.js";
+import type { Turn } from "../lib/chat/types.js";
 
 let tmp: string;
 beforeEach(() => {

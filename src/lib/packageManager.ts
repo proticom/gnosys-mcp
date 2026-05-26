@@ -27,7 +27,6 @@ export function upgradeCommand(pm: PkgManager): string | null {
       return "yarn global add gnosys@latest";
     case "npx":
       return null;
-    case "npm":
     default:
       return "npm install -g gnosys@latest";
   }

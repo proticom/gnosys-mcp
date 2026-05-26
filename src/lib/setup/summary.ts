@@ -19,7 +19,7 @@
  *     block with no "pre-v5.8.4" history leak.
  */
 
-import { createInterface, Interface as ReadlineInterface } from "readline/promises";
+import { createInterface, type Interface as ReadlineInterface } from "readline/promises";
 import { stdin, stdout } from "process";
 import fsSync from "fs";
 import {
