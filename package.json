@@ -21,6 +21,8 @@
   "scripts": {
     "prebuild": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "build": "tsc",
+    "prebuild:publish": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build:publish": "tsc -p tsconfig.publish.json",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "cli": "tsx src/cli.ts",
@@ -32,7 +34,7 @@
     "docs:mcp-tools": "node scripts/gen-mcp-tools.mjs --write",
     "docs:cli": "node scripts/gen-cli-docs.mjs --write",
     "postinstall": "node dist/postinstall.js || true",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build:publish"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
