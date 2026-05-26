@@ -24,11 +24,16 @@ describe("Resolver project routing", () => {
   let projectA: string;
   let projectB: string;
   let originalCwd: string;
+  let cfgDir: string;
   let registryPath: string;
-  let registryBackup: string | null = null;
+  let origConfigDir: string | undefined;
 
   beforeEach(async () => {
     originalCwd = process.cwd();
+    origConfigDir = process.env.GNOSYS_CONFIG_DIR;
+    cfgDir = fs.mkdtempSync(path.join(os.tmpdir(), "gnosys-cfg-"));
+    process.env.GNOSYS_CONFIG_DIR = cfgDir;
+    registryPath = path.join(cfgDir, "projects.json");
 
     // Create two temp project directories with .gnosys stores
     projectA = path.join(os.tmpdir(), randomName());
@@ -39,30 +44,14 @@ describe("Resolver project routing", () => {
       const store = new GnosysStore(path.join(dir, ".gnosys"));
       await store.init();
     }
-
-    // Backup and clear the real project registry
-    const home = process.env.HOME || process.env.USERPROFILE || "/tmp";
-    registryPath = path.join(home, ".config", "gnosys", "projects.json");
-    try {
-      registryBackup = fs.readFileSync(registryPath, "utf-8");
-    } catch {
-      registryBackup = null;
-    }
   });
 
   afterEach(async () => {
     process.chdir(originalCwd);
 
-    // Restore the original project registry
-    if (registryBackup !== null) {
-      fs.writeFileSync(registryPath, registryBackup, "utf-8");
-    } else {
-      try {
-        fs.unlinkSync(registryPath);
-      } catch {
-        // didn't exist before
-      }
-    }
+    if (origConfigDir === undefined) delete process.env.GNOSYS_CONFIG_DIR;
+    else process.env.GNOSYS_CONFIG_DIR = origConfigDir;
+    fs.rmSync(cfgDir, { recursive: true, force: true });
 
     // Cleanup temp dirs
     await fsp.rm(projectA, { recursive: true, force: true });

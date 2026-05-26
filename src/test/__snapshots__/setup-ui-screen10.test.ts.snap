@@ -27,7 +27,7 @@ exports[`Screen 10 — sync-projects render > renders the skipped section with n
 exports[`Screen 10 — sync-projects render > renders the upgraded section with full project list 1`] = `
 [
   " upgraded   3 projects",
-  "   ✓  edward                        ~",
+  "   ✓  gnosys-test                   ~",
   "   ✓  squat-counter                 /Volumes/Dev/projects/squat-counter",
   "   ✓  agent-first-site              /Volumes/Dev/projects/agent-first-site",
 ]

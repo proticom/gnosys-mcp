@@ -9,12 +9,13 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
 const ORIGINAL_HOME = process.env.HOME;
 
+const FAKE_HOME = "/home/gnosys-test";
+
 beforeAll(() => {
   Object.defineProperty(process.stdout, "columns", { value: 80, configurable: true });
   // Pin HOME so os.homedir() inside collapsePath is deterministic across
-  // dev / CI. Without this the snapshot captures "/Users/edward" → "~" on
-  // the dev machine but stays "/Users/edward" on Linux CI runners.
-  process.env.HOME = "/Users/edward";
+  // dev / CI without hardcoding a specific developer machine path.
+  process.env.HOME = FAKE_HOME;
 });
 
 afterAll(() => {
@@ -43,11 +44,11 @@ describe("Screen 10 — sync-projects render", () => {
 
   it("collapsePath shortens long absolute paths", async () => {
     const { collapsePath } = await load();
-    const short = collapsePath("/Users/edward/proj", "/Users/edward");
+    const short = collapsePath(`${FAKE_HOME}/proj`, FAKE_HOME);
     expect(short).toBe("~/proj");
 
-    const veryLong = "/Users/edward/Library/Mobile Documents/com~apple~CloudDocs/Documents/Proticom/something/deep";
-    const collapsed = collapsePath(veryLong, "/Users/edward");
+    const veryLong = `${FAKE_HOME}/Library/Mobile Documents/com~apple~CloudDocs/Documents/Proticom/something/deep`;
+    const collapsed = collapsePath(veryLong, FAKE_HOME);
     expect(collapsed.length).toBeLessThanOrEqual(50);
     expect(collapsed.endsWith("/…")).toBe(true);
   });
@@ -55,7 +56,7 @@ describe("Screen 10 — sync-projects render", () => {
   it("renders the upgraded section with full project list", async () => {
     const { renderUpgradedSection } = await load();
     const rows = [
-      { title: "edward", fullPath: "/Users/edward" },
+      { title: "gnosys-test", fullPath: FAKE_HOME },
       { title: "squat-counter", fullPath: "/Volumes/Dev/projects/squat-counter" },
       { title: "agent-first-site", fullPath: "/Volumes/Dev/projects/agent-first-site" },
     ];
@@ -79,7 +80,7 @@ describe("Screen 10 — sync-projects render", () => {
   it("renders the skipped section with no .gnosys directory hint", async () => {
     const { renderSkippedSection } = await load();
     const rows = [
-      { title: "defrag-me", fullPath: "/Users/edward/Library/dead-proj" },
+      { title: "defrag-me", fullPath: `${FAKE_HOME}/Library/dead-proj` },
     ];
     const lines = renderSkippedSection(rows).map(strip);
     expect(lines[0]).toContain("skipped");
@@ -128,7 +129,7 @@ describe("Screen 10 — sync-projects render", () => {
 
   it("renders dashboard summary with collapsed paths", async () => {
     const { renderDashboardSummary } = await load();
-    const lines = renderDashboardSummary("/Users/edward/gnosys-dashboard.html", "/Users/edward/gnosys-dashboard.md").map(strip);
+    const lines = renderDashboardSummary(`${FAKE_HOME}/gnosys-dashboard.html`, `${FAKE_HOME}/gnosys-dashboard.md`).map(strip);
     expect(lines[0]).toContain("portfolio dashboard regenerated");
     expect(lines[1]).toContain("html");
     expect(lines[2]).toContain("md");
