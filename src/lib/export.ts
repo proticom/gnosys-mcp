@@ -159,7 +159,8 @@ export class GnosysExporter {
     targetDir: string,
     overwrite: boolean
   ): Promise<boolean> {
-    const categoryDir = path.join(targetDir, mem.category);
+    const safeCategory = this.slugify(mem.category) || "uncategorized";
+    const categoryDir = path.join(targetDir, safeCategory);
     await fs.mkdir(categoryDir, { recursive: true });
 
     const filename = this.slugify(mem.title) + ".md";
@@ -208,6 +209,7 @@ export class GnosysExporter {
       content += `\n\n---\n\n## Related\n\n${wikilinks.join("\n")}`;
     }
 
+    this.assertWithin(targetDir, filePath);
     await fs.writeFile(filePath, content, "utf-8");
     return true;
   }
@@ -252,6 +254,7 @@ export class GnosysExporter {
         summary.content,
       ].join("\n");
 
+      this.assertWithin(targetDir, filePath);
       await fs.writeFile(filePath, content, "utf-8");
       exported++;
     }
@@ -309,6 +312,7 @@ export class GnosysExporter {
       }
     }
 
+    this.assertWithin(targetDir, filePath);
     await fs.writeFile(filePath, lines.join("\n"), "utf-8");
     return true;
   }
@@ -371,6 +375,7 @@ export class GnosysExporter {
       lines.push("No relationships discovered yet. Run `gnosys dream` to discover relationships.");
     }
 
+    this.assertWithin(targetDir, filePath);
     await fs.writeFile(filePath, lines.join("\n"), "utf-8");
     return true;
   }
@@ -431,6 +436,17 @@ export class GnosysExporter {
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-|-$/g, "")
       .substring(0, 80);
+  }
+
+  /**
+   * Ensure a resolved file path stays within the export target directory.
+   */
+  private assertWithin(targetDir: string, filePath: string): void {
+    const root = path.resolve(targetDir);
+    const resolved = path.resolve(filePath);
+    if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+      throw new Error(`Refusing to write outside export dir: ${resolved}`);
+    }
   }
 }
 
