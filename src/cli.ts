@@ -3717,7 +3717,7 @@ program
 
     const archive = new GnosysArchive(writeTarget.path);
     if (!archive.isAvailable()) {
-      console.error("Archive not available. Is better-sqlite3 installed?");
+      console.error("Archive not available. Install it with: npm install better-sqlite3");
       process.exit(1);
     }
 
@@ -6377,7 +6377,7 @@ program
       const db = new GnosysDB(dbDir);
 
       if (!db.isAvailable()) {
-        console.error("Error: GnosysDB not available. Is better-sqlite3 installed?");
+        console.error("Error: GnosysDB not available. Install it with: npm install better-sqlite3");
         process.exit(1);
       }
 
@@ -6426,7 +6426,7 @@ program
       const db = new GnosysDB(dbDir);
 
       if (!db.isAvailable()) {
-        console.error("Error: GnosysDB not available. Is better-sqlite3 installed?");
+        console.error("Error: GnosysDB not available. Install it with: npm install better-sqlite3");
         process.exit(1);
       }
 
@@ -6489,7 +6489,7 @@ program
       const db = new GnosysDB(dbDir);
 
       if (!db.isAvailable()) {
-        console.error("Error: GnosysDB not available. Is better-sqlite3 installed?");
+        console.error("Error: GnosysDB not available. Install it with: npm install better-sqlite3");
         process.exit(1);
       }
 

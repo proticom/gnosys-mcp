@@ -2309,7 +2309,7 @@ regTool(
       const archive = new GnosysArchive(writeTarget.path);
       if (!archive.isAvailable()) {
         return {
-          content: [{ type: "text", text: "Archive not available. Is better-sqlite3 installed?" }],
+          content: [{ type: "text", text: "Archive not available. Install it with: npm install better-sqlite3" }],
           isError: true,
         };
       }

@@ -676,7 +676,7 @@ export function startServer(dbPath?: string): net.Server {
   const db = new GnosysDB(dbDir, isNetworkPath ? { retries: 5, retryDelayMs: 1000 } : undefined);
 
   if (!db.isAvailable()) {
-    logError(new Error("Failed to open GnosysDB"), { module: "sandbox", op: "openDb", hint: "Is better-sqlite3 installed?" });
+    logError(new Error("Failed to open GnosysDB"), { module: "sandbox", op: "openDb", hint: "Install it with: npm install better-sqlite3" });
     if (isNetworkPath) {
       logWarn(`Network path "${dbDir}" may be unavailable`, { module: "sandbox", dbDir });
     }
