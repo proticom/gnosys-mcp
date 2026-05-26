@@ -22,6 +22,7 @@ import fs from "fs";
 import { enableWAL } from "./lock.js";
 import { getGnosysHome as getGnosysHomeImpl, getCentralDbPath as getCentralDbPathImpl } from "./paths.js";
 import { readMachineConfig } from "./machineConfig.js";
+import { logError } from "./log.js";
 import { ulid } from "ulidx";
 
 // ─── Types ──────────────────────────────────────────────────────────────
@@ -411,9 +412,10 @@ export class GnosysDB {
       // Quiet fallback notice on stderr — visible to humans, doesn't pollute
       // stdout that scripts/agents are piping. Only emitted when remote is
       // CONFIGURED but unreachable (the user expected it to work).
-      process.stderr.write(
-        `gnosys: remote unreachable (${remotePath}), using local cache\n`
-      );
+      logError(new Error(`remote unreachable (${remotePath}), using local cache`), {
+        module: "db",
+        op: "open",
+      });
       return localDb;
     }
 
