@@ -30,6 +30,7 @@
     "lint": "biome check src/",
     "lint:fix": "biome check --write src/",
     "docs:mcp-tools": "node scripts/gen-mcp-tools.mjs --write",
+    "docs:cli": "node scripts/gen-cli-docs.mjs --write",
     "postinstall": "node dist/postinstall.js || true",
     "prepublishOnly": "npm run build"
   },
