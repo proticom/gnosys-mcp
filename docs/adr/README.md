@@ -25,5 +25,9 @@ Each ADR uses:
 | [0006](0006-built-in-server-obsidian-compatible.md) | Built-in Server + Obsidian-Compatible | dec-011 |
 | [0007](0007-open-source-from-day-one.md) | Open Source from Day One | dec-005 |
 | [0008](0008-automated-npm-publish.md) | Automated npm Publish via OIDC Trusted Publishing | deci-033 |
+| [0009](0009-remote-first-reads.md) | Remote-First Reads, Local-as-Offline-Only Cache | deci-037 |
+| [0010](0010-prompt-injection-threat-model.md) | Prompt Injection Threat Model | deci-01KSGSX8SJXAVAY7EV2VS9YJJP |
+| [0011](0011-readme-positioning.md) | README Positioning: No Competitor Comparisons | deci-01KSGRQ4GEGPHJQMYDD3V2XCWK |
+| [0012](0012-categorized-tag-registry.md) | Categorized Tag Registry | dec-006 |
 
 Additional decisions remain in Gnosys memory and may be backfilled here over time.
