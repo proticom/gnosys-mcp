@@ -11,6 +11,7 @@ import type { Interface as ReadlineInterface } from "readline/promises";
 import fs from "fs/promises";
 import path from "path";
 import { detectIDEs, setupIDE } from "../../setup.js";
+import { SUPPORTED_IDE_KEYS } from "../../ideMcpInstall.js";
 import { safeQuestion } from "../ui/safePrompt.js";
 import { renderTable } from "../ui/table.js";
 
@@ -22,7 +23,7 @@ const CHECK = `${GREEN}✓${RESET}`;
 const CROSS = `${RED}✗${RESET}`;
 
 const IDE_LABELS: Record<string, string> = {
-  claude: "Claude Code",
+  claude: "Claude Code + Desktop",
   "claude-desktop": "Claude Desktop",
   cursor: "Cursor",
   codex: "Codex",
@@ -42,7 +43,7 @@ const IDE_TARGET_DISPLAY: Record<string, string> = {
   claude: "claude mcp add (CLI)",
   "claude-desktop": "~/Library/.../claude_desktop_config.json",
   cursor: ".cursor/mcp.json",
-  codex: ".codex/mcp.json",
+  codex: "codex mcp add (CLI registry)",
   "gemini-cli": "~/.gemini/settings.json",
   antigravity: "~/.gemini/antigravity/mcp_config.json",
   "grok-build": "~/.grok/config.toml ([mcp_servers.gnosys])",
@@ -206,4 +207,26 @@ export async function runIdesSetup(opts: IdesSetupOptions): Promise<boolean> {
   console.log(`   ${color(c.textDim, `${configured} ides configured · ${errors} errors`)}`);
 
   return configured > 0;
+}
+
+/**
+ * Non-interactive: wire MCP for every supported IDE (user-level + project cursor).
+ */
+export async function runIdesSetupAll(directory: string): Promise<{ configured: number; errors: number }> {
+  let configured = 0;
+  let errors = 0;
+  // Claude setup also wires Claude Desktop — skip duplicate pass.
+  const idesToRun = SUPPORTED_IDE_KEYS.filter((k) => k !== "claude-desktop");
+
+  for (const ide of idesToRun) {
+    const result = await setupIDE(ide, directory);
+    if (result.success) {
+      console.log(`  ${CHECK} ${IDE_LABELS[ide] ?? ide}: ${result.message}`);
+      configured++;
+    } else {
+      console.log(`  ${CROSS} ${IDE_LABELS[ide] ?? ide}: ${result.message}`);
+      errors++;
+    }
+  }
+  return { configured, errors };
 }

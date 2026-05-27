@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Detailed CHANGELOG coverage begins at **5.2.16**. Earlier 5.0.0–5.2.15 releases and a few 5.2.x patches without individual entries (5.2.17, 5.2.18, 5.2.21) are tracked via [git tags](https://github.com/proticom/gnosys/tags). Versions 5.2.13, 5.2.14, and 5.2.15 were CHANGELOG-only and never published to npm.
 
+## [5.11.4] — 2026-05-27
+
+### Changed
+
+- **IDE MCP audit (`gnosys setup ides`).** Centralized stdio install in
+  `ideMcpInstall.ts`; Cursor writes project + `~/.cursor/mcp.json`; `claude`
+  also wires Claude Desktop (even if Claude Code CLI is missing); `grok` alias;
+  `gnosys setup ides --all` configures every supported host non-interactively.
+- **Safer IDE CLI registration.** `claude mcp` / `codex mcp` use `execFileSync`
+  argv arrays (paths with spaces). Codex legacy `[gnosys]` / `[mcp.gnosys]`
+  TOML sections are stripped by header, not fragile regexes.
+
+---
+
 ## [5.11.3] — 2026-05-27
 
 ### Fixed

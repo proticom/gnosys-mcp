@@ -1027,7 +1027,14 @@ setupCmd
 setupCmd
   .command("ides")
   .description("Configure IDE MCP integrations (Claude Code/Desktop, Cursor, Codex, Grok Build, Gemini CLI, Antigravity)")
-  .action(async () => {
+  .option("--all", "Configure MCP for all supported IDEs (non-interactive)")
+  .action(async (opts: { all?: boolean }) => {
+    if (opts.all) {
+      const { runIdesSetupAll } = await import("./lib/setup/sections/ides.js");
+      const { configured, errors } = await runIdesSetupAll(process.cwd());
+      console.log(`\n${configured} ides configured · ${errors} errors`);
+      return;
+    }
     const readline = await import("readline/promises");
     const { runIdesSetup } = await import("./lib/setup/sections/ides.js");
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });

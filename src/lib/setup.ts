@@ -28,6 +28,15 @@ import { validateModel } from "./modelValidation.js";
 import { resolveActiveStorePath, ensureActiveStorePath } from "./setup/storePath.js";
 import { safeQuestion } from "./setup/ui/safePrompt.js";
 import { getClaudeDesktopConfigPath, getApiKeySkipHints } from "./platform.js";
+import {
+  gnosysStdioMcpEntry,
+  installStdioMcpJson,
+  normalizeIdeKey,
+  resolveGnosysMcpCommand,
+  cursorMcpPaths,
+  runCli,
+  removeTomlSection,
+} from "./ideMcpInstall.js";
 
 // ─── ANSI Colors ────────────────────────────────────────────────────────────
 
@@ -648,25 +657,6 @@ export async function detectIDEs(projectDir: string): Promise<string[]> {
   return detected;
 }
 
-/** Remove a single `[section]` block from Grok TOML (hand-rolled; see upsertGrokMcpBlock). */
-function removeGrokTomlSection(existing: string, sectionHeader: string): string {
-  const lines = existing.split("\n");
-  const headerIdx = lines.findIndex((line) => line.trim() === sectionHeader);
-  if (headerIdx === -1) return existing;
-
-  let endIdx = lines.length;
-  for (let i = headerIdx + 1; i < lines.length; i++) {
-    if (/^\s*\[/.test(lines[i])) {
-      endIdx = i;
-      break;
-    }
-  }
-  const before = lines.slice(0, headerIdx).join("\n");
-  const after = lines.slice(endIdx).join("\n");
-  const merged = [before, after].filter((s) => s.length > 0).join("\n");
-  return merged.length > 0 ? `${merged}\n` : "";
-}
-
 /**
  * Replace (or append) a `[mcp_servers.<name>]` block inside Grok Build's
  * `~/.grok/config.toml`. Preserves every line outside that block (deci-046).
@@ -682,7 +672,7 @@ export function upsertGrokMcpBlock(
   entry: { command: string; args: string[]; startup_timeout_sec?: number },
 ): string {
   // Drop mistaken v5.9.4 `[mcp.<name>]` sections so we don't leave dead config.
-  let content = removeGrokTomlSection(existing, `[mcp.${name}]`);
+  let content = removeTomlSection(existing, `[mcp.${name}]`);
 
   const sectionHeader = `[mcp_servers.${name}]`;
   const lines = content.split("\n");
@@ -725,25 +715,6 @@ export function upsertGrokMcpBlock(
   return `${head}${sectionHeader}\n${blockBody}${gap}${afterBlock}`;
 }
 
-/**
- * Absolute path to the `gnosys-mcp` stdio entry (dist/index.js).
- * Prefer this over `gnosys serve` — v5.11.0 `gnosys serve` imported index.js but
- * did not call startMcpServer(), so MCP hosts saw "connection closed" on init.
- */
-function resolveGnosysMcpCommand(): string {
-  try {
-    const p = execSync("command -v gnosys-mcp", { encoding: "utf-8" }).trim();
-    if (p) return p;
-  } catch {
-    // Fall back to bare name on PATH.
-  }
-  return "gnosys-mcp";
-}
-
-function gnosysMcpServerEntry(): { command: string; args: string[] } {
-  return { command: resolveGnosysMcpCommand(), args: [] };
-}
-
 function renderGrokMcpBlock(entry: { command: string; args: string[]; startup_timeout_sec?: number }): string {
   const argsStr = `[${entry.args.map((a) => JSON.stringify(a)).join(", ")}]`;
   const lines: string[] = [
@@ -763,49 +734,46 @@ export async function setupIDE(
   ide: string,
   projectDir: string
 ): Promise<{ success: boolean; message: string }> {
+  const canonical = normalizeIdeKey(ide);
+  if (!canonical) {
+    return { success: false, message: `Unknown IDE: ${ide}` };
+  }
+
   try {
-    switch (ide) {
+    switch (canonical) {
       case "claude": {
         const mcpCmd = resolveGnosysMcpCommand();
+        let codeMsg = `Claude Code MCP registered (${mcpCmd})`;
         try {
-          try {
-            execSync("claude mcp remove gnosys", { stdio: "pipe" });
-          } catch {
-            // Not registered yet — fine.
-          }
-          execSync(`claude mcp add -s user gnosys -- ${mcpCmd}`, {
-            stdio: "pipe",
-          });
+          runCli("claude", ["mcp", "remove", "gnosys"], { allowFailure: true });
+          runCli("claude", ["mcp", "add", "-s", "user", "gnosys", "--", mcpCmd]);
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           if (msg.includes("already exists")) {
-            return { success: true, message: "Claude Code MCP server already configured" };
+            codeMsg = "Claude Code MCP server already configured";
+          } else {
+            codeMsg = `Claude Code MCP skipped (is \`claude\` on PATH?): ${msg}`;
           }
-          throw e;
         }
-        return { success: true, message: `Claude Code MCP server registered (${mcpCmd})` };
+        const desktop = await setupIDE("claude-desktop", projectDir);
+        return {
+          success: desktop.success,
+          message: desktop.success
+            ? `${codeMsg}; ${desktop.message}`
+            : `${codeMsg}; Claude Desktop: ${desktop.message}`,
+        };
       }
 
       case "cursor": {
-        const cursorDir = path.join(projectDir, ".cursor");
-        const mcpPath = path.join(cursorDir, "mcp.json");
-        await fs.mkdir(cursorDir, { recursive: true });
-
-        let config: Record<string, unknown> = {};
-        try {
-          const existing = await fs.readFile(mcpPath, "utf-8");
-          config = JSON.parse(existing);
-        } catch {
-          // File doesn't exist or is invalid — start fresh
-        }
-
-        // Merge gnosys entry
-        const servers = (config.mcpServers ?? {}) as Record<string, unknown>;
-        servers.gnosys = gnosysMcpServerEntry();
-        config.mcpServers = servers;
-
-        await fs.writeFile(mcpPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
-        return { success: true, message: "Cursor MCP config updated (.cursor/mcp.json)" };
+        const paths = cursorMcpPaths(projectDir);
+        await fs.mkdir(path.dirname(paths.project), { recursive: true });
+        await installStdioMcpJson(paths.project);
+        await installStdioMcpJson(paths.user);
+        return {
+          success: true,
+          message:
+            "Cursor MCP updated (project .cursor/mcp.json and ~/.cursor/mcp.json)",
+        };
       }
 
       case "codex": {
@@ -818,26 +786,16 @@ export async function setupIDE(
         //
         // We also migrate away from those legacy blocks in
         // `~/.codex/config.toml` so users on stale configs get cleaned up.
-        const os = await import("os");
-
-        // 1. Migrate (strip) legacy hand-written blocks in ~/.codex/config.toml.
+        // 1. Strip legacy hand-written sections in ~/.codex/config.toml.
         const userCodexConfig = path.join(os.homedir(), ".codex", "config.toml");
         try {
           let existing = await fs.readFile(userCodexConfig, "utf-8");
-          const before = existing;
-          // Old shape (pre-v5.8.4): [gnosys] command/args
-          existing = existing.replace(
-            /\n?\[gnosys\][^[]*?command\s*=\s*"gnosys"[^[]*?args\s*=\s*\[[^\]]*\]\s*\n?/,
-            "\n",
+          const cleaned = removeTomlSection(
+            removeTomlSection(existing, "[mcp.gnosys]"),
+            "[gnosys]",
           );
-          // v5.8.4 shape: [mcp.gnosys] type/command
-          existing = existing.replace(
-            /\n?\[mcp\.gnosys\][^[]*?type\s*=\s*"local"[^[]*?command\s*=\s*\[[^\]]*\]\s*\n?/,
-            "\n",
-          );
-          if (existing !== before) {
-            existing = existing.replace(/\n{3,}/g, "\n\n");
-            await fs.writeFile(userCodexConfig, existing, "utf-8");
+          if (cleaned !== existing) {
+            await fs.writeFile(userCodexConfig, cleaned, "utf-8");
           }
         } catch {
           // No user-level config.toml to clean — fine.
@@ -851,22 +809,14 @@ export async function setupIDE(
         //    remove and re-add.
         let alreadyCorrect = false;
         try {
-          const existing = execSync("codex mcp get gnosys 2>/dev/null", {
-            encoding: "utf-8",
-          });
+          const existing = runCli("codex", ["mcp", "get", "gnosys"], { allowFailure: true });
           if (existing && existing.includes(gnosysCmd) && !existing.includes(" serve")) {
             alreadyCorrect = true;
           } else if (existing) {
-            // Different command — remove so we can re-add with the right one.
-            try {
-              execSync("codex mcp remove gnosys", { stdio: "pipe" });
-            } catch {
-              // Non-fatal — `mcp add` below will overwrite or fail loudly.
-            }
+            runCli("codex", ["mcp", "remove", "gnosys"], { allowFailure: true });
           }
         } catch {
-          // `codex mcp get` returns non-zero when the server isn't registered —
-          // that's the common case on first install; proceed to add.
+          // `codex mcp get` failed — proceed to add.
         }
 
         if (alreadyCorrect) {
@@ -879,7 +829,7 @@ export async function setupIDE(
 
         // 4. Register via the canonical Codex CLI command.
         try {
-          execSync(`codex mcp add gnosys -- ${gnosysCmd}`, { stdio: "pipe" });
+          runCli("codex", ["mcp", "add", "gnosys", "--", gnosysCmd]);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           // Common failure: codex CLI not installed. Don't fail the whole
@@ -899,48 +849,20 @@ export async function setupIDE(
       }
 
       case "gemini-cli": {
-        // Gemini CLI reads MCP servers from ~/.gemini/settings.json (user-level)
-        const geminiDir = path.join(os.homedir(), ".gemini");
-        const settingsPath = path.join(geminiDir, "settings.json");
-        await fs.mkdir(geminiDir, { recursive: true });
-
-        let config: Record<string, unknown> = {};
-        try {
-          const existing = await fs.readFile(settingsPath, "utf-8");
-          config = JSON.parse(existing);
-        } catch {
-          // File doesn't exist or is invalid — start fresh
-        }
-
-        const servers = (config.mcpServers ?? {}) as Record<string, unknown>;
-        servers.gnosys = gnosysMcpServerEntry();
-        config.mcpServers = servers;
-
-        await fs.writeFile(settingsPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+        const settingsPath = path.join(os.homedir(), ".gemini", "settings.json");
+        await fs.mkdir(path.dirname(settingsPath), { recursive: true });
+        await installStdioMcpJson(settingsPath);
         return { success: true, message: "Gemini CLI MCP config updated (~/.gemini/settings.json)" };
       }
 
       case "antigravity": {
-        // Antigravity reads MCP servers from ~/.gemini/antigravity/mcp_config.json
-        // (separate file from Gemini CLI's settings.json, even though they share the parent dir)
-        const antigravityDir = path.join(os.homedir(), ".gemini", "antigravity");
-        const configPath = path.join(antigravityDir, "mcp_config.json");
-        await fs.mkdir(antigravityDir, { recursive: true });
-
-        let config: Record<string, unknown> = {};
-        try {
-          const existing = await fs.readFile(configPath, "utf-8");
-          config = JSON.parse(existing);
-        } catch {
-          // File doesn't exist or is invalid — start fresh
-        }
-
-        const servers = (config.mcpServers ?? {}) as Record<string, unknown>;
-        servers.gnosys = gnosysMcpServerEntry();
-        config.mcpServers = servers;
-
-        await fs.writeFile(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
-        return { success: true, message: "Antigravity MCP config updated (~/.gemini/antigravity/mcp_config.json)" };
+        const configPath = path.join(os.homedir(), ".gemini", "antigravity", "mcp_config.json");
+        await fs.mkdir(path.dirname(configPath), { recursive: true });
+        await installStdioMcpJson(configPath);
+        return {
+          success: true,
+          message: "Antigravity MCP config updated (~/.gemini/antigravity/mcp_config.json)",
+        };
       }
 
       case "grok-build": {
@@ -957,7 +879,7 @@ export async function setupIDE(
           // File doesn't exist yet — start fresh
         }
         const updated = upsertGrokMcpBlock(existing, "gnosys", {
-          ...gnosysMcpServerEntry(),
+          ...gnosysStdioMcpEntry(),
           startup_timeout_sec: 90,
         });
         await fs.writeFile(configPath, updated, "utf-8");
@@ -965,28 +887,9 @@ export async function setupIDE(
       }
 
       case "claude-desktop": {
-        // Claude Desktop reads MCP servers from claude_desktop_config.json
-        // in a platform-specific app data directory. Distinct from Claude
-        // Code CLI which uses `claude mcp add`.
         const configPath = getClaudeDesktopConfigPath();
-        const configDir = path.dirname(configPath);
-        await fs.mkdir(configDir, { recursive: true });
-
-        let config: Record<string, unknown> = {};
-        try {
-          const existing = await fs.readFile(configPath, "utf-8");
-          config = JSON.parse(existing);
-        } catch {
-          // File doesn't exist or is invalid — start fresh
-        }
-
-        const servers = (config.mcpServers ?? {}) as Record<string, unknown>;
-        servers.gnosys = gnosysMcpServerEntry();
-        config.mcpServers = servers;
-
-        await fs.writeFile(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
-
-        // Display path with ~ prefix when inside HOME for clarity
+        await fs.mkdir(path.dirname(configPath), { recursive: true });
+        await installStdioMcpJson(configPath);
         const home = os.homedir();
         const displayPath = configPath.startsWith(home)
           ? configPath.replace(home, "~")
@@ -996,10 +899,8 @@ export async function setupIDE(
           message: `Claude Desktop MCP config updated (${displayPath}). Restart Claude Desktop for the change to take effect.`,
         };
       }
-
-      default:
-        return { success: false, message: `Unknown IDE: ${ide}` };
     }
+    return { success: false, message: `Unhandled IDE: ${canonical}` };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { success: false, message: msg };
