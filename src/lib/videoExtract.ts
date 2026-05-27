@@ -17,6 +17,7 @@ import {
   type TranscriptResult,
   type TranscriptionOptions,
 } from "./audioExtract.js";
+import { formatFfmpegInstallHint } from "./platform.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -42,10 +43,7 @@ function checkFfmpeg(): void {
   } catch {
     throw new Error(
       "Video transcription requires ffmpeg to be installed.\n" +
-        "Install it with:\n" +
-        "  macOS:   brew install ffmpeg\n" +
-        "  Ubuntu:  sudo apt install ffmpeg\n" +
-        "  Windows: winget install FFmpeg"
+        formatFfmpegInstallHint()
     );
   }
 }

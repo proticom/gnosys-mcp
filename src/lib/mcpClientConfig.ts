@@ -9,7 +9,7 @@
 
 import fs from "fs/promises";
 import path from "path";
-import os from "os";
+import { getClaudeDesktopConfigPath } from "./platform.js";
 
 export interface RemoteOpts {
   url: string;
@@ -22,19 +22,6 @@ export function remoteMcpEntry(opts: RemoteOpts): Record<string, unknown> {
     url: opts.url,
     ...(opts.token ? { headers: { Authorization: `Bearer ${opts.token}` } } : {}),
   };
-}
-
-/** Platform-specific Claude Desktop config path (mirrors setup.ts). */
-function claudeDesktopConfigPath(): string {
-  const home = os.homedir();
-  if (process.platform === "darwin") {
-    return path.join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json");
-  }
-  if (process.platform === "win32") {
-    const appData = process.env.APPDATA || path.join(home, "AppData", "Roaming");
-    return path.join(appData, "Claude", "claude_desktop_config.json");
-  }
-  return path.join(home, ".config", "Claude", "claude_desktop_config.json");
 }
 
 /** Merge a `gnosys` entry into a JSON file's `mcpServers` map (create if absent). */
@@ -61,7 +48,7 @@ export async function writeCursorRemote(projectDir: string, opts: RemoteOpts): P
 
 /** Write the remote entry into the Claude Desktop config. Returns the path. */
 async function writeClaudeDesktopRemote(opts: RemoteOpts): Promise<string> {
-  const file = claudeDesktopConfigPath();
+  const file = getClaudeDesktopConfigPath();
   await mergeJsonMcpServer(file, remoteMcpEntry(opts));
   return file;
 }

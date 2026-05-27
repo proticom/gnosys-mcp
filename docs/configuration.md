@@ -28,6 +28,8 @@ When Gnosys needs an API key (Anthropic, OpenAI, Groq, etc.), it checks sources 
 5. **Legacy env var** — e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`
 6. **`~/.config/gnosys/.env`** — values here are loaded at process startup, so they appear as env vars in steps 2 and 5
 
+On **Windows**, use setup to store keys in your user environment or `~/.config/gnosys/.env` (Keychain-style storage is macOS/Linux only).
+
 First match wins. Keys in `.env` are never printed to stdout.
 
 ---

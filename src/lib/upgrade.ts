@@ -57,13 +57,26 @@ export function readUpgradeMarker(): UpgradeMarker | null {
   }
 }
 
+function compareSemver(a: string, b: string): number {
+  const pa = a.split(".").map((x) => parseInt(x, 10) || 0);
+  const pb = b.split(".").map((x) => parseInt(x, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d !== 0) return d;
+  }
+  return 0;
+}
+
 /**
- * Returns true when the on-disk marker names a different version than the
+ * Returns true when the on-disk marker names a **newer** version than the
  * currently running binary. The caller (an MCP server) should exit cleanly
  * so the host respawns it against the upgraded global binary.
+ *
+ * Stale markers from an older install must not restart a newer binary (that
+ * caused an immediate exit loop after patch upgrades).
  */
 export function shouldRestartMcp(currentVersion: string): boolean {
   const marker = readUpgradeMarker();
   if (!marker) return false;
-  return marker.version !== currentVersion;
+  return compareSemver(marker.version, currentVersion) > 0;
 }

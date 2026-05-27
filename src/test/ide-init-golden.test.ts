@@ -34,10 +34,11 @@ const TARGET_PATHS: Record<string, string> = {
 
 function assertMcpServerEntry(server: unknown): void {
   expect(server).toBeTruthy();
-  expect(typeof (server as { command?: unknown }).command).toBe("string");
+  const command = (server as { command?: unknown }).command;
+  expect(typeof command).toBe("string");
+  expect(String(command)).toMatch(/gnosys-mcp/);
   const args = (server as { args?: unknown }).args;
   expect(Array.isArray(args)).toBe(true);
-  expect((args as string[]).length).toBeGreaterThan(0);
 }
 
 describe("IDE init golden fixtures", () => {
@@ -89,8 +90,8 @@ describe("IDE init MCP config structure", () => {
       mcpServers?: Record<string, unknown>;
     };
     assertMcpServerEntry(config.mcpServers?.gnosys);
-    expect((config.mcpServers!.gnosys as { command: string }).command).toBe("gnosys");
-    expect((config.mcpServers!.gnosys as { args: string[] }).args).toContain("serve");
+    expect((config.mcpServers!.gnosys as { command: string }).command).toMatch(/gnosys-mcp$/);
+    expect((config.mcpServers!.gnosys as { args: string[] }).args).toEqual([]);
   });
 
   it("gemini-cli setupIDE writes mcpServers.gnosys under isolated HOME", async () => {

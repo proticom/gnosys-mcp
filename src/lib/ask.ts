@@ -17,6 +17,7 @@ import { GnosysArchive } from "./archive.js";
 import { GnosysMaintenanceEngine } from "./maintenance.js";
 import type { GnosysResolver } from "./resolver.js";
 import { auditLog } from "./audit.js";
+import { getSecureStorageSetupHint } from "./platform.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -183,7 +184,7 @@ export class GnosysAsk {
       if (envVar) {
         throw new Error(
           `gnosys_ask requires an LLM. Configured default provider "${providerName}" has no key. ` +
-            `Set ${envVar} in your shell, run 'gnosys setup' to store one in the macOS Keychain, or add llm.${providerName}.apiKey to gnosys.json.`,
+            `Set ${envVar} in your shell, run 'gnosys setup' to store one in ${getSecureStorageSetupHint()}, or add llm.${providerName}.apiKey to gnosys.json.`,
         );
       }
       throw new Error(

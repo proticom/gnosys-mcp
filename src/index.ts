@@ -3717,7 +3717,8 @@ async function initHeavyDeps(): Promise<void> {
 }
 
 // ─── Start the server ────────────────────────────────────────────────────
-async function main() {
+/** Start the MCP server (stdio or http). Called by `gnosys serve` and when invoked as `gnosys-mcp`. */
+export async function startMcpServer() {
   // v5.7.1 (#15): start the upgrade-marker watcher BEFORE anything else.
   // If `gnosys upgrade` was run on this machine while the MCP was idle,
   // pick that up immediately instead of serving stale tool handlers.
@@ -3875,7 +3876,7 @@ async function main() {
 const invokedAsScript =
   !!process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
 if (invokedAsScript) {
-  main().catch((err) => {
+  startMcpServer().catch((err) => {
     console.error("Fatal error:", err);
     process.exit(1);
   });

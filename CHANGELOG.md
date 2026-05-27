@@ -9,9 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Detailed CHANGELOG coverage begins at **5.2.16**. Earlier 5.0.0–5.2.15 releases and a few 5.2.x patches without individual entries (5.2.17, 5.2.18, 5.2.21) are tracked via [git tags](https://github.com/proticom/gnosys/tags). Versions 5.2.13, 5.2.14, and 5.2.15 were CHANGELOG-only and never published to npm.
 
+## [5.11.1] — 2026-05-26
+
+### Fixed
+
+- **MCP stdio broken via `gnosys serve` (CRITICAL).** `gnosys serve` imported
+  `index.js` but never called `startMcpServer()`, so the process exited before
+  the MCP `initialize` handshake. Codex, Claude Code, Cursor, Grok Build, and
+  other hosts reported `connection closed` / no tools. Fix: call
+  `startMcpServer()` from the CLI `serve` action. Regression:
+  `src/test/v511-serve-handshake.test.ts`.
+- **`gnosys init` wired broken MCP entry.** All IDE setup paths registered
+  `gnosys` + `args: ["serve"]`. They now register the `gnosys-mcp` binary
+  (absolute path when possible, `args: []`), which is the supported stdio entry.
+  Re-run `gnosys init <ide>` after upgrade, or `codex mcp` / `claude mcp` /
+  edit `~/.cursor/mcp.json` / `~/.grok/config.toml` manually.
+- **Disconnect remote wizard.** `gnosys setup` → multi-machine sync → disconnect
+  now warns when local/remote differ or conflicts are pending, offers
+  `gnosys setup remote sync` before clearing config, and clears `machine.json`
+  remote settings (v5.11) as well as legacy `remote_path` meta.
+- **Upgrade marker restart loop.** `shouldRestartMcp` only exits when the
+  marker version is **newer** than the running binary (not any mismatch), so
+  patch upgrades do not instantly kill `gnosys serve` / `gnosys-mcp`.
+
+---
+
 ## [5.11.0] — 2026-05-26
 
-Pending release — bundles 84 commits since 5.10.0 covering a network-hosted MCP
+Released — bundles 84 commits since 5.10.0 covering a network-hosted MCP
 transport, a hardened HTTP surface, structured logging, a v5.12 portability
 track, and the C/D/E hardening + documentation review.
 

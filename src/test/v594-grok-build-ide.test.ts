@@ -13,14 +13,14 @@ import { describe, it, expect } from "vitest";
 import { upsertGrokMcpBlock } from "../lib/setup.js";
 
 describe("upsertGrokMcpBlock — v5.9.4 Bug 12", () => {
-  const entry = { command: "gnosys", args: ["serve"], startup_timeout_sec: 90 };
+  const entry = { command: "gnosys-mcp", args: [] as string[], startup_timeout_sec: 90 };
 
   it("appends a fresh block to empty input", () => {
     const out = upsertGrokMcpBlock("", "gnosys", entry);
     expect(out).toBe(
       `[mcp.gnosys]
-command = "gnosys"
-args = ["serve"]
+command = "gnosys-mcp"
+args = []
 startup_timeout_sec = 90
 `,
     );
@@ -51,8 +51,8 @@ command = "other"
     // No duplicate headers.
     expect(out.match(/\[mcp\.gnosys\]/g)?.length).toBe(1);
     // New values landed.
-    expect(out).toContain(`command = "gnosys"`);
-    expect(out).toContain(`args = ["serve"]`);
+    expect(out).toContain(`command = "gnosys-mcp"`);
+    expect(out).toContain(`args = []`);
     expect(out).toContain(`startup_timeout_sec = 90`);
     // Other section preserved.
     expect(out).toContain(`[mcp.other]`);

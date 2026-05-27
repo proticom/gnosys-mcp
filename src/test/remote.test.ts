@@ -11,7 +11,16 @@ import * as fsp from "fs/promises";
 import * as os from "os";
 import * as path from "path";
 import { GnosysDB, type DbMemory } from "../lib/db.js";
-import { RemoteSync, validateLocation, getMachineId, formatStatus } from "../lib/remote.js";
+import {
+  RemoteSync,
+  validateLocation,
+  getMachineId,
+  formatStatus,
+  getConfiguredRemotePath,
+  clearRemoteSyncConfig,
+} from "../lib/remote.js";
+import { writeMachineConfig, defaultMachineConfig } from "../lib/machineConfig.js";
+import { getMachineConfigPath } from "../lib/paths.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────
 
@@ -385,5 +394,52 @@ describe("formatStatus", () => {
     });
     expect(text).toContain("Pending push: 3");
     expect(text).toContain("Pending pull: 1");
+  });
+});
+
+describe("remote config helpers", () => {
+  let tmpHome: string;
+  let localDir: string;
+  let localDb: GnosysDB;
+  let prevHome: string | undefined;
+
+  beforeEach(() => {
+    prevHome = process.env.HOME;
+    tmpHome = path.join(os.tmpdir(), `gnosys-remote-cfg-${Date.now()}`);
+    localDir = path.join(tmpHome, ".gnosys");
+    fs.mkdirSync(localDir, { recursive: true });
+    process.env.HOME = tmpHome;
+    localDb = new GnosysDB(localDir);
+  });
+
+  afterEach(() => {
+    localDb.close();
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+    if (prevHome === undefined) delete process.env.HOME;
+    else process.env.HOME = prevHome;
+  });
+
+  it("getConfiguredRemotePath prefers machine.json over legacy meta", () => {
+    localDb.setMeta("remote_path", "/legacy/path");
+    const mc = defaultMachineConfig();
+    mc.remote = { enabled: true, path: "/Volumes/Dev/gnosys" };
+    writeMachineConfig(mc);
+    expect(getConfiguredRemotePath(localDb)).toBe("/Volumes/Dev/gnosys");
+  });
+
+  it("clearRemoteSyncConfig clears meta and machine.json remote", () => {
+    localDb.setMeta("remote_path", "/Volumes/Dev/gnosys");
+    localDb.setMeta("remote_mode", "read-write");
+    const mc = defaultMachineConfig();
+    mc.remote = { enabled: true, path: "/Volumes/Dev/gnosys" };
+    writeMachineConfig(mc);
+
+    clearRemoteSyncConfig(localDb);
+
+    expect(localDb.getMeta("remote_path")).toBe("");
+    expect(localDb.getMeta("remote_mode")).toBeNull();
+    const raw = JSON.parse(fs.readFileSync(getMachineConfigPath(), "utf-8"));
+    expect(raw.remote.enabled).toBe(false);
+    expect(raw.remote.path).toBeUndefined();
   });
 });

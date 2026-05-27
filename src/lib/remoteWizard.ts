@@ -10,8 +10,14 @@
 import { readdirSync, statSync } from "fs";
 import * as path from "path";
 import { createInterface, type Interface } from "readline/promises";
-import type { GnosysDB } from "./db.js";
-import { RemoteSync, validateLocation } from "./remote.js";
+import { GnosysDB } from "./db.js";
+import {
+  RemoteSync,
+  validateLocation,
+  getConfiguredRemotePath,
+  clearRemoteSyncConfig,
+  type RemoteStatus,
+} from "./remote.js";
 import { safeQuestion } from "./setup/ui/safePrompt.js";
 import { Spinner } from "./setup/ui/spinner.js";
 import { printStatus } from "./setup/ui/status.js";
@@ -172,7 +178,7 @@ export async function runConfigureWizard(
       const choice = await askChoice(rl, "What would you like to do?", [
         { key: "1", label: "Change remote location" },
         { key: "2", label: "Re-validate current remote" },
-        { key: "3", label: "Disconnect remote (back to local-only)" },
+        { key: "3", label: "Disconnect remote (local-only — warns if sync is needed)" },
         { key: "4", label: "Cancel" },
       ], "4");
 
@@ -372,18 +378,153 @@ async function setupRemoteFlow(rl: Interface, centralDb: GnosysDB, localActiveCo
 
 // ─── Reconfigure helpers ────────────────────────────────────────────────
 
-async function disconnectRemote(rl: Interface, centralDb: GnosysDB): Promise<boolean> {
+async function disconnectRemote(rl: Interface, localDb: GnosysDB): Promise<boolean> {
+  const remotePath = getConfiguredRemotePath(localDb);
+  if (!remotePath) {
+    printStatus("warn", "remote is not configured");
+    return false;
+  }
+
+  const localCounts = localDb.getMemoryCount();
+  let remoteCounts: { active: number; archived: number; total: number } | null = null;
+  let syncStatus: RemoteStatus | null = null;
+
+  const validation = await validateLocation(remotePath);
+  const sync = new RemoteSync(localDb, remotePath);
+  try {
+    syncStatus = await sync.getStatus();
+    const remoteDb = new GnosysDB(remotePath);
+    if (remoteDb.isAvailable()) {
+      remoteCounts = remoteDb.getMemoryCount();
+      remoteDb.close();
+    }
+  } catch {
+    // Remote unreadable — still show warning with validation hints below.
+  } finally {
+    sync.closeRemote();
+  }
+
+  const remoteReachable = Boolean(syncStatus?.reachable && validation.ok);
+  const remoteActive = remoteCounts?.active ?? validation.checks.existingDb.memoryCount ?? null;
+
+  console.log("");
+  printStatus("warn", "disconnecting makes this machine local-only");
+  console.log(`   local    ~/.gnosys/gnosys.db — ${localCounts.active} active memories`);
+  if (remoteReachable && remoteActive !== null) {
+    console.log(`   remote   ${remotePath} — ${remoteActive} active memories`);
+  } else {
+    printStatus("warn", "remote is not reachable", remotePath);
+  }
+  console.log("");
+  console.log("  The remote folder and gnosys.db are not deleted.");
+  console.log("  After disconnect, this Mac will not read or write that remote,");
+  console.log("  even when the volume is mounted.");
+
+  const pendingPull = syncStatus?.pendingPull ?? 0;
+  const pendingPush = syncStatus?.pendingPush ?? 0;
+  const conflicts = syncStatus?.conflicts.length ?? 0;
+  const countGap =
+    remoteActive !== null && remoteActive > localCounts.active
+      ? remoteActive - localCounts.active
+      : 0;
+  const shouldRecommendSync =
+    remoteReachable &&
+    (pendingPull > 0 || pendingPush > 0 || conflicts > 0 || countGap > 0);
+
+  if (shouldRecommendSync) {
+    console.log("");
+    printStatus("warn", "your local cache may be behind the shared remote brain");
+    if (countGap > 0) {
+      console.log(
+        `   Remote has about ${countGap} more active memor${countGap === 1 ? "y" : "ies"} than local.`,
+      );
+    }
+    if (pendingPull > 0 || pendingPush > 0) {
+      const parts: string[] = [];
+      if (pendingPull > 0) parts.push(`${pendingPull} to pull into local`);
+      if (pendingPush > 0) parts.push(`${pendingPush} to push to remote`);
+      console.log(`   Pending sync: ${parts.join(", ")}.`);
+    }
+    if (conflicts > 0) {
+      console.log(`   ${conflicts} unresolved conflict${conflicts === 1 ? "" : "s"} — resolve before or during sync.`);
+    }
+    printStatus("progress", "recommended", "gnosys setup remote sync");
+  }
+
+  const choice = await askChoice(
+    rl,
+    shouldRecommendSync
+      ? "Sync first so you do not lose access to remote-only memories on this Mac:"
+      : "How do you want to proceed?",
+    remoteReachable
+      ? [
+          { key: "1", label: "Run gnosys setup remote sync, then disconnect (recommended)" },
+          { key: "2", label: "Disconnect now without syncing (keep current local DB only)" },
+          { key: "3", label: "Cancel" },
+        ]
+      : [
+          { key: "2", label: "Disconnect anyway (local DB only; remote not reachable to sync)" },
+          { key: "3", label: "Cancel" },
+        ],
+    "3",
+  );
+
+  if (choice === "3") {
+    console.log("Cancelled.");
+    return false;
+  }
+
+  if (choice === "1" && remoteReachable) {
+    const spin = Spinner("syncing local and remote…");
+    const syncRun = new RemoteSync(localDb, remotePath);
+    try {
+      const result = await syncRun.sync();
+      if (result.errors.length > 0) {
+        spin.fail("sync had errors");
+        for (const e of result.errors) printStatus("fail", e);
+        const proceed = await askConfirm(rl, "Disconnect anyway without a clean sync?", false);
+        if (!proceed) return false;
+      } else {
+        spin.ok(
+          "sync complete",
+          `pushed ${result.pushed} · pulled ${result.pulled} · conflicts ${result.conflicts.length}`,
+        );
+        if (result.conflicts.length > 0) {
+          printStatus("warn", "conflicts still open", "gnosys setup remote resolve <id> --keep <local|remote>");
+        }
+      }
+    } finally {
+      syncRun.closeRemote();
+    }
+  } else if (choice === "1" && !remoteReachable) {
+    printStatus("fail", "cannot sync — mount the remote or cancel");
+    return false;
+  }
+
+  if (choice === "2" && shouldRecommendSync) {
+    const risky = await askConfirm(
+      rl,
+      "Disconnect without syncing? You may only see local memories on this Mac until you reconnect.",
+      false,
+    );
+    if (!risky) {
+      console.log("Cancelled.");
+      return false;
+    }
+  }
+
   const confirm = await askConfirm(
     rl,
-    "Disconnect the remote? Your local DB will remain. The remote DB itself is not deleted.",
-    false
+    "Disconnect now? Remote files stay on disk; this machine uses ~/.gnosys/gnosys.db only.",
+    false,
   );
   if (!confirm) {
     console.log("Cancelled.");
     return false;
   }
-  centralDb.setMeta(REMOTE_PATH_KEY, "");
-  console.log("✓ Remote disconnected. Gnosys is now local-only.");
+
+  clearRemoteSyncConfig(localDb);
+  console.log("✓ Remote disconnected. Gnosys is now local-only on this machine.");
   return true;
 }
 

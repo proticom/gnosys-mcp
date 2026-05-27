@@ -27,6 +27,7 @@ import {
 import { validateModel } from "./modelValidation.js";
 import { resolveActiveStorePath, ensureActiveStorePath } from "./setup/storePath.js";
 import { safeQuestion } from "./setup/ui/safePrompt.js";
+import { getClaudeDesktopConfigPath, getApiKeySkipHints } from "./platform.js";
 
 // ─── ANSI Colors ────────────────────────────────────────────────────────────
 
@@ -621,7 +622,7 @@ export async function detectIDEs(projectDir: string): Promise<string[]> {
   // Check for Claude Desktop — distinct from Claude Code CLI. Detected via the
   // app bundle on macOS or the platform-specific config dir.
   try {
-    const cfg = claudeDesktopConfigPath();
+    const cfg = getClaudeDesktopConfigPath();
     const cfgDir = path.dirname(cfg);
     const stat = await fs.stat(cfgDir);
     if (stat.isDirectory()) detected.push("claude-desktop");
@@ -645,24 +646,6 @@ export async function detectIDEs(projectDir: string): Promise<string[]> {
   }
 
   return detected;
-}
-
-/**
- * Resolve the platform-specific Claude Desktop config file path.
- *   macOS:   ~/Library/Application Support/Claude/claude_desktop_config.json
- *   Windows: %APPDATA%/Claude/claude_desktop_config.json
- *   Linux:   ~/.config/Claude/claude_desktop_config.json (no official build yet)
- */
-function claudeDesktopConfigPath(): string {
-  const home = os.homedir();
-  if (process.platform === "darwin") {
-    return path.join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json");
-  }
-  if (process.platform === "win32") {
-    const appData = process.env.APPDATA || path.join(home, "AppData", "Roaming");
-    return path.join(appData, "Claude", "claude_desktop_config.json");
-  }
-  return path.join(home, ".config", "Claude", "claude_desktop_config.json");
 }
 
 /**
@@ -722,6 +705,25 @@ export function upsertGrokMcpBlock(
   return `${head}${sectionHeader}\n${blockBody}${gap}${afterBlock}`;
 }
 
+/**
+ * Absolute path to the `gnosys-mcp` stdio entry (dist/index.js).
+ * Prefer this over `gnosys serve` — v5.11.0 `gnosys serve` imported index.js but
+ * did not call startMcpServer(), so MCP hosts saw "connection closed" on init.
+ */
+function resolveGnosysMcpCommand(): string {
+  try {
+    const p = execSync("command -v gnosys-mcp", { encoding: "utf-8" }).trim();
+    if (p) return p;
+  } catch {
+    // Fall back to bare name on PATH.
+  }
+  return "gnosys-mcp";
+}
+
+function gnosysMcpServerEntry(): { command: string; args: string[] } {
+  return { command: resolveGnosysMcpCommand(), args: [] };
+}
+
 function renderGrokMcpBlock(entry: { command: string; args: string[]; startup_timeout_sec?: number }): string {
   const argsStr = `[${entry.args.map((a) => JSON.stringify(a)).join(", ")}]`;
   const lines: string[] = [
@@ -744,8 +746,14 @@ export async function setupIDE(
   try {
     switch (ide) {
       case "claude": {
+        const mcpCmd = resolveGnosysMcpCommand();
         try {
-          execSync("claude mcp add -s user gnosys -- gnosys serve", {
+          try {
+            execSync("claude mcp remove gnosys", { stdio: "pipe" });
+          } catch {
+            // Not registered yet — fine.
+          }
+          execSync(`claude mcp add -s user gnosys -- ${mcpCmd}`, {
             stdio: "pipe",
           });
         } catch (e) {
@@ -755,7 +763,7 @@ export async function setupIDE(
           }
           throw e;
         }
-        return { success: true, message: "Claude Code MCP server registered" };
+        return { success: true, message: `Claude Code MCP server registered (${mcpCmd})` };
       }
 
       case "cursor": {
@@ -773,7 +781,7 @@ export async function setupIDE(
 
         // Merge gnosys entry
         const servers = (config.mcpServers ?? {}) as Record<string, unknown>;
-        servers.gnosys = { command: "gnosys", args: ["serve"] };
+        servers.gnosys = gnosysMcpServerEntry();
         config.mcpServers = servers;
 
         await fs.writeFile(mcpPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
@@ -815,14 +823,8 @@ export async function setupIDE(
           // No user-level config.toml to clean — fine.
         }
 
-        // 2. Find the absolute path to `gnosys` so Codex can launch it even
-        //    if shell PATH differs from what it has at run time.
-        let gnosysCmd = "gnosys";
-        try {
-          gnosysCmd = execSync("command -v gnosys", { encoding: "utf-8" }).trim() || "gnosys";
-        } catch {
-          // Fall back to `gnosys` on PATH if `command -v` fails.
-        }
+        // 2. Absolute path to `gnosys-mcp` (stdio entry) for Codex spawn.
+        const gnosysCmd = resolveGnosysMcpCommand();
 
         // 3. Check whether gnosys is already registered. If yes and the
         //    command matches, leave it alone (idempotent). If it differs,
@@ -832,7 +834,7 @@ export async function setupIDE(
           const existing = execSync("codex mcp get gnosys 2>/dev/null", {
             encoding: "utf-8",
           });
-          if (existing && existing.includes(gnosysCmd) && existing.includes("serve")) {
+          if (existing && existing.includes(gnosysCmd) && !existing.includes(" serve")) {
             alreadyCorrect = true;
           } else if (existing) {
             // Different command — remove so we can re-add with the right one.
@@ -857,7 +859,7 @@ export async function setupIDE(
 
         // 4. Register via the canonical Codex CLI command.
         try {
-          execSync(`codex mcp add gnosys -- ${gnosysCmd} serve`, { stdio: "pipe" });
+          execSync(`codex mcp add gnosys -- ${gnosysCmd}`, { stdio: "pipe" });
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           // Common failure: codex CLI not installed. Don't fail the whole
@@ -891,7 +893,7 @@ export async function setupIDE(
         }
 
         const servers = (config.mcpServers ?? {}) as Record<string, unknown>;
-        servers.gnosys = { command: "gnosys", args: ["serve"] };
+        servers.gnosys = gnosysMcpServerEntry();
         config.mcpServers = servers;
 
         await fs.writeFile(settingsPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
@@ -914,7 +916,7 @@ export async function setupIDE(
         }
 
         const servers = (config.mcpServers ?? {}) as Record<string, unknown>;
-        servers.gnosys = { command: "gnosys", args: ["serve"] };
+        servers.gnosys = gnosysMcpServerEntry();
         config.mcpServers = servers;
 
         await fs.writeFile(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
@@ -936,8 +938,7 @@ export async function setupIDE(
           // File doesn't exist yet — start fresh
         }
         const updated = upsertGrokMcpBlock(existing, "gnosys", {
-          command: "gnosys",
-          args: ["serve"],
+          ...gnosysMcpServerEntry(),
           startup_timeout_sec: 90,
         });
         await fs.writeFile(configPath, updated, "utf-8");
@@ -948,7 +949,7 @@ export async function setupIDE(
         // Claude Desktop reads MCP servers from claude_desktop_config.json
         // in a platform-specific app data directory. Distinct from Claude
         // Code CLI which uses `claude mcp add`.
-        const configPath = claudeDesktopConfigPath();
+        const configPath = getClaudeDesktopConfigPath();
         const configDir = path.dirname(configPath);
         await fs.mkdir(configDir, { recursive: true });
 
@@ -961,7 +962,7 @@ export async function setupIDE(
         }
 
         const servers = (config.mcpServers ?? {}) as Record<string, unknown>;
-        servers.gnosys = { command: "gnosys", args: ["serve"] };
+        servers.gnosys = gnosysMcpServerEntry();
         config.mcpServers = servers;
 
         await fs.writeFile(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
@@ -1645,14 +1646,10 @@ export async function runSetup(opts: {
         } else {
           // Skip
           console.log(`  ${DIM}Skipped. Set your key later using one of these methods:`);
-          if (isMac) {
-            console.log(`  \u2022 macOS Keychain: security add-generic-password -a "$USER" -s "${envVarName}" -w "key" -U`);
+          for (const hint of getApiKeySkipHints(envVarName, provider)) {
+            console.log(`  \u2022 ${hint}`);
           }
-          if (hasSecret) {
-            console.log(`  \u2022 GNOME Keyring: printf '%s' 'key' | secret-tool store --label="Gnosys ${provider}" service gnosys account ${envVarName}`);
-          }
-          console.log(`  \u2022 Shell profile:  echo 'export ${envVarName}=key' >> ${profileFile}`);
-          console.log(`  \u2022 Dotenv file:    echo '${envVarName}=key' >> ~/.config/gnosys/.env${RESET}`);
+          console.log(`${RESET}`);
         }
       }
     } else {

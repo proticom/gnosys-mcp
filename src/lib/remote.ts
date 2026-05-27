@@ -14,8 +14,30 @@ import { existsSync, statSync, mkdirSync, writeFileSync, unlinkSync } from "fs";
 import os from "os";
 import * as path from "path";
 import { GnosysDB, type DbMemory } from "./db.js";
-import { readMachineConfig } from "./machineConfig.js";
+import { readMachineConfig, writeMachineConfig } from "./machineConfig.js";
 import type { ProgressCallback } from "./progress.js";
+
+const META_REMOTE_PATH = "remote_path";
+const META_REMOTE_MODE = "remote_mode";
+
+/** Resolve the configured remote directory for this machine (machine.json, then legacy meta). */
+export function getConfiguredRemotePath(localDb: GnosysDB): string | null {
+  const mc = readMachineConfig();
+  if (mc?.remote?.enabled && mc.remote.path) return mc.remote.path;
+  const fromMeta = localDb.getMeta(META_REMOTE_PATH);
+  return fromMeta || null;
+}
+
+/** Stop using a remote on this machine; does not delete the remote database files. */
+export function clearRemoteSyncConfig(localDb: GnosysDB): void {
+  localDb.setMeta(META_REMOTE_PATH, "");
+  localDb.deleteMeta(META_REMOTE_MODE);
+  const mc = readMachineConfig();
+  if (mc) {
+    mc.remote = { enabled: false };
+    writeMachineConfig(mc);
+  }
+}
 
 // ─── Types ──────────────────────────────────────────────────────────────
 

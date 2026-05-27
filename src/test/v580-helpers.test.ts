@@ -291,9 +291,9 @@ describe("upgrade marker", () => {
     expect(shouldRestartMcp("5.8.1")).toBe(true);
   });
 
-  it("shouldRestartMcp returns true on any version mismatch (older or newer)", () => {
+  it("shouldRestartMcp returns false when marker is older than the running version", () => {
     writeUpgradeMarker("5.7.0");
-    expect(shouldRestartMcp("5.8.1")).toBe(true);
+    expect(shouldRestartMcp("5.8.1")).toBe(false);
   });
 
   it("readUpgradeMarker swallows malformed JSON and returns null", () => {

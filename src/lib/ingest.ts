@@ -8,6 +8,7 @@ import type { GnosysTagRegistry } from "./tags.js";
 import type { GnosysStore } from "./store.js";
 import { type GnosysConfig, DEFAULT_CONFIG } from "./config.js";
 import { type LLMProvider, getLLMProvider } from "./llm.js";
+import { getSetupStorageBullet } from "./platform.js";
 
 interface IngestResult {
   title: string;
@@ -95,7 +96,7 @@ export class GnosysIngestion {
       } else if (envVar) {
         lines.push(
           `Configure a key for ${providerName} via one of these methods:`,
-          `  • gnosys setup       — interactive (recommended; stores in macOS Keychain)`,
+          getSetupStorageBullet(),
           `  • Set ${envVar} in your shell profile`,
           `  • Edit llm.${providerName}.apiKey in gnosys.json`,
           "",

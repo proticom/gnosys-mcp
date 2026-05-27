@@ -27,6 +27,7 @@ import { loadConfig, generateConfigTemplate, type GnosysConfig, DEFAULT_CONFIG, 
 import { getLLMProvider, isProviderAvailable, type LLMProvider } from "./lib/llm.js";
 import { GnosysDB } from "./lib/db.js";
 import { logError } from "./lib/log.js";
+import { getSecureStorageSetupHint } from "./lib/platform.js";
 import { createProjectIdentity, readProjectIdentity, findProjectIdentity, migrateProject } from "./lib/projectIdentity.js";
 import { setPreference, getPreference, getAllPreferences, deletePreference, KNOWN_PREFERENCE_KEYS, suggestPreferenceKey } from "./lib/preferences.js";
 import { syncRules, syncToTarget } from "./lib/rulesGen.js";
@@ -3177,7 +3178,7 @@ program
       if (envVar) {
         console.error(
           `No LLM provider available. Configured default is "${providerName}" but its key wasn't found. ` +
-            `Set ${envVar}, run 'gnosys setup' to store one in the macOS Keychain, or add llm.${providerName}.apiKey to gnosys.json.`,
+            `Set ${envVar}, run 'gnosys setup' to store one in ${getSecureStorageSetupHint()}, or add llm.${providerName}.apiKey to gnosys.json.`,
         );
       } else {
         console.error(
@@ -4945,7 +4946,8 @@ program
       console.error("[maintenance] Background maintenance enabled (every 6 hours)");
     }
 
-    await import("./index.js");
+    const { startMcpServer } = await import("./index.js");
+    await startMcpServer();
   });
 
 // ─── gnosys recall ───────────────────────────────────────────────────────
