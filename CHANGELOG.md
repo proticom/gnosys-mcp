@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Detailed CHANGELOG coverage begins at **5.2.16**. Earlier 5.0.0–5.2.15 releases and a few 5.2.x patches without individual entries (5.2.17, 5.2.18, 5.2.21) are tracked via [git tags](https://github.com/proticom/gnosys/tags). Versions 5.2.13, 5.2.14, and 5.2.15 were CHANGELOG-only and never published to npm.
 
+## [5.11.3] — 2026-05-27
+
+### Fixed
+
+- **Grok Build MCP section name.** `gnosys setup ides` wrote `[mcp.gnosys]` but
+  Grok Build only loads `[mcp_servers.<name>]` — `grok mcp list` showed zero
+  servers while the agent had no tools. Setup now writes `[mcp_servers.gnosys]`
+  and removes legacy `[mcp.gnosys]` on upgrade.
+- **MCP bin execute bit.** `prepublishOnly` sets `0755` on `dist/cli.js` and
+  `dist/index.js` so `gnosys-mcp` symlinks spawn reliably (fixes Grok
+  `Permission denied` after local `npm link` / rebuild).
+
+---
+
 ## [5.11.2] — 2026-05-27
 
 ### Fixed

@@ -648,15 +648,31 @@ export async function detectIDEs(projectDir: string): Promise<string[]> {
   return detected;
 }
 
+/** Remove a single `[section]` block from Grok TOML (hand-rolled; see upsertGrokMcpBlock). */
+function removeGrokTomlSection(existing: string, sectionHeader: string): string {
+  const lines = existing.split("\n");
+  const headerIdx = lines.findIndex((line) => line.trim() === sectionHeader);
+  if (headerIdx === -1) return existing;
+
+  let endIdx = lines.length;
+  for (let i = headerIdx + 1; i < lines.length; i++) {
+    if (/^\s*\[/.test(lines[i])) {
+      endIdx = i;
+      break;
+    }
+  }
+  const before = lines.slice(0, headerIdx).join("\n");
+  const after = lines.slice(endIdx).join("\n");
+  const merged = [before, after].filter((s) => s.length > 0).join("\n");
+  return merged.length > 0 ? `${merged}\n` : "";
+}
+
 /**
- * Replace (or append) a `[mcp.<name>]` block inside the TOML text for
- * Grok Build's config file. Preserves every line outside that block —
- * deci-046 read-then-merge rule. We can't pull in a TOML dependency
- * without adding to package.json, so we ship a minimal hand-rolled
- * updater scoped exactly to the `[mcp.gnosys]` use case.
+ * Replace (or append) a `[mcp_servers.<name>]` block inside Grok Build's
+ * `~/.grok/config.toml`. Preserves every line outside that block (deci-046).
  *
- * Spec assumption: TOML headers we touch are simple `[a.b]` lines with
- * no inline tables or nested arrays. Any other content is left alone.
+ * Grok Build reads `mcp_servers.*` only — legacy `[mcp.*]` blocks are ignored
+ * by `grok mcp list` / the agent runtime (see ~/.grok/README.md).
  *
  * Exported for tests.
  */
@@ -665,25 +681,30 @@ export function upsertGrokMcpBlock(
   name: string,
   entry: { command: string; args: string[]; startup_timeout_sec?: number },
 ): string {
-  const sectionHeader = `[mcp.${name}]`;
-  const lines = existing.split("\n");
+  // Drop mistaken v5.9.4 `[mcp.<name>]` sections so we don't leave dead config.
+  let content = removeGrokTomlSection(existing, `[mcp.${name}]`);
+
+  const sectionHeader = `[mcp_servers.${name}]`;
+  const lines = content.split("\n");
   const headerIdx = lines.findIndex((line) => line.trim() === sectionHeader);
   const blockBody = renderGrokMcpBlock(entry);
 
   if (headerIdx === -1) {
-    // Append a fresh block, separated by a blank line if the file has content.
-    const prefix = existing.length === 0 || existing.endsWith("\n\n")
-      ? existing
-      : existing.endsWith("\n") ? `${existing}\n` : `${existing}\n\n`;
+    const prefix =
+      content.length === 0 || content.endsWith("\n\n")
+        ? content
+        : content.endsWith("\n")
+          ? `${content}\n`
+          : `${content}\n\n`;
     return `${prefix}${sectionHeader}\n${blockBody}`;
   }
 
-  // Replace the existing block — everything from sectionHeader up to the
-  // next `[` header (or EOF). Count blank lines immediately after the block
-  // so we can preserve the original spacing before the next section.
   let endIdx = lines.length;
   for (let i = headerIdx + 1; i < lines.length; i++) {
-    if (/^\s*\[/.test(lines[i])) { endIdx = i; break; }
+    if (/^\s*\[/.test(lines[i])) {
+      endIdx = i;
+      break;
+    }
   }
   let trailingBlankBeforeNext = 0;
   while (endIdx > headerIdx + 1 && lines[endIdx - 1].trim() === "") {
@@ -697,7 +718,6 @@ export function upsertGrokMcpBlock(
   const head = beforeBlock.length > 0 ? `${beforeBlock}\n` : "";
 
   if (!hasFollowingSection) {
-    // No following section — drop trailing blank lines and end with a single \n.
     return `${head}${sectionHeader}\n${blockBody}`;
   }
   const gap = "\n".repeat(Math.max(1, trailingBlankBeforeNext));
@@ -924,10 +944,9 @@ export async function setupIDE(
       }
 
       case "grok-build": {
-        // v5.9.4 Bug 12 — Grok Build reads its MCP servers from a
-        // `[mcp.<name>]` block in ~/.grok/config.toml. We never clobber
-        // unrelated TOML content (per deci-046 read-then-merge rule); the
-        // helper preserves every line outside the `[mcp.gnosys]` block.
+        // v5.9.4 Bug 12 — Grok Build reads MCP from `[mcp_servers.<name>]`
+        // in ~/.grok/config.toml (not `[mcp.<name>]`). We never clobber
+        // unrelated TOML content (per deci-046 read-then-merge rule).
         const grokDir = path.join(os.homedir(), ".grok");
         const configPath = path.join(grokDir, "config.toml");
         await fs.mkdir(grokDir, { recursive: true });

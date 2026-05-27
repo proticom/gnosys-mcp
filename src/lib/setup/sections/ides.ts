@@ -45,7 +45,7 @@ const IDE_TARGET_DISPLAY: Record<string, string> = {
   codex: ".codex/mcp.json",
   "gemini-cli": "~/.gemini/settings.json",
   antigravity: "~/.gemini/antigravity/mcp_config.json",
-  "grok-build": "~/.grok/config.toml",
+  "grok-build": "~/.grok/config.toml ([mcp_servers.gnosys])",
 };
 
 function ideTarget(ide: string): string {
