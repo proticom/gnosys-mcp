@@ -11,7 +11,7 @@
 // MCP stdio JSON protocol. parse() is a pure function with no side effects.
 import dotenv from "dotenv";
 import path from "path";
-import { readFileSync } from "fs";
+import { readFileSync, realpathSync } from "fs";
 import { fileURLToPath } from "url";
 const home = process.env.HOME || process.env.USERPROFILE || "/tmp";
 try {
@@ -3873,9 +3873,20 @@ export async function startMcpServer() {
   }
 }
 
-const invokedAsScript =
-  !!process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
-if (invokedAsScript) {
+/** True when this file is the process entry (direct path or npm `gnosys-mcp` bin symlink). */
+function isMcpEntryPoint(): boolean {
+  if (!process.argv[1]) return false;
+  const entry = path.resolve(process.argv[1]);
+  const self = fileURLToPath(import.meta.url);
+  if (entry === self) return true;
+  try {
+    return realpathSync(entry) === realpathSync(self);
+  } catch {
+    return false;
+  }
+}
+
+if (isMcpEntryPoint()) {
   startMcpServer().catch((err) => {
     console.error("Fatal error:", err);
     process.exit(1);

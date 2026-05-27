@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Detailed CHANGELOG coverage begins at **5.2.16**. Earlier 5.0.0–5.2.15 releases and a few 5.2.x patches without individual entries (5.2.17, 5.2.18, 5.2.21) are tracked via [git tags](https://github.com/proticom/gnosys/tags). Versions 5.2.13, 5.2.14, and 5.2.15 were CHANGELOG-only and never published to npm.
 
+## [5.11.2] — 2026-05-27
+
+### Fixed
+
+- **`gnosys-mcp` bin symlink never started the server (CRITICAL).** npm installs
+  `gnosys-mcp` as a symlink to `dist/index.js`; entry detection compared
+  `path.resolve(argv[1])` to `import.meta.url` without `realpath`, so
+  `startMcpServer()` never ran and Cursor/Codex saw `Connection closed`.
+  Fix: `realpathSync` on both paths in `isMcpEntryPoint()`.
+
+### Changed
+
+- **`gnosys init` is project-only.** Removed `gnosys init <ide>`; IDE MCP wiring
+  is only via `gnosys setup ides` (interactive wizard for all supported hosts).
+
+---
+
 ## [5.11.1] — 2026-05-26
 
 ### Fixed
@@ -22,7 +39,7 @@ Detailed CHANGELOG coverage begins at **5.2.16**. Earlier 5.0.0–5.2.15 release
 - **`gnosys init` wired broken MCP entry.** All IDE setup paths registered
   `gnosys` + `args: ["serve"]`. They now register the `gnosys-mcp` binary
   (absolute path when possible, `args: []`), which is the supported stdio entry.
-  Re-run `gnosys init <ide>` after upgrade, or `codex mcp` / `claude mcp` /
+  Re-run `gnosys setup ides` after upgrade, or `codex mcp` / `claude mcp` /
   edit `~/.cursor/mcp.json` / `~/.grok/config.toml` manually.
 - **Disconnect remote wizard.** `gnosys setup` → multi-machine sync → disconnect
   now warns when local/remote differ or conflicts are pending, offers

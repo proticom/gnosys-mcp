@@ -83,8 +83,9 @@ async function main() {
     out();
     out("  Get started:");
     out("    1. gnosys setup                configure LLM providers and preferences");
-    out("    2. gnosys init                 initialize gnosys in a project directory");
-    out("    3. gnosys status               check project status");
+    out("    2. gnosys setup ides           wire MCP into your IDEs (once per machine)");
+    out("    3. gnosys init                 initialize gnosys in a project directory");
+    out("    4. gnosys status               check project status");
     out();
 
     // If interactive, offer to run setup automatically

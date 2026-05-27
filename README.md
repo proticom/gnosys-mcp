@@ -36,6 +36,7 @@ gnosys setup          # configures provider, API key, and your IDE/agent
 ## Quick start
 
 ```bash
+gnosys setup ides                                        # wire MCP into your IDEs (once)
 cd your-project
 gnosys init                                              # register the project
 gnosys add "We chose PostgreSQL over MySQL for JSON support"
@@ -61,7 +62,7 @@ All tools are exposed over stdio and HTTP transports. Many tools accept an optio
 
 This package installs two binaries:
 
-- **`gnosys`** — the CLI. `gnosys serve` starts the MCP server (stdio by default, `--transport http` for the central-server topology). `gnosys init <ide>` wires this into your IDE/agent automatically.
+- **`gnosys`** — the CLI. `gnosys serve` starts the MCP server (stdio by default, `--transport http` for the central-server topology). `gnosys setup ides` wires `gnosys-mcp` into your IDE/agent configs.
 - **`gnosys-mcp`** — a direct alias for the MCP stdio server entry, for MCP clients that prefer to spawn the server binary directly (e.g. `npx -y gnosys-mcp`). Equivalent to `gnosys serve`.
 
 | Tool | Description |

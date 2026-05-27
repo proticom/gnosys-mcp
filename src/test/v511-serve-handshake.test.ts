@@ -31,6 +31,28 @@ describe("gnosys serve MCP handshake", () => {
     if (tmpHome) fs.rmSync(tmpHome, { recursive: true, force: true });
   });
 
+  it("connects via gnosys-mcp bin symlink (npm global layout)", async () => {
+    const binLink = path.join(tmpHome, "gnosys-mcp");
+    fs.symlinkSync(path.join(PROJECT_ROOT, "dist", "index.js"), binLink);
+    fs.chmodSync(binLink, 0o755);
+
+    const transport = new StdioClientTransport({
+      command: binLink,
+      args: [],
+      env: {
+        ...process.env,
+        HOME: tmpHome,
+        GNOSYS_LOCAL_ONLY: "1",
+      },
+      stderr: "pipe",
+    });
+    const client = new Client({ name: "gnosys-mcp-bin-test", version: "0.0.0" });
+    await client.connect(transport);
+    const { tools } = await client.listTools();
+    expect(tools?.length ?? 0).toBeGreaterThan(10);
+    await client.close();
+  }, 30_000);
+
   it("connects and lists tools via node dist/cli.js serve", async () => {
     const transport = new StdioClientTransport({
       command: "node",

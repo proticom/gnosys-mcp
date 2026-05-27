@@ -74,9 +74,9 @@ Configure per-task LLM routing (structuring, synthesis, vision, transcription, d
 
 Review and clean up user-scope preferences (incl. legacy imports)
 
-## `gnosys init [ide]`
+## `gnosys init`
 
-Initialize Gnosys in the current directory. Optionally specify IDE: cursor, claude, claude-desktop, codex, gemini-cli, or antigravity to force IDE setup.
+Initialize Gnosys in the current directory (project store, identity, central DB). Wire IDE MCP servers with `gnosys setup ides`.
 
 ## `gnosys migrate`
 

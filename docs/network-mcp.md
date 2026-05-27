@@ -46,7 +46,7 @@ Configure the IDE's MCP server as an HTTP/URL server instead of a `command`:
 ```
 
 With a token, add `"headers": { "Authorization": "Bearer your-secret" }`.
-(`gnosys init <ide>` can write this for you — see Phase B.)
+(`gnosys setup ides` can write this for you — see Phase B.)
 
 Clients pass their own machine-local `projectRoot` per call, and the server
 resolves it via `machine.json` + `project_locations` (v5.10.0), so the one brain

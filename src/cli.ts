@@ -1026,7 +1026,7 @@ setupCmd
 // `gnosys setup ides` — configure IDE / MCP integrations standalone
 setupCmd
   .command("ides")
-  .description("Configure IDE integrations (Claude Code/Desktop, Cursor, Codex, Gemini CLI, Antigravity)")
+  .description("Configure IDE MCP integrations (Claude Code/Desktop, Cursor, Codex, Grok Build, Gemini CLI, Antigravity)")
   .action(async () => {
     const readline = await import("readline/promises");
     const { runIdesSetup } = await import("./lib/setup/sections/ides.js");
@@ -1075,11 +1075,11 @@ setupCmd
 
 // ─── gnosys init ─────────────────────────────────────────────────────────
 program
-  .command("init [ide]")
-  .description("Initialize Gnosys in the current directory. Optionally specify IDE: cursor, claude, claude-desktop, codex, gemini-cli, or antigravity to force IDE setup.")
+  .command("init")
+  .description("Initialize Gnosys in the current directory (project store, identity, central DB). Wire IDE MCP servers with: gnosys setup ides")
   .option("-d, --directory <dir>", "Target directory (default: cwd)")
   .option("-n, --name <name>", "Project name (default: directory basename)")
-  .action(async (ide: string | undefined, opts: { directory?: string; name?: string }) => {
+  .action(async (opts: { directory?: string; name?: string }) => {
     const targetDir = opts.directory
       ? path.resolve(opts.directory)
       : process.cwd();
@@ -1205,65 +1205,8 @@ program
       console.log(`\nIDE hooks: ${hookResult.details}`);
     }
 
-    // If a specific IDE was requested, force-create its config
-    if (ide) {
-      const validIdes = ["cursor", "claude", "claude-desktop", "codex", "gemini-cli", "antigravity"];
-      const normalizedIde = ide.toLowerCase();
-      if (!validIdes.includes(normalizedIde)) {
-        console.log(`\nUnknown IDE: "${ide}". Valid options: ${validIdes.join(", ")}`);
-      } else {
-        const { configureCursor, configureClaudeCode, configureCodex } = await import("./lib/projectIdentity.js");
-
-        // Cursor/Claude/Codex have IDE-specific session hooks. Gemini CLI and
-        // Antigravity don't yet, so we skip the hook step for them.
-        let result;
-        switch (normalizedIde) {
-          case "cursor":
-            result = await configureCursor(targetDir);
-            break;
-          case "claude":
-            result = await configureClaudeCode(targetDir);
-            break;
-          case "codex":
-            result = await configureCodex(targetDir);
-            break;
-        }
-
-        if (result?.configured) {
-          console.log(`\nIDE setup (${result.ide}):`);
-          console.log(`  ${result.details}`);
-          console.log(`  File: ${result.filePath}`);
-        }
-
-        // Set up MCP config for the IDE
-        const { setupIDE } = await import("./lib/setup.js");
-        const mcp = await setupIDE(normalizedIde, targetDir);
-        if (mcp.success) {
-          console.log(`  MCP: ${mcp.message}`);
-        }
-
-        // Update agentRulesTarget in gnosys.json (only for IDEs with rules files)
-        const targetMap: Record<string, string> = {
-          cursor: ".cursor/rules/gnosys.mdc",
-          claude: "CLAUDE.md",
-          codex: "CODEX.md",
-        };
-        if (targetMap[normalizedIde]) {
-          const identityPath = path.join(storePath, "gnosys.json");
-          try {
-            const identityContent = await fs.readFile(identityPath, "utf-8");
-            const identity = JSON.parse(identityContent);
-            identity.agentRulesTarget = targetMap[normalizedIde];
-            await fs.writeFile(identityPath, JSON.stringify(identity, null, 2) + "\n", "utf-8");
-            console.log(`  Config: agentRulesTarget → ${identity.agentRulesTarget}`);
-          } catch {
-            // Non-critical
-          }
-        }
-      }
-    }
-
-    console.log(`\nStart adding memories with: gnosys add "your knowledge here"`);
+    console.log(`\nWire IDE MCP servers: gnosys setup ides`);
+    console.log(`Start adding memories with: gnosys add "your knowledge here"`);
   });
 
 // ─── gnosys migrate ─────────────────────────────────────────────────────
@@ -4906,7 +4849,7 @@ exportCmd
 program
   .command("serve")
   .description(
-    "Start the MCP server (stdio mode). Used by IDE integrations — Claude Code/Desktop, Cursor, Codex, etc. spawn this command in the background to talk to gnosys via the Model Context Protocol. You don't normally invoke this yourself; `gnosys init <ide>` wires it into the IDE config.",
+    "Start the MCP server (stdio mode). Used by IDE integrations — Claude Code/Desktop, Cursor, Codex, etc. spawn this command in the background to talk to gnosys via the Model Context Protocol. You don't normally invoke this yourself; `gnosys setup ides` wires gnosys-mcp into your IDE configs.",
   )
   .option("--with-maintenance", "Run maintenance every 6 hours in background")
   .option("--transport <mode>", "Transport: 'stdio' (default) or 'http' (central-server topology)", "stdio")
