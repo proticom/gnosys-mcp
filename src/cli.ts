@@ -3896,57 +3896,8 @@ program
   .option("--rel-types <types>", "Comma-separated relationship types to follow (e.g. leads_to,requires)")
   .option("--json", "Output as JSON")
   .action(async (memoryId: string, opts: { depth?: string; relTypes?: string; json?: boolean }) => {
-    try {
-      const { GnosysDB } = await import("./lib/db.js");
-      const { handleRequest } = await import("./sandbox/server.js");
-
-      const dbDir = GnosysDB.getCentralDbDir();
-      const db = new GnosysDB(dbDir);
-
-      if (!db.isAvailable()) {
-        console.error("Error: GnosysDB not available. Install it with: npm install better-sqlite3");
-        process.exit(1);
-      }
-
-      const params: Record<string, any> = {
-        id: memoryId,
-        depth: opts.depth ? parseInt(opts.depth, 10) : 3,
-      };
-      if (opts.relTypes) params.rel_types = opts.relTypes.split(",").map((s) => s.trim());
-
-      const res = handleRequest(db, {
-        id: "cli-traverse",
-        method: "traverse",
-        params,
-      });
-
-      db.close();
-
-      if (!res.ok) {
-        console.error(`Traverse failed: ${res.error}`);
-        process.exit(1);
-      }
-
-      const result = res.result as any;
-      if (opts.json) {
-        console.log(JSON.stringify(result, null, 2));
-      } else {
-        console.log(`Traversal from ${memoryId} (depth: ${result.depth}):`);
-        console.log(`  Total nodes: ${result.total}\n`);
-        for (const node of result.nodes) {
-          const indent = "  ".repeat(node.depth + 1);
-          const via = node.via_rel ? ` ← [${node.via_rel}] from ${node.via_from}` : " (root)";
-          console.log(`${indent}${node.id}: ${node.title} (conf: ${node.confidence.toFixed(2)})${via}`);
-        }
-      }
-    } catch (err) {
-      if (opts.json) {
-        console.log(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
-      } else {
-        console.error(`Traverse failed: ${err instanceof Error ? err.message : err}`);
-      }
-      process.exit(1);
-    }
+    const { runTraverseCommand } = await import("./lib/traverseCommand.js");
+    await runTraverseCommand(memoryId, opts);
   });
 
 // ─── gnosys web init|ingest|build-index|build|add|remove|update|status ──
