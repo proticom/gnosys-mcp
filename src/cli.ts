@@ -1580,55 +1580,6 @@ dreamCmd
   });
 
 // ─── gnosys export (parent + subcommands) ────────────────────────────────
-type VaultExportOpts = { to: string; all?: boolean; overwrite?: boolean; summaries?: boolean; reviews?: boolean; graph?: boolean; json?: boolean };
-
-async function runVaultExport(opts: VaultExportOpts): Promise<void> {
-  const resolver = new GnosysResolver();
-  await resolver.resolve();
-  const stores = resolver.getStores();
-  if (stores.length === 0) {
-    console.error("No Gnosys stores found. Run 'gnosys init' first.");
-    process.exit(1);
-  }
-
-  const { GnosysDB: DbClass } = await import("./lib/db.js");
-  const { GnosysExporter, formatExportReport } = await import("./lib/export.js");
-
-  const storePath = stores[0].path;
-  const db = new DbClass(storePath);
-
-  if (!db.isAvailable() || !db.isMigrated()) {
-    console.error("Export requires gnosys.db (v2.0). Run 'gnosys migrate' first.");
-    process.exit(1);
-  }
-
-  const targetDir = path.resolve(opts.to);
-  console.error(`Exporting to: ${targetDir}`);
-
-  const exporter = new GnosysExporter(db);
-  const report = await exporter.export({
-    targetDir,
-    activeOnly: !opts.all,
-    includeSummaries: opts.summaries !== false,
-    includeReviews: opts.reviews !== false,
-    includeGraph: opts.graph !== false,
-    overwrite: opts.overwrite || false,
-    onProgress: (current, total, file) => {
-      if (current % 10 === 0 || current === total) {
-        console.error(`  [${current}/${total}] ${file}`);
-      }
-    },
-  });
-
-  if (opts.json) {
-    console.log(JSON.stringify(report, null, 2));
-  } else {
-    console.log(formatExportReport(report));
-  }
-
-  db.close();
-}
-
 const exportCmd = program
   .command("export")
   .description("Export memory to a vault (markdown) or a project bundle (.json.gz)")
@@ -1637,10 +1588,9 @@ const exportCmd = program
 // Bare `gnosys export` shows the canonical subcommand forms. Back-compat for
 // the v5.5.x form `gnosys export --to <dir>` is handled in a pre-parse shim
 // at the top of the file (rewrites argv to insert "vault" before "--to").
-exportCmd.action(() => {
-  console.error("Usage: gnosys export vault --to <dir>             # Obsidian vault export");
-  console.error("       gnosys export project [id] --to <bundle>   # portable .json.gz bundle");
-  process.exit(1);
+exportCmd.action(async () => {
+  const { runExportUsageCommand } = await import("./lib/exportCommand.js");
+  runExportUsageCommand();
 });
 
 // `gnosys export vault` — explicit alias for the default behavior
@@ -1654,7 +1604,10 @@ exportCmd
   .option("--no-reviews", "Skip review suggestions")
   .option("--no-graph", "Skip relationship graph")
   .option("--json", "Output raw JSON report")
-  .action(runVaultExport);
+  .action(async (opts: { to: string; all?: boolean; overwrite?: boolean; summaries?: boolean; reviews?: boolean; graph?: boolean; json?: boolean }) => {
+    const { runVaultExportCommand } = await import("./lib/exportCommand.js");
+    await runVaultExportCommand(opts);
+  });
 
 // `gnosys export project [id]` — bundle a single project for portability
 exportCmd
@@ -1665,54 +1618,8 @@ exportCmd
   .option("--no-audit", "Skip the audit log")
   .option("--json", "Output the result as JSON")
   .action(async (projectIdArg: string | undefined, opts: { to: string; includeArchived?: boolean; audit?: boolean; json?: boolean }) => {
-    const { GnosysDB: DbClass } = await import("./lib/db.js");
-    const { exportProject } = await import("./lib/exportProject.js");
-
-    const centralDb = DbClass.openCentral();
-    if (!centralDb.isAvailable()) {
-      console.error("Central DB unavailable.");
-      process.exit(1);
-    }
-
-    let projectId = projectIdArg;
-    if (!projectId) {
-      // Auto-detect from cwd
-      const proj = centralDb.getProjectByDirectory(process.cwd());
-      if (!proj) {
-        console.error("No project ID given and current directory is not a registered project.");
-        console.error("Usage: gnosys export project <projectId> --to <file>");
-        process.exit(1);
-      }
-      projectId = proj.id;
-    }
-
-    try {
-      const result = exportProject(centralDb, {
-        projectId,
-        outputPath: path.resolve(opts.to),
-        includeArchived: !!opts.includeArchived,
-        includeAudit: opts.audit !== false,
-      });
-
-      if (opts.json) {
-        console.log(JSON.stringify(result, null, 2));
-      } else {
-        const ratio = (result.compressedBytes / result.uncompressedBytes * 100).toFixed(1);
-        console.log(`Exported project ${projectId}`);
-        console.log(`  Memories:      ${result.memoryCount}`);
-        if (result.archivedExcluded > 0) {
-          console.log(
-            `  Archived:      ${result.archivedExcluded} excluded — re-run with --include-archived for a full backup`,
-          );
-        }
-        console.log(`  Relationships: ${result.relationshipCount}`);
-        console.log(`  Audit entries: ${result.auditEntryCount}`);
-        console.log(`  Bundle:        ${result.outputPath}`);
-        console.log(`  Size:          ${(result.compressedBytes / 1024).toFixed(1)} KB compressed (${ratio}% of ${(result.uncompressedBytes / 1024).toFixed(1)} KB)`);
-      }
-    } finally {
-      centralDb.close();
-    }
+    const { runProjectExportCommand } = await import("./lib/exportCommand.js");
+    await runProjectExportCommand(projectIdArg, opts);
   });
 
 // ─── gnosys serve ────────────────────────────────────────────────────────
