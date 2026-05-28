@@ -373,47 +373,8 @@ setupRemoteCmd
   .option("--newer-wins", "Auto-resolve conflicts by taking the newer version")
   .option("--verbose", "Stream per-memory progress to stderr")
   .action(async (opts: { newerWins?: boolean; verbose?: boolean }) => {
-    let centralDb: GnosysDB | null = null;
-    try {
-      centralDb = GnosysDB.openLocal();
-      if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
-
-      const remotePath = centralDb.getMeta("remote_path");
-      if (!remotePath) { console.error("Remote not configured."); process.exit(1); }
-
-      const { RemoteSync } = await import("./lib/remote.js");
-      const { withHeartbeat } = await import("./lib/heartbeat.js");
-      const { createProgress } = await import("./lib/progress.js");
-      const progress = createProgress(!!opts.verbose);
-      const sync = new RemoteSync(centralDb, remotePath);
-      // Suppress heartbeat when verbose is on (progress already streams).
-      const runPush = () =>
-        sync.push({
-          strategy: opts.newerWins ? "newer-wins" : "skip-and-flag",
-          onProgress: progress.noop ? undefined : progress.emit.bind(progress),
-        });
-      const result = opts.verbose
-        ? await runPush()
-        : await withHeartbeat("Pushing to remote", runPush);
-      sync.closeRemote();
-
-      const projParts = (result.projectsPushed || 0) > 0 ? ` | Projects pushed: ${result.projectsPushed}` : "";
-      const auditParts = (result.auditPushed || 0) > 0 ? ` | Audit pushed: ${result.auditPushed}` : "";
-      console.log(`Pushed: ${result.pushed} | Skipped: ${result.skipped} | Conflicts: ${result.conflicts.length}${projParts}${auditParts}`);
-      if (result.errors.length > 0) {
-        console.log("\nErrors:");
-        for (const e of result.errors) console.log(`  ${e}`);
-      }
-      if (result.conflicts.length > 0) {
-        console.log("\nConflicts flagged (run 'gnosys setup remote status' for details):");
-        for (const c of result.conflicts) console.log(`  ${c.memoryId} — ${c.title}`);
-      }
-    } catch (err) {
-      console.error(`Error: ${err instanceof Error ? err.message : err}`);
-      process.exit(1);
-    } finally {
-      centralDb?.close();
-    }
+    const { runSetupRemotePushCommand } = await import("./lib/setupRemotePushCommand.js");
+    await runSetupRemotePushCommand(opts);
   });
 
 setupRemoteCmd
