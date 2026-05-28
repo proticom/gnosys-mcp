@@ -8,6 +8,7 @@
 import type { Memory } from "./store.js";
 
 export interface LensFilter {
+  operator?: "AND" | "OR";
   category?: string;
   tags?: string[];
   tagMatchMode?: "any" | "all"; // default "any"
@@ -16,7 +17,7 @@ export interface LensFilter {
   authority?: ("declared" | "observed" | "imported" | "inferred")[];
   minConfidence?: number;
   maxConfidence?: number;
-  createdAfter?: string;  // ISO date string
+  createdAfter?: string; // ISO date string
   createdBefore?: string;
   modifiedAfter?: string;
   modifiedBefore?: string;
@@ -26,38 +27,36 @@ export interface LensFilter {
  * Apply a single lens filter to an array of memories.
  */
 export function applyLens(memories: Memory[], lens: LensFilter): Memory[] {
-  return memories.filter((m) => matchesLens(m, lens));
+  return memories.filter((m) =>
+    (lens.operator ?? "AND") === "OR"
+      ? matchesAnyLensCriterion(m, lens)
+      : matchesLens(m, lens),
+  );
 }
 
 /**
- * Check if a single memory matches a lens filter.
+ * Check if a single memory matches a lens filter (AND semantics).
  */
 function matchesLens(m: Memory, lens: LensFilter): boolean {
   const fm = m.frontmatter;
 
-  // Category filter
   if (lens.category && fm.category !== lens.category) return false;
 
-  // Status filter (array — memory must match one of the listed statuses)
   if (lens.status && lens.status.length > 0) {
     if (!lens.status.includes(fm.status)) return false;
   }
 
-  // Author filter
   if (lens.author && lens.author.length > 0) {
     if (!lens.author.includes(fm.author)) return false;
   }
 
-  // Authority filter
   if (lens.authority && lens.authority.length > 0) {
     if (!lens.authority.includes(fm.authority)) return false;
   }
 
-  // Confidence range
   if (lens.minConfidence !== undefined && fm.confidence < lens.minConfidence) return false;
   if (lens.maxConfidence !== undefined && fm.confidence > lens.maxConfidence) return false;
 
-  // Tag matching
   if (lens.tags && lens.tags.length > 0) {
     const memTags = flattenTags(fm.tags);
     const mode = lens.tagMatchMode ?? "any";
@@ -67,13 +66,70 @@ function matchesLens(m: Memory, lens: LensFilter): boolean {
     if (mode === "any" && matches.length === 0) return false;
   }
 
-  // Date filters
   if (lens.createdAfter && fm.created < lens.createdAfter) return false;
   if (lens.createdBefore && fm.created > lens.createdBefore) return false;
   if (lens.modifiedAfter && fm.modified < lens.modifiedAfter) return false;
   if (lens.modifiedBefore && fm.modified > lens.modifiedBefore) return false;
 
   return true;
+}
+
+/**
+ * Check if a memory matches any active lens criterion (OR semantics).
+ */
+function matchesAnyLensCriterion(m: Memory, lens: LensFilter): boolean {
+  const fm = m.frontmatter;
+  const checks: boolean[] = [];
+
+  if (lens.category) {
+    checks.push(fm.category === lens.category);
+  }
+
+  if (lens.status && lens.status.length > 0) {
+    checks.push(lens.status.includes(fm.status));
+  }
+
+  if (lens.author && lens.author.length > 0) {
+    checks.push(lens.author.includes(fm.author));
+  }
+
+  if (lens.authority && lens.authority.length > 0) {
+    checks.push(lens.authority.includes(fm.authority));
+  }
+
+  if (lens.minConfidence !== undefined) {
+    checks.push(fm.confidence >= lens.minConfidence);
+  }
+
+  if (lens.maxConfidence !== undefined) {
+    checks.push(fm.confidence <= lens.maxConfidence);
+  }
+
+  if (lens.tags && lens.tags.length > 0) {
+    const memTags = flattenTags(fm.tags);
+    const mode = lens.tagMatchMode ?? "any";
+    const matches = lens.tags.filter((t) => memTags.includes(t));
+    checks.push(mode === "all" ? matches.length === lens.tags.length : matches.length > 0);
+  }
+
+  if (lens.createdAfter) {
+    checks.push(fm.created >= lens.createdAfter);
+  }
+
+  if (lens.createdBefore) {
+    checks.push(fm.created <= lens.createdBefore);
+  }
+
+  if (lens.modifiedAfter) {
+    checks.push(fm.modified >= lens.modifiedAfter);
+  }
+
+  if (lens.modifiedBefore) {
+    checks.push(fm.modified <= lens.modifiedBefore);
+  }
+
+  if (checks.length === 0) return true;
+  return checks.some(Boolean);
 }
 
 /**

@@ -102,5 +102,24 @@ describe("applyLens — single filters", () => {
     });
     expect(result).toHaveLength(2); // d1 (0.9) and d2 (0.85)
   });
+
+  it("combines criteria with OR operator", () => {
+    const andResult = applyLens(memories, {
+      category: "decisions",
+      author: ["ai"],
+      operator: "AND",
+    });
+    expect(andResult).toHaveLength(0);
+
+    const orResult = applyLens(memories, {
+      category: "decisions",
+      author: ["ai"],
+      operator: "OR",
+    });
+    expect(orResult.length).toBeGreaterThan(andResult.length);
+    expect(orResult.map((m) => m.frontmatter.id)).toEqual(
+      expect.arrayContaining(["d1", "d2", "a1", "c1"]),
+    );
+  });
 });
 
