@@ -24,6 +24,11 @@ export async function runMigrateCommand(
     return answer || defaultValue || "";
   };
 
+  const fail = (message: string): void => {
+    console.error(message);
+    process.exitCode = 1;
+  };
+
   try {
     console.log("\n── Gnosys Project Migration ──\n");
 
@@ -35,8 +40,8 @@ export async function runMigrateCommand(
       const defaultSource = found ? found.projectRoot : "";
       const sourceInput = await ask("Source directory (contains .gnosys/)", defaultSource);
       if (!sourceInput) {
-        console.error("No source directory provided.");
-        process.exit(1);
+        fail("No source directory provided.");
+        return;
       }
       sourceDir = path.resolve(sourceInput);
     }
@@ -45,8 +50,8 @@ export async function runMigrateCommand(
     try {
       await fs.stat(storePath);
     } catch {
-      console.error(`No .gnosys/ directory found at ${sourceDir}`);
-      process.exit(1);
+      fail(`No .gnosys/ directory found at ${sourceDir}`);
+      return;
     }
 
     const identity = await readProjectIdentity(sourceDir);
@@ -73,8 +78,8 @@ export async function runMigrateCommand(
     } else {
       const targetInput = await ask("\nTarget directory (where .gnosys/ should live)");
       if (!targetInput) {
-        console.error("No target directory provided.");
-        process.exit(1);
+        fail("No target directory provided.");
+        return;
       }
       targetDir = path.resolve(targetInput);
     }
@@ -175,7 +180,7 @@ export async function runMigrateCommand(
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`\nMigration failed: ${msg}`);
-    process.exit(1);
+    process.exitCode = 1;
   } finally {
     rl?.close();
     centralDb?.close();

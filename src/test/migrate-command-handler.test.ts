@@ -37,8 +37,11 @@ describe("gnosys migrate command wiring", () => {
     expect(handler).toContain("GnosysDB.openCentral()");
     expect(handler).toContain("syncMemoryToDb(");
     expect(handler).toContain("centralDb?.close()");
+    expect(handler).toContain("rl?.close()");
     expect(handler).toContain("finally");
     expect(handler).toContain("Migration failed:");
-    expect(handler).toContain("process.exit(1)");
+    expect(handler).toContain("process.exitCode = 1");
+    expect(handler).toContain("return;");
+    expect(handler).not.toContain("process.exit(1)");
   });
 });
