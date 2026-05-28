@@ -3764,22 +3764,8 @@ sandboxCmd
   .description("Stop the Gnosys sandbox background process")
   .option("--json", "Output as JSON")
   .action(async (opts: { json?: boolean }) => {
-    try {
-      const { stopSandbox } = await import("./sandbox/manager.js");
-      const wasRunning = await stopSandbox();
-      if (opts.json) {
-        console.log(JSON.stringify({ ok: true, wasRunning }));
-      } else {
-        console.log(wasRunning ? "Sandbox stopped." : "Sandbox was not running.");
-      }
-    } catch (err) {
-      if (opts.json) {
-        console.log(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
-      } else {
-        console.error(`Failed to stop sandbox: ${err instanceof Error ? err.message : err}`);
-      }
-      process.exit(1);
-    }
+    const { runSandboxStopCommand } = await import("./lib/sandboxStopCommand.js");
+    await runSandboxStopCommand(opts);
   });
 
 sandboxCmd
