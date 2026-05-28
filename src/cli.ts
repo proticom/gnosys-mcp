@@ -2014,29 +2014,8 @@ program
   .option("-d, --directory <dir>", "Project directory (auto-detects if omitted)")
   .option("-p, --project <id>", "Project ID")
   .action(async (opts: { directory?: string; project?: string }) => {
-    let centralDb: GnosysDB | null = null;
-    try {
-      centralDb = GnosysDB.openCentral();
-      if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
-
-      const { detectCurrentProject } = await import("./lib/federated.js");
-      const { generateStatusPrompt } = await import("./lib/portfolio.js");
-
-      let pid = opts.project || null;
-      if (!pid) pid = await detectCurrentProject(centralDb, opts.directory || undefined);
-      if (!pid) { console.error("No project specified and none detected."); process.exit(1); }
-
-      const project = centralDb.getProject(pid);
-      if (!project) { console.error(`Project not found: ${pid}`); process.exit(1); }
-
-      const prompt = generateStatusPrompt(project.name, project.working_directory);
-      console.log(prompt);
-    } catch (err) {
-      console.error(`Error: ${err instanceof Error ? err.message : err}`);
-      process.exit(1);
-    } finally {
-      centralDb?.close();
-    }
+    const { runUpdateStatusCommand } = await import("./lib/updateStatusCommand.js");
+    await runUpdateStatusCommand(opts);
   });
 
 // ─── gnosys working-set ──────────────────────────────────────────────────
