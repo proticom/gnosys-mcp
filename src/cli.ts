@@ -3883,58 +3883,8 @@ program
   .option("--confidence-delta <n>", "Custom confidence delta (e.g. 0.1 or -0.2)")
   .option("--json", "Output as JSON")
   .action(async (outcome: string, opts: { memoryIds?: string; failure?: boolean; notes?: string; confidenceDelta?: string; json?: boolean }) => {
-    try {
-      const { GnosysDB } = await import("./lib/db.js");
-      const { handleRequest } = await import("./sandbox/server.js");
-
-      const dbDir = GnosysDB.getCentralDbDir();
-      const db = new GnosysDB(dbDir);
-
-      if (!db.isAvailable()) {
-        console.error("Error: GnosysDB not available. Install it with: npm install better-sqlite3");
-        process.exit(1);
-      }
-
-      const params: Record<string, any> = {
-        outcome,
-        success: !opts.failure,
-      };
-      if (opts.memoryIds) params.memory_ids = opts.memoryIds.split(",").map((s) => s.trim());
-      if (opts.notes) params.notes = opts.notes;
-      if (opts.confidenceDelta) params.confidence_delta = parseFloat(opts.confidenceDelta);
-
-      const res = handleRequest(db, {
-        id: "cli-reflect",
-        method: "reflect",
-        params,
-      });
-
-      db.close();
-
-      if (!res.ok) {
-        console.error(`Reflect failed: ${res.error}`);
-        process.exit(1);
-      }
-
-      const result = res.result as any;
-      if (opts.json) {
-        console.log(JSON.stringify(result, null, 2));
-      } else {
-        console.log(`Reflection recorded:`);
-        console.log(`  ID:                    ${result.reflection_id}`);
-        console.log(`  Outcome:               ${result.outcome}`);
-        console.log(`  Memories updated:      ${result.memories_updated.length}`);
-        console.log(`  Relationships created: ${result.relationships_created}`);
-        console.log(`  Confidence delta:      ${result.confidence_delta > 0 ? "+" : ""}${result.confidence_delta.toFixed(2)}`);
-      }
-    } catch (err) {
-      if (opts.json) {
-        console.log(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
-      } else {
-        console.error(`Reflect failed: ${err instanceof Error ? err.message : err}`);
-      }
-      process.exit(1);
-    }
+    const { runReflectCommand } = await import("./lib/reflectCommand.js");
+    await runReflectCommand(outcome, opts);
   });
 
 // ─── Phase 10: gnosys traverse ──────────────────────────────────────────
