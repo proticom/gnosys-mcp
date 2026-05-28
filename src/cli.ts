@@ -4081,41 +4081,8 @@ webCmd
   .option("--no-stop-words", "Disable stop-word filtering")
   .option("--json", "Output index stats as JSON")
   .action(async (opts: { input?: string; output?: string; stopWords: boolean; json?: boolean }) => {
-    try {
-      const { loadConfig } = await import("./lib/config.js");
-      const { buildIndex, writeIndex } = await import("./lib/webIndex.js");
-
-      const gnosysConfig = await loadConfig(await getWebStorePath());
-      const knowledgeDir = opts.input || gnosysConfig.web?.outputDir || "./knowledge";
-      const outputPath = opts.output || path.join(knowledgeDir, "gnosys-index.json");
-
-      const index = await buildIndex(knowledgeDir, {
-        stopWords: opts.stopWords,
-      });
-
-      await writeIndex(index, outputPath);
-
-      if (opts.json) {
-        console.log(JSON.stringify({
-          ok: true,
-          documentCount: index.documentCount,
-          tokenCount: Object.keys(index.invertedIndex).length,
-          outputPath,
-        }));
-      } else {
-        console.log(`Search index built:`);
-        console.log(`  Documents: ${index.documentCount}`);
-        console.log(`  Tokens:    ${Object.keys(index.invertedIndex).length}`);
-        console.log(`  Output:    ${outputPath}`);
-      }
-    } catch (err) {
-      if (opts.json) {
-        console.log(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
-      } else {
-        console.error(`Build index failed: ${err instanceof Error ? err.message : err}`);
-      }
-      process.exit(1);
-    }
+    const { runWebBuildIndexCommand } = await import("./lib/webBuildIndexCommand.js");
+    await runWebBuildIndexCommand(getWebStorePath, opts);
   });
 
 webCmd
