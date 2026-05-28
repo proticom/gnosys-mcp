@@ -1527,7 +1527,7 @@ const dreamCmd = program
   .command("dream")
   .description("Dream Mode — idle-time consolidation (run a cycle, view log)");
 
-// Shared executor — used by both bare `gnosys dream` and `gnosys dream run`.
+// Shared options type for bare `gnosys dream` and `gnosys dream run`.
 type DreamRunOpts = {
   maxRuntime?: string;
   critique?: boolean;
@@ -1537,76 +1537,6 @@ type DreamRunOpts = {
   force?: boolean;
 };
 
-async function runDreamCycle(opts: DreamRunOpts): Promise<void> {
-  const resolver = new GnosysResolver();
-  await resolver.resolve();
-  const stores = resolver.getStores();
-  if (stores.length === 0) {
-    console.error("No Gnosys stores found. Run 'gnosys init' first.");
-    process.exit(1);
-  }
-
-  const { GnosysDB: DbClass } = await import("./lib/db.js");
-  const { GnosysDreamEngine, formatDreamReport } = await import("./lib/dream.js");
-  const { getMachineId } = await import("./lib/remote.js");
-
-  const storePath = stores[0].path;
-  const cfg = await loadConfig(storePath);
-  const db = new DbClass(storePath);
-
-  if (!db.isAvailable() || !db.isMigrated()) {
-    console.error("Dream Mode requires gnosys.db (v2.0). Run 'gnosys migrate' first.");
-    process.exit(1);
-  }
-
-  // Designation gate — warn (and exit unless --force) if this isn't the
-  // designated dream machine. Manual runs from non-designated machines are
-  // useful for testing but shouldn't happen by accident on shared brains.
-  const centralDb = GnosysDB.openCentral();
-  if (centralDb.isAvailable()) {
-    const designated = centralDb.getDreamMachineId();
-    if (designated) {
-      const localId = getMachineId(centralDb);
-      if (designated !== localId && !opts.force) {
-        console.error(
-          `Dream is designated to machine ${designated}, but this is ${localId}.\n` +
-          `Pass --force to run anyway, or run 'gnosys setup dream' to redesignate.`
-        );
-        centralDb.close();
-        db.close();
-        process.exit(1);
-      }
-    }
-    centralDb.close();
-  }
-
-  const dreamConfig = {
-    enabled: true,
-    idleMinutes: 0,
-    maxRuntimeMinutes: opts.maxRuntime ? parseInt(opts.maxRuntime, 10) : 30,
-    selfCritique: opts.critique !== false,
-    generateSummaries: opts.summaries !== false,
-    discoverRelationships: opts.relationships !== false,
-    minMemories: 1,
-    provider: cfg.dream?.provider || ("ollama" as const),
-    model: cfg.dream?.model,
-  };
-
-  console.error("Starting Dream Mode cycle...");
-  const engine = new GnosysDreamEngine(db, cfg, dreamConfig);
-  const report = await engine.dream((phase, detail) => {
-    console.error(`  [${phase}] ${detail}`);
-  });
-
-  if (opts.json) {
-    console.log(JSON.stringify(report, null, 2));
-  } else {
-    console.log(formatDreamReport(report));
-  }
-
-  db.close();
-}
-
 // Bare `gnosys dream` runs a cycle (preserves v5.4.1 behavior).
 dreamCmd
   .option("--max-runtime <minutes>", "Max runtime in minutes (default: 30)")
@@ -1615,7 +1545,10 @@ dreamCmd
   .option("--no-relationships", "Skip relationship discovery")
   .option("--force", "Run even if this machine is not the designated dream node")
   .option("--json", "Output raw JSON report")
-  .action(runDreamCycle);
+  .action(async (opts: DreamRunOpts) => {
+    const { runDreamCommand } = await import("./lib/dreamCommand.js");
+    await runDreamCommand(opts);
+  });
 
 // `gnosys dream run` — explicit alias matching the `gnosys dream log|run`
 // pattern. Same options + behavior as the bare command.
@@ -1628,7 +1561,10 @@ dreamCmd
   .option("--no-relationships", "Skip relationship discovery")
   .option("--force", "Run even if this machine is not the designated dream node")
   .option("--json", "Output raw JSON report")
-  .action(runDreamCycle);
+  .action(async (opts: DreamRunOpts) => {
+    const { runDreamCommand } = await import("./lib/dreamCommand.js");
+    await runDreamCommand(opts);
+  });
 
 // `gnosys dream log` — view recent dream runs from audit_log
 dreamCmd
