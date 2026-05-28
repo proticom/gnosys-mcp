@@ -973,43 +973,8 @@ importCmd
   .option("--working-directory <dir>", "Override the bundle's working_directory (e.g. when restoring on a different machine)")
   .option("--json", "Output the result as JSON")
   .action(async (bundlePath: string, opts: { strategy: string; workingDirectory?: string; json?: boolean }) => {
-    const validStrategies = ["merge", "replace", "new-id"] as const;
-    if (!validStrategies.includes(opts.strategy as typeof validStrategies[number])) {
-      console.error(`Invalid strategy: ${opts.strategy}. Use one of: ${validStrategies.join(", ")}`);
-      process.exit(1);
-    }
-
-    const { GnosysDB: DbClass } = await import("./lib/db.js");
-    const { importProject } = await import("./lib/importProject.js");
-
-    const centralDb = DbClass.openCentral();
-    if (!centralDb.isAvailable()) {
-      console.error("Central DB unavailable.");
-      process.exit(1);
-    }
-
-    try {
-      const result = importProject(centralDb, {
-        bundlePath: path.resolve(bundlePath),
-        strategy: opts.strategy as typeof validStrategies[number],
-        workingDirectoryOverride: opts.workingDirectory,
-      });
-
-      if (opts.json) {
-        console.log(JSON.stringify(result, null, 2));
-      } else {
-        console.log(`Imported project ${result.projectName} (${result.projectId})`);
-        console.log(`  Strategy:        ${result.strategy}`);
-        console.log(`  Memories:        ${result.memoriesInserted} inserted, ${result.memoriesSkipped} skipped, ${result.memoriesReplaced} replaced`);
-        console.log(`  Relationships:   ${result.relationshipsInserted}`);
-        console.log(`  Audit entries:   ${result.auditEntriesInserted}`);
-      }
-    } catch (err) {
-      console.error(`Import failed: ${err instanceof Error ? err.message : String(err)}`);
-      process.exit(1);
-    } finally {
-      centralDb.close();
-    }
+    const { runImportProjectCommand } = await import("./lib/importProjectCommand.js");
+    await runImportProjectCommand(bundlePath, opts);
   });
 
 // ─── gnosys reindex ──────────────────────────────────────────────────────
