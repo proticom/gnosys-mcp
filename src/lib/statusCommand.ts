@@ -56,13 +56,26 @@ export async function runStatusCommand(
       }
       const { RemoteSync, formatStatus } = await import("./remote.js");
       const { withHeartbeat } = await import("./heartbeat.js");
-      const sync = new RemoteSync(remoteCentralDb, remotePath);
-      const status = await withHeartbeat("Checking remote sync status", () => sync.getStatus());
-      sync.closeRemote();
-      if (opts.json) {
-        console.log(JSON.stringify(status, null, 2));
-      } else {
-        console.log(formatStatus(status));
+      let sync: RemoteSync | null = null;
+      try {
+        sync = new RemoteSync(remoteCentralDb, remotePath);
+        const status = await withHeartbeat("Checking remote sync status", () => sync!.getStatus());
+        if (opts.json) {
+          console.log(JSON.stringify(status, null, 2));
+        } else {
+          console.log(formatStatus(status));
+          if (status.conflicts.length > 0) {
+            console.log("\nConflicts:");
+            for (const c of status.conflicts) {
+              console.log(`  ${c.memoryId}: ${c.title}`);
+              console.log(`    local:  ${c.localModified}`);
+              console.log(`    remote: ${c.remoteModified}`);
+            }
+            console.log("\nResolve with: gnosys setup remote resolve <memory-id> --keep <local|remote>");
+          }
+        }
+      } finally {
+        sync?.closeRemote();
       }
       return;
     } catch (err) {

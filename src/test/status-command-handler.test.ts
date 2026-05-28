@@ -24,6 +24,9 @@ describe("gnosys status command wiring", () => {
     expect(handler).toContain("export async function runStatusCommand");
     expect(handler).toContain("if (opts.projects) opts.global = true");
     expect(handler).toContain("RemoteSync");
+    expect(handler).toContain("let sync: RemoteSync | null = null");
+    expect(handler).toContain("sync?.closeRemote()");
+    expect(handler).toContain("Resolve with: gnosys setup remote resolve <memory-id> --keep <local|remote>");
     expect(handler).toContain("collectDashboardData");
     expect(handler).toContain("dashDb = GnosysDB.openCentral()");
     expect(handler).toContain("!dashDb.isMigrated()");
