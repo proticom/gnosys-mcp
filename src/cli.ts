@@ -403,36 +403,8 @@ setupRemoteCmd
   .description("Resolve a sync conflict by choosing local, remote, or merged content")
   .option("--keep <choice>", "Choice: local | remote", "local")
   .action(async (memoryId: string, opts: { keep: string }) => {
-    let centralDb: GnosysDB | null = null;
-    try {
-      centralDb = GnosysDB.openLocal();
-      if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
-
-      const remotePath = centralDb.getMeta("remote_path");
-      if (!remotePath) { console.error("Remote not configured."); process.exit(1); }
-
-      if (opts.keep !== "local" && opts.keep !== "remote") {
-        console.error(`--keep must be 'local' or 'remote' (got: ${opts.keep})`);
-        process.exit(1);
-      }
-
-      const { RemoteSync } = await import("./lib/remote.js");
-      const sync = new RemoteSync(centralDb, remotePath);
-      const result = await sync.resolve(memoryId, opts.keep as "local" | "remote");
-      sync.closeRemote();
-
-      if (result.ok) {
-        console.log(`Resolved ${memoryId}: kept ${opts.keep} version.`);
-      } else {
-        console.error(`Failed to resolve: ${result.error}`);
-        process.exit(1);
-      }
-    } catch (err) {
-      console.error(`Error: ${err instanceof Error ? err.message : err}`);
-      process.exit(1);
-    } finally {
-      centralDb?.close();
-    }
+    const { runSetupRemoteResolveCommand } = await import("./lib/setupRemoteResolveCommand.js");
+    await runSetupRemoteResolveCommand(memoryId, opts);
   });
 
 // `gnosys setup dream` — configure dream mode (designation, provider, schedule)
