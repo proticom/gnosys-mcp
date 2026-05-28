@@ -44,6 +44,12 @@ Routing feedback logged for mem-001. Memory unchanged.
 Memory mem-001 flagged for review as outdated.
 ```
 
+Unknown signals use the fallback output:
+
+```text
+Signal 'custom' logged for mem-001.
+```
+
 ## Validation
 
 ```bash

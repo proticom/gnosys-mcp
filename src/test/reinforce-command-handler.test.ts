@@ -38,6 +38,7 @@ describe("gnosys reinforce command wiring", () => {
     expect(handler).toContain("reinforced. Decay clock reset.");
     expect(handler).toContain("Routing feedback logged");
     expect(handler).toContain("flagged for review as outdated");
+    expect(handler).toContain("logged for");
     expect(handler).toContain('await import("./dbWrite.js")');
   });
 });
