@@ -24,7 +24,7 @@ import { GnosysDB } from "./lib/db.js";
 import { logError } from "./lib/log.js";
 import { getSecureStorageSetupHint } from "./lib/platform.js";
 import { createProjectIdentity, readProjectIdentity, findProjectIdentity, migrateProject } from "./lib/projectIdentity.js";
-import { syncRules, syncToTarget } from "./lib/rulesGen.js";
+import { syncRules } from "./lib/rulesGen.js";
 // Lazy-loaded inside action handlers (each ~200ms-2.5s on cold cache):
 //   - ./lib/embeddings.js       (@huggingface/transformers — 80MB)
 //   - ./lib/hybridSearch.js     (depends on embeddings)
@@ -1940,66 +1940,8 @@ program
   .option("-t, --target <target>", "Target: claude, cursor, codex, all, or global (default: auto-detect)")
   .option("--global", "Sync to global ~/.claude/CLAUDE.md")
   .action(async (opts: { directory?: string; target?: string; global?: boolean }) => {
-    const projectDir = opts.directory ? path.resolve(opts.directory) : process.cwd();
-    const target = opts.global ? "global" : (opts.target || null);
-
-    let centralDb: GnosysDB | null = null;
-    try {
-      centralDb = GnosysDB.openCentral();
-      if (!centralDb.isAvailable()) {
-        console.error("Central DB not available (better-sqlite3 missing).");
-        process.exit(1);
-      }
-
-      // For --global, we don't need project identity
-      if (target === "global") {
-        const results = await syncToTarget(centralDb, projectDir, "global", null);
-        for (const result of results) {
-          const action = result.created ? "Created" : "Updated";
-          console.log(`${action} global rules: ${result.filePath}`);
-          console.log(`  Preferences injected: ${result.prefCount}`);
-        }
-        console.log(`\nContent is inside <!-- GNOSYS:START --> / <!-- GNOSYS:END --> markers.`);
-        console.log(`User content outside these markers is preserved.`);
-        return;
-      }
-
-      // Read project identity
-      const identity = await readProjectIdentity(projectDir);
-      if (!identity) {
-        console.error("No project identity found. Run 'gnosys init' first.");
-        process.exit(1);
-      }
-
-      // Use explicit target, or fall back to auto-detected, or "all"
-      const resolvedTarget = target || identity.agentRulesTarget || "all";
-
-      const results = await syncToTarget(
-        centralDb,
-        projectDir,
-        resolvedTarget,
-        identity.projectId
-      );
-
-      if (results.length === 0) {
-        console.error("No targets found. Create a CLAUDE.md, .cursor/, or .codex/ directory first.");
-        process.exit(1);
-      }
-
-      for (const result of results) {
-        const action = result.created ? "Created" : "Updated";
-        console.log(`${action} rules file: ${result.filePath}`);
-        console.log(`  Preferences injected: ${result.prefCount}`);
-        console.log(`  Project conventions:  ${result.conventionCount}`);
-      }
-      console.log(`\nContent is inside <!-- GNOSYS:START --> / <!-- GNOSYS:END --> markers.`);
-      console.log(`User content outside these markers is preserved.`);
-    } catch (err) {
-      console.error(`Error: ${err instanceof Error ? err.message : err}`);
-      process.exit(1);
-    } finally {
-      centralDb?.close();
-    }
+    const { runSyncCommand } = await import("./lib/syncCommand.js");
+    await runSyncCommand(opts);
   });
 
 // ─── gnosys fsearch (federated search) ───────────────────────────────────
