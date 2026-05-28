@@ -394,61 +394,8 @@ setupRemoteCmd
   .option("--newer-wins", "Auto-resolve conflicts by taking the newer version")
   .option("--verbose", "Stream per-memory progress to stderr")
   .action(async (opts: { auto?: boolean; newerWins?: boolean; verbose?: boolean }) => {
-    let centralDb: GnosysDB | null = null;
-    try {
-      centralDb = GnosysDB.openLocal();
-      if (!centralDb.isAvailable()) {
-        if (!opts.auto) console.error("Central DB not available.");
-        process.exit(1);
-      }
-
-      const remotePath = centralDb.getMeta("remote_path");
-      if (!remotePath) {
-        if (!opts.auto) console.error("Remote not configured.");
-        process.exit(opts.auto ? 0 : 1);
-      }
-
-      const { RemoteSync } = await import("./lib/remote.js");
-      const { withHeartbeat } = await import("./lib/heartbeat.js");
-      const { createProgress } = await import("./lib/progress.js");
-      const progress = createProgress(!!opts.verbose);
-      const sync = new RemoteSync(centralDb, remotePath);
-      const runSync = () =>
-        sync.sync({
-          auto: opts.auto,
-          strategy: opts.newerWins ? "newer-wins" : "skip-and-flag",
-          onProgress: progress.noop ? undefined : progress.emit.bind(progress),
-        });
-      // Auto mode + verbose mode both bypass the heartbeat. Auto mode is
-      // for non-interactive runs (no spinner). Verbose streams its own output.
-      const result =
-        opts.auto || opts.verbose
-          ? await runSync()
-          : await withHeartbeat("Syncing with remote", runSync);
-      sync.closeRemote();
-
-      if (!opts.auto || result.conflicts.length > 0 || result.errors.length > 0) {
-        const pp = result.projectsPushed || 0;
-        const pl = result.projectsPulled || 0;
-        const ap = result.auditPushed || 0;
-        const al = result.auditPulled || 0;
-        const projParts = (pp + pl) > 0 ? ` | Projects: ↑${pp}/↓${pl}` : "";
-        const auditParts = (ap + al) > 0 ? ` | Audit: ↑${ap}/↓${al}` : "";
-        console.log(`Pushed: ${result.pushed} | Pulled: ${result.pulled} | Conflicts: ${result.conflicts.length}${projParts}${auditParts}`);
-        if (result.errors.length > 0) {
-          console.log("\nErrors:");
-          for (const e of result.errors) console.log(`  ${e}`);
-        }
-        if (result.conflicts.length > 0) {
-          console.log("\nConflicts need resolution (run 'gnosys setup remote status' for details).");
-        }
-      }
-    } catch (err) {
-      if (!opts.auto) console.error(`Error: ${err instanceof Error ? err.message : err}`);
-      process.exit(1);
-    } finally {
-      centralDb?.close();
-    }
+    const { runSetupRemoteSyncCommand } = await import("./lib/setupRemoteSyncCommand.js");
+    await runSetupRemoteSyncCommand(opts);
   });
 
 setupRemoteCmd
