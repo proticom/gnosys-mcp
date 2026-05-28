@@ -24,7 +24,6 @@ import { GnosysDB } from "./lib/db.js";
 import { logError } from "./lib/log.js";
 import { getSecureStorageSetupHint } from "./lib/platform.js";
 import { createProjectIdentity, readProjectIdentity, findProjectIdentity, migrateProject } from "./lib/projectIdentity.js";
-import { setPreference, getPreference, getAllPreferences, deletePreference, KNOWN_PREFERENCE_KEYS, suggestPreferenceKey } from "./lib/preferences.js";
 import { syncRules, syncToTarget } from "./lib/rulesGen.js";
 // Lazy-loaded inside action handlers (each ~200ms-2.5s on cold cache):
 //   - ./lib/embeddings.js       (@huggingface/transformers — 80MB)
@@ -1912,34 +1911,8 @@ prefCmd
   .option("-t, --title <title>", "Human-readable title")
   .option("--tags <tags>", "Comma-separated tags")
   .action(async (key: string, value: string, opts: { title?: string; tags?: string }) => {
-    let centralDb: GnosysDB | null = null;
-    try {
-      centralDb = GnosysDB.openCentral();
-      if (!centralDb.isAvailable()) {
-        console.error("Central DB not available (better-sqlite3 missing).");
-        process.exit(1);
-      }
-
-      if (!(KNOWN_PREFERENCE_KEYS as readonly string[]).includes(key)) {
-        const suggestion = suggestPreferenceKey(key);
-        if (suggestion) {
-          console.error(`Unknown preference key \`${key}\` — did you mean \`${suggestion}\`?`);
-          process.exit(1);
-        }
-      }
-
-      const tags = opts.tags ? opts.tags.split(",").map((t) => t.trim()) : undefined;
-      const pref = setPreference(centralDb, key, value, { title: opts.title, tags });
-      console.log(`Preference set: ${pref.title}`);
-      console.log(`  Key:   ${pref.key}`);
-      console.log(`  Value: ${pref.value}`);
-      console.log(`\nRun 'gnosys sync' to update agent rules files.`);
-    } catch (err) {
-      console.error(`Error: ${err instanceof Error ? err.message : err}`);
-      process.exit(1);
-    } finally {
-      centralDb?.close();
-    }
+    const { runPrefSetCommand } = await import("./lib/prefCommand.js");
+    await runPrefSetCommand(key, value, opts);
   });
 
 prefCmd
@@ -1947,76 +1920,16 @@ prefCmd
   .description("Get a preference by key, or list all preferences if no key given.")
   .option("--json", "Output as JSON")
   .action(async (key: string | undefined, opts: { json?: boolean }) => {
-    let centralDb: GnosysDB | null = null;
-    try {
-      centralDb = GnosysDB.openCentral();
-      if (!centralDb.isAvailable()) {
-        console.error("Central DB not available (better-sqlite3 missing).");
-        process.exit(1);
-      }
-
-      if (key) {
-        const pref = getPreference(centralDb, key);
-        if (!pref) {
-          console.log(`No preference found for key "${key}".`);
-          return;
-        }
-        outputResult(!!opts.json, pref, () => {
-          console.log(`${pref.title} (${pref.key})\n`);
-          console.log(pref.value);
-          console.log(`\nConfidence: ${pref.confidence}`);
-          console.log(`Modified: ${pref.modified}`);
-        });
-      } else {
-        const prefs = getAllPreferences(centralDb);
-        if (prefs.length === 0) {
-          outputResult(!!opts.json, { preferences: [] }, () => {
-            console.log("No preferences set. Use 'gnosys pref set <key> <value>' to add some.");
-          });
-          return;
-        }
-        outputResult(!!opts.json, { count: prefs.length, preferences: prefs }, () => {
-          console.log(`${prefs.length} user preference(s):\n`);
-          for (const p of prefs) {
-            console.log(`  ${p.title} (${p.key})`);
-            console.log(`    ${p.value.split("\n")[0]}`);
-            console.log();
-          }
-        });
-      }
-    } catch (err) {
-      console.error(`Error: ${err instanceof Error ? err.message : err}`);
-      process.exit(1);
-    } finally {
-      centralDb?.close();
-    }
+    const { runPrefGetCommand } = await import("./lib/prefCommand.js");
+    await runPrefGetCommand(key, opts);
   });
 
 prefCmd
   .command("delete <key>")
   .description("Delete a user preference.")
   .action(async (key: string) => {
-    let centralDb: GnosysDB | null = null;
-    try {
-      centralDb = GnosysDB.openCentral();
-      if (!centralDb.isAvailable()) {
-        console.error("Central DB not available (better-sqlite3 missing).");
-        process.exit(1);
-      }
-
-      const deleted = deletePreference(centralDb, key);
-      if (!deleted) {
-        console.log(`No preference found for key "${key}".`);
-        return;
-      }
-      console.log(`Preference "${key}" deleted.`);
-      console.log(`Run 'gnosys sync' to update agent rules files.`);
-    } catch (err) {
-      console.error(`Error: ${err instanceof Error ? err.message : err}`);
-      process.exit(1);
-    } finally {
-      centralDb?.close();
-    }
+    const { runPrefDeleteCommand } = await import("./lib/prefCommand.js");
+    await runPrefDeleteCommand(key);
   });
 
 // ─── gnosys sync ─────────────────────────────────────────────────────────
