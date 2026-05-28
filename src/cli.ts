@@ -4116,40 +4116,8 @@ webCmd
   .description("Remove a knowledge file and rebuild the index")
   .option("--json", "Output as JSON")
   .action(async (filepath: string, opts: { json?: boolean }) => {
-    try {
-      const { loadConfig } = await import("./lib/config.js");
-      const { buildIndex, writeIndex } = await import("./lib/webIndex.js");
-      const fsp = await import("fs/promises");
-
-      const gnosysConfig = await loadConfig(await getWebStorePath());
-      const webConfig = gnosysConfig.web;
-      const knowledgeDir = webConfig?.outputDir || "./knowledge";
-      const fullPath = path.resolve(knowledgeDir, filepath);
-
-      if (!existsSync(fullPath)) {
-        throw new Error(`File not found: ${fullPath}`);
-      }
-
-      await fsp.unlink(fullPath);
-
-      // Rebuild index
-      const index = await buildIndex(knowledgeDir);
-      await writeIndex(index, path.join(knowledgeDir, "gnosys-index.json"));
-
-      if (opts.json) {
-        console.log(JSON.stringify({ ok: true, removed: filepath, documentCount: index.documentCount }));
-      } else {
-        console.log(`Removed: ${filepath}`);
-        console.log(`Index rebuilt: ${index.documentCount} documents`);
-      }
-    } catch (err) {
-      if (opts.json) {
-        console.log(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
-      } else {
-        console.error(`Web remove failed: ${err instanceof Error ? err.message : err}`);
-      }
-      process.exit(1);
-    }
+    const { runWebRemoveCommand } = await import("./lib/webRemoveCommand.js");
+    await runWebRemoveCommand(getWebStorePath, filepath, opts);
   });
 
 webCmd
