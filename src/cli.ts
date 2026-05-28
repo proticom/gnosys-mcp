@@ -3868,42 +3868,8 @@ program
   .option("--project-id <id>", "Project ID to associate memories with")
   .option("--json", "Output as JSON")
   .action(async (directory: string, opts: { maxFiles?: string; projectId?: string; json?: boolean }) => {
-    try {
-      const { traceCodebase } = await import("./lib/trace.js");
-      const { GnosysDB } = await import("./lib/db.js");
-
-      const dbDir = GnosysDB.getCentralDbDir();
-      const db = new GnosysDB(dbDir);
-
-      if (!db.isAvailable()) {
-        console.error("Error: GnosysDB not available. Install it with: npm install better-sqlite3");
-        process.exit(1);
-      }
-
-      const result = traceCodebase(db, directory, {
-        projectId: opts.projectId,
-        maxFiles: opts.maxFiles ? parseInt(opts.maxFiles, 10) : undefined,
-      });
-
-      db.close();
-
-      if (opts.json) {
-        console.log(JSON.stringify(result, null, 2));
-      } else {
-        console.log(`Trace complete:`);
-        console.log(`  Files scanned:        ${result.filesScanned}`);
-        console.log(`  Functions found:       ${result.functionsFound}`);
-        console.log(`  Memories created:      ${result.memoriesCreated}`);
-        console.log(`  Relationships created: ${result.relationshipsCreated}`);
-      }
-    } catch (err) {
-      if (opts.json) {
-        console.log(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
-      } else {
-        console.error(`Trace failed: ${err instanceof Error ? err.message : err}`);
-      }
-      process.exit(1);
-    }
+    const { runTraceCommand } = await import("./lib/traceCommand.js");
+    await runTraceCommand(directory, opts);
   });
 
 // ─── Phase 10: gnosys reflect ───────────────────────────────────────────
