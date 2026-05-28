@@ -1236,33 +1236,8 @@ program
     "Rebuild semantic embeddings for every memory in the central DB. Run after bulk imports, schema changes, or if hybrid search starts returning poor matches. Downloads the all-MiniLM-L6-v2 model (~80 MB) on first run.",
   )
   .action(async () => {
-    const resolver = await getResolver();
-    const stores = resolver.getStores();
-    if (stores.length === 0) {
-      console.error("No stores found. Run gnosys init first.");
-      process.exit(1);
-    }
-
-    const storePath = stores[0].path;
-    const search = new GnosysSearch(storePath);
-    search.clearIndex();
-    for (const s of stores) {
-      await search.addStoreMemories(s.store, s.label);
-    }
-
-    const { GnosysEmbeddings } = await import("./lib/embeddings.js");
-    const { GnosysHybridSearch } = await import("./lib/hybridSearch.js");
-    const embeddings = new GnosysEmbeddings(storePath);
-    const hybridSearch = new GnosysHybridSearch(search, embeddings, resolver, storePath);
-
-    console.log("Building semantic embeddings (downloading model on first run)...");
-    const count = await hybridSearch.reindex((current, total, filePath) => {
-      process.stdout.write(`\r  Indexing: ${current}/${total} — ${filePath.substring(0, 60)}`);
-    });
-    console.log(`\n\nReindex complete: ${count} memories embedded.`);
-    console.log("Hybrid and semantic search are now available.");
-    search.close();
-    embeddings.close();
+    const { runReindexCommand } = await import("./lib/reindexCommand.js");
+    await runReindexCommand(getResolver);
   });
 
 // ─── gnosys hybrid-search <query> ───────────────────────────────────────
