@@ -30,5 +30,6 @@ describe("gnosys setup sync-projects command wiring", () => {
     expect(handler).toContain("generatePortfolio(centralDb)");
     expect(handler).toContain("formatPortfolioMarkdown(report)");
     expect(handler).toContain("generatePortfolioHtml(report, dashboardPath)");
+    expect(handler).not.toContain('await import("./lib/');
   });
 });
