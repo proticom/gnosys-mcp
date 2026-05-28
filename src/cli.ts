@@ -1697,27 +1697,8 @@ program
   .option("--limit <n>", "Max entries to show")
   .option("--json", "Output raw JSON instead of formatted timeline")
   .action(async (opts: { days: string; operation?: string; limit?: string; json?: boolean }) => {
-    const { readAuditFromDb, formatAuditTimeline } = await import("./lib/audit.js");
-    const centralDb = GnosysDB.openCentral();
-    if (!centralDb.isAvailable()) {
-      console.error("Central DB unavailable.");
-      process.exit(1);
-    }
-    try {
-      const entries = readAuditFromDb(centralDb, {
-        days: parseInt(opts.days, 10),
-        operation: opts.operation as import("./lib/audit.js").AuditOperation | undefined,
-        limit: opts.limit ? parseInt(opts.limit, 10) : undefined,
-      });
-
-      if (opts.json) {
-        console.log(JSON.stringify(entries, null, 2));
-      } else {
-        console.log(formatAuditTimeline(entries));
-      }
-    } finally {
-      centralDb.close();
-    }
+    const { runAuditCommand } = await import("./lib/auditCommand.js");
+    await runAuditCommand(opts);
   });
 
 // ─── gnosys backup ──────────────────────────────────────────────────────
