@@ -3240,8 +3240,8 @@ program
   .command("stores")
   .description("Show all active stores, their layers, paths, and permissions")
   .action(async () => {
-    const resolver = await getResolver();
-    console.log(resolver.getSummary());
+    const { runStoresCommand } = await import("./lib/storesCommand.js");
+    await runStoresCommand(getResolver);
   });
 
 // ─── gnosys config ──────────────────────────────────────────────────────
