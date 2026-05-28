@@ -3773,20 +3773,8 @@ sandboxCmd
   .description("Check if the Gnosys sandbox is running")
   .option("--json", "Output as JSON")
   .action(async (opts: { json?: boolean }) => {
-    try {
-      const { sandboxStatus } = await import("./sandbox/manager.js");
-      const status = await sandboxStatus();
-      if (opts.json) {
-        console.log(JSON.stringify(status, null, 2));
-      } else if (status.running) {
-        console.log(`Sandbox running (pid: ${status.pid}, socket: ${status.socketPath})`);
-      } else {
-        console.log("Sandbox is not running. Start with: gnosys sandbox start");
-      }
-    } catch (err) {
-      console.error(`Error: ${err instanceof Error ? err.message : err}`);
-      process.exit(1);
-    }
+    const { runSandboxStatusCommand } = await import("./lib/sandboxStatusCommand.js");
+    await runSandboxStatusCommand(opts);
   });
 
 // ─── gnosys helper generate ───────────────────────────────────────────────
