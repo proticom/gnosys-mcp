@@ -4127,72 +4127,8 @@ webCmd
   .option("--category <name>", "Override category inference")
   .option("--json", "Output as JSON")
   .action(async (urlOrPath: string, opts: { llm: boolean; category?: string; json?: boolean }) => {
-    try {
-      const { loadConfig } = await import("./lib/config.js");
-      const { ingestUrl } = await import("./lib/webIngest.js");
-      const { buildIndex, writeIndex } = await import("./lib/webIndex.js");
-
-      const gnosysConfig = await loadConfig(await getWebStorePath());
-      const webConfig = gnosysConfig.web;
-      if (!webConfig) {
-        throw new Error("No web configuration found in gnosys.json. Run 'gnosys web init' first.");
-      }
-
-      const knowledgeDir = webConfig.outputDir || "./knowledge";
-      const isUrl = urlOrPath.startsWith("http://") || urlOrPath.startsWith("https://");
-
-      if (isUrl) {
-        // Re-ingest the URL
-        const categories = opts.category
-          ? { "/*": opts.category }
-          : webConfig.categories;
-
-        const result = await ingestUrl(urlOrPath, {
-          source: "urls",
-          outputDir: knowledgeDir,
-          categories,
-          llmEnrich: opts.llm ? webConfig.llmEnrich : false,
-          prune: false,
-          concurrency: 1,
-          crawlDelayMs: 0,
-        }, gnosysConfig);
-
-        // Rebuild index
-        const index = await buildIndex(knowledgeDir);
-        await writeIndex(index, path.join(knowledgeDir, "gnosys-index.json"));
-
-        if (opts.json) {
-          console.log(JSON.stringify({ ok: true, ...result, documentCount: index.documentCount }));
-        } else {
-          console.log(`Updated: ${urlOrPath}`);
-          console.log(`  Added: ${result.added.length}, Updated: ${result.updated.length}`);
-          console.log(`Index rebuilt: ${index.documentCount} documents`);
-        }
-      } else {
-        // Refresh a local knowledge file — rebuild index
-        const fullPath = path.resolve(knowledgeDir, urlOrPath);
-        if (!existsSync(fullPath)) {
-          throw new Error(`File not found: ${fullPath}`);
-        }
-
-        const index = await buildIndex(knowledgeDir);
-        await writeIndex(index, path.join(knowledgeDir, "gnosys-index.json"));
-
-        if (opts.json) {
-          console.log(JSON.stringify({ ok: true, refreshed: urlOrPath, documentCount: index.documentCount }));
-        } else {
-          console.log(`Refreshed: ${urlOrPath}`);
-          console.log(`Index rebuilt: ${index.documentCount} documents`);
-        }
-      }
-    } catch (err) {
-      if (opts.json) {
-        console.log(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
-      } else {
-        console.error(`Web update failed: ${err instanceof Error ? err.message : err}`);
-      }
-      process.exit(1);
-    }
+    const { runWebUpdateCommand } = await import("./lib/webUpdateCommand.js");
+    await runWebUpdateCommand(getWebStorePath, urlOrPath, opts);
   });
 
 webCmd
