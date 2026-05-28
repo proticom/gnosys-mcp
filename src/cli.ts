@@ -1328,19 +1328,8 @@ program
   .command("reindex-graph")
   .description("Build or rebuild the wikilink graph (.gnosys/graph.json)")
   .action(async () => {
-    const { reindexGraph, formatGraphStats } = await import("./lib/graph.js");
-
-    const resolver = await getResolver();
-    const stores = resolver.getStores();
-
-    if (stores.length === 0) {
-      console.error("No Gnosys stores found. Run gnosys init first.");
-      process.exit(1);
-    }
-
-    const stats = await reindexGraph(resolver, (msg) => console.log(msg));
-    console.log("");
-    console.log(formatGraphStats(stats));
+    const { runReindexGraphCommand } = await import("./lib/reindexGraphCommand.js");
+    await runReindexGraphCommand(getResolver);
   });
 
 // `gnosys dashboard` was removed in v5.7.1.
