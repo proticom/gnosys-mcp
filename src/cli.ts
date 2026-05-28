@@ -21,7 +21,7 @@ import { getGnosysHome } from "./lib/paths.js";
 import { GnosysSearch } from "./lib/search.js";
 import { GnosysTagRegistry } from "./lib/tags.js";
 import { computeStats, type TimePeriod } from "./lib/timeline.js";
-import { buildLinkGraph, getBacklinks, getOutgoingLinks, formatGraphSummary } from "./lib/wikilinks.js";
+import { buildLinkGraph, formatGraphSummary } from "./lib/wikilinks.js";
 import { loadConfig, generateConfigTemplate, type GnosysConfig, DEFAULT_CONFIG, writeConfig, updateConfig, resolveTaskModel, ALL_PROVIDERS, type LLMProviderName, getProviderModel } from "./lib/config.js";
 import { getLLMProvider, isProviderAvailable, type LLMProvider } from "./lib/llm.js";
 import { GnosysDB } from "./lib/db.js";
@@ -1620,51 +1620,9 @@ program
   .command("links <memoryPath>")
   .description("Show wikilinks for a memory — both outgoing [[links]] and backlinks from other memories")
   .option("--json", "Output as JSON")
-  .action(async (memPath: string, opts: { json?: boolean }) => {
-    const resolver = await getResolver();
-    const memory = await resolver.readMemory(memPath);
-    if (!memory) {
-      console.error(`Memory not found: ${memPath}`);
-      process.exit(1);
-    }
-
-    const allMemories = await resolver.getAllMemories();
-    const outgoing = getOutgoingLinks(allMemories, memory.relativePath);
-    const backlinks = getBacklinks(allMemories, memory.relativePath);
-
-    outputResult(
-      !!opts.json,
-      {
-        memoryPath: memPath,
-        title: memory.frontmatter.title,
-        outgoing,
-        backlinks,
-      },
-      () => {
-        console.log(`Links for ${memory.frontmatter.title}:\n`);
-
-        if (outgoing.length > 0) {
-          console.log(`  Outgoing (${outgoing.length}):`);
-          for (const link of outgoing) {
-            const display = link.displayText ? ` (${link.displayText})` : "";
-            console.log(`    → [[${link.target}]]${display}`);
-          }
-        } else {
-          console.log("  No outgoing links.");
-        }
-
-        console.log();
-
-        if (backlinks.length > 0) {
-          console.log(`  Backlinks (${backlinks.length}):`);
-          for (const link of backlinks) {
-            console.log(`    ← ${link.sourceTitle} (${link.sourcePath})`);
-          }
-        } else {
-          console.log("  No backlinks.");
-        }
-      },
-    );
+  .action(async (memoryPath: string, opts: { json?: boolean }) => {
+    const { runLinksCommand } = await import("./lib/linksCommand.js");
+    await runLinksCommand(getResolver, memoryPath, opts);
   });
 
 // ─── gnosys graph ───────────────────────────────────────────────────────
