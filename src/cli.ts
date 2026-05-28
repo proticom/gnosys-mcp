@@ -18,7 +18,6 @@ import { readFileSync, existsSync, copyFileSync } from "fs";
 // `gnosys --help` and other lightweight commands fast.
 import { GnosysResolver } from "./lib/resolver.js";
 import { getGnosysHome } from "./lib/paths.js";
-import { GnosysSearch } from "./lib/search.js";
 import { GnosysTagRegistry } from "./lib/tags.js";
 import { computeStats, type TimePeriod } from "./lib/timeline.js";
 import { loadConfig, generateConfigTemplate, type GnosysConfig, DEFAULT_CONFIG, writeConfig, updateConfig, resolveTaskModel, ALL_PROVIDERS, type LLMProviderName, getProviderModel } from "./lib/config.js";
