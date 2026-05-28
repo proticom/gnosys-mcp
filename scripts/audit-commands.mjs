@@ -33,6 +33,8 @@ const CLI = path.join(REPO_ROOT, "src", "cli.ts");
 const TEST_DIR = path.join(REPO_ROOT, "src", "test");
 const DOCS_DIR = path.join(REPO_ROOT, "docs", "commands");
 const OUT = path.resolve(REPO_ROOT, "..", "command-coverage-dashboard.data.json");
+const QUEUE = path.resolve(REPO_ROOT, "..", "reviews", "command-coverage-review-queue.json");
+const DEFERRED_IDS = new Set(["config", "dream", "export", "pref"]);
 
 // ── Edward's approved sidebar grouping (full invocation, minus "gnosys ") ──
 // Commands found in cli.ts but absent here surface in "Ungrouped (not in sidebar)".
@@ -231,7 +233,146 @@ const data = {
   commands: records,
 };
 
-fs.writeFileSync(OUT, JSON.stringify(data, null, 2) + "\n");
+function readJsonIfExists(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function fullToId(full) {
+  if (!full.startsWith("gnosys ")) throw new Error(`unexpected command full name: ${full}`);
+  return full.slice("gnosys ".length).replace(/\s+/g, "-");
+}
+
+function groupSlug(title) {
+  return "group-" + title.toLowerCase().replace(/\s+/g, "-").replace(/&/g, "and");
+}
+
+function buildEvidence(cmd) {
+  const handlers = (cmd.handlers || []).join(", ");
+  const testFiles = (cmd.tests || []).map((t) => t.file).join(", ");
+  return `src/cli.ts:${cmd.line || "?"} · handlers: ${handlers} · tests: ${testFiles}`;
+}
+
+function buildReviewerGuidance(cmd, taskId) {
+  const handlers = (cmd.handlers || []).join(", ");
+  if (cmd.coverage === "green" && cmd.doc === "present") {
+    return `Command ${taskId} is green with doc present. Verify audit fields and doc quality.`;
+  }
+  if (cmd.coverage === "red") {
+    return `No test reference for gnosys ${taskId.replace(/-/g, " ")}. Add handler-level test for ${handlers} or document accepted domain-only rationale.`;
+  }
+  return `Domain test exists but no handler-level CLI test for gnosys ${taskId.replace(/-/g, " ")}. Add test referencing handler(s): ${handlers}, or document why domain coverage is sufficient.`;
+}
+
+function implStatusForReview(reviewStatus) {
+  if (reviewStatus === "review_passed") return "done";
+  if (["in_review", "waiting_for_builder", "waiting_for_reviewer", "review_failed"].includes(reviewStatus)) {
+    return "in_progress";
+  }
+  return "todo";
+}
+
+function toDashboardShape(audit) {
+  const queue = readJsonIfExists(QUEUE);
+  if (!queue?.tasks) return audit;
+
+  const previous = readJsonIfExists(OUT);
+  const previousMeta = previous?.meta || {};
+  const queueById = new Map(queue.tasks.map((t) => [t.id, t]));
+  const grouped = new Map();
+  const orderedGroups = audit.groups || [];
+
+  for (const title of orderedGroups) grouped.set(title, { id: groupSlug(title), title, tasks: [] });
+  for (const cmd of audit.commands) {
+    const group = cmd.group || "Ungrouped";
+    if (!grouped.has(group)) grouped.set(group, { id: groupSlug(group), title: group, tasks: [] });
+
+    const taskId = fullToId(cmd.full);
+    const q = queueById.get(taskId) || {};
+    const reviewStatus = q.review_status || "not_started";
+    const status = DEFERRED_IDS.has(taskId)
+      ? "deferred"
+      : (q.status === "active" || reviewStatus !== "not_started")
+        ? implStatusForReview(reviewStatus)
+        : "todo";
+
+    grouped.get(group).tasks.push({
+      id: taskId,
+      title: taskId,
+      status,
+      review_status: reviewStatus,
+      evidence: buildEvidence(cmd),
+      reviewer_guidance: buildReviewerGuidance(cmd, taskId),
+      notes: q.notes || "",
+      ...cmd,
+    });
+  }
+
+  const groups = Array.from(grouped.values()).filter((g) => g.tasks.length);
+  const counts = { done: 0, partial: 0, in_progress: 0, todo: 0, deferred: 0 };
+  const reviewCounts = {};
+  let total = 0;
+  for (const group of groups) {
+    total += group.tasks.length;
+    for (const task of group.tasks) {
+      counts[task.status] = (counts[task.status] || 0) + 1;
+      reviewCounts[task.review_status] = (reviewCounts[task.review_status] || 0) + 1;
+    }
+  }
+
+  const defaultBrand = {
+    title: "Gnosys — Command Coverage Gate",
+    accent: "#C04C4C",
+    accent_light: "#D46A6A",
+    success: "#4C9A6E",
+    bg: "#12141A",
+    surface: "#1A1D26",
+    border: "#2E3340",
+    text: "#E4E2E8",
+    text_muted: "#9CA0AB",
+    logo_alt: "Gnosys",
+  };
+
+  return {
+    meta: {
+      project: "Gnosys — Command Coverage Gate",
+      spec: "gnosys-command-coverage-plan.md",
+      dashboard_version: "1.3.0",
+      ...previousMeta,
+      last_updated: audit.generated,
+      total_atomic_tasks: total,
+      completed: counts.done || 0,
+      partial: counts.partial || 0,
+      in_progress: counts.in_progress || 0,
+      todo: counts.todo || 0,
+      deferred: counts.deferred || 0,
+      notes: audit.note,
+      review_status_legend: "not_started | in_review | waiting_for_builder | waiting_for_reviewer | review_passed | review_failed | needs_human | blocked",
+      roles_note: previousMeta.roles_note || "Builder: cursor · Reviewer: codex · Decider: codex · max_turns: 3",
+      brand: { ...defaultBrand, ...(previousMeta.brand || {}) },
+    },
+    generated: audit.generated,
+    repo: audit.repo,
+    cli_file: audit.cli_file,
+    snapshot_policy: audit.snapshot_policy,
+    note: audit.note,
+    summary: {
+      ...audit.summary,
+      review_passed: reviewCounts.review_passed || 0,
+      review_not_started: reviewCounts.not_started || 0,
+      impl_done: counts.done || 0,
+      impl_todo: counts.todo || 0,
+    },
+    groups,
+    commands: audit.commands,
+  };
+}
+
+const output = toDashboardShape(data);
+fs.writeFileSync(OUT, JSON.stringify(output, null, 2) + "\n");
 console.log(`✓ ${records.length} commands audited → ${OUT}`);
 console.log(`  coverage: ${green} green · ${amber} amber · ${red} red · ${na} n/a (containers)`);
 console.log(`  docs: ${docsPresent} present · ${records.length - docsPresent} missing`);
