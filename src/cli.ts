@@ -1720,31 +1720,8 @@ program
   .option("--from <file>", "Alias: backup file to restore from")
   .option("--json", "Output as JSON")
   .action(async (backupFile: string, opts: { from?: string; json?: boolean }) => {
-    const resolved = path.resolve(opts.from || backupFile);
-    try {
-      const db = GnosysDB.restore(resolved);
-      const counts = db.getMemoryCount();
-      const projectCount = db.getAllProjects().length;
-
-      if (opts.json) {
-        console.log(JSON.stringify({
-          ok: true, source: resolved, memories: counts.total,
-          active: counts.active, archived: counts.archived, projects: projectCount,
-        }));
-      } else {
-        console.log(`Database restored from ${resolved}`);
-        console.log(`  Memories: ${counts.total} (${counts.active} active, ${counts.archived} archived)`);
-        console.log(`  Projects: ${projectCount}`);
-      }
-      db.close();
-    } catch (err) {
-      if (opts.json) {
-        console.log(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
-      } else {
-        console.error(`Restore failed: ${err instanceof Error ? err.message : err}`);
-      }
-      process.exit(1);
-    }
+    const { runRestoreCommand } = await import("./lib/restoreCommand.js");
+    await runRestoreCommand(backupFile, opts);
   });
 
 // ─── gnosys migrate-db ──────────────────────────────────────────────────
