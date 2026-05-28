@@ -363,51 +363,8 @@ setupRemoteCmd
   .description("Show remote sync status: pending changes, conflicts, last sync")
   .option("--json", "Output as JSON")
   .action(async (opts: { json: boolean }) => {
-    let centralDb: GnosysDB | null = null;
-    try {
-      centralDb = GnosysDB.openLocal();
-      if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
-
-      const remotePath = centralDb.getMeta("remote_path");
-      if (!remotePath) {
-        if (opts.json) {
-          console.log(JSON.stringify({ configured: false, message: "Remote not configured. Run 'gnosys setup remote'." }, null, 2));
-        } else {
-          console.log("Remote sync: not configured.");
-          console.log("Run 'gnosys setup remote' to set up multi-machine sync.");
-        }
-        return;
-      }
-
-      const { RemoteSync, formatStatus } = await import("./lib/remote.js");
-      const { withHeartbeat } = await import("./lib/heartbeat.js");
-      const sync = new RemoteSync(centralDb, remotePath);
-      const status = await withHeartbeat(
-        "Checking remote sync status",
-        () => sync.getStatus(),
-      );
-      sync.closeRemote();
-
-      if (opts.json) {
-        console.log(JSON.stringify(status, null, 2));
-      } else {
-        console.log(formatStatus(status));
-        if (status.conflicts.length > 0) {
-          console.log("\nConflicts:");
-          for (const c of status.conflicts) {
-            console.log(`  ${c.memoryId}: ${c.title}`);
-            console.log(`    local:  ${c.localModified}`);
-            console.log(`    remote: ${c.remoteModified}`);
-          }
-          console.log("\nResolve with: gnosys setup remote resolve <memory-id> --keep <local|remote>");
-        }
-      }
-    } catch (err) {
-      console.error(`Error: ${err instanceof Error ? err.message : err}`);
-      process.exit(1);
-    } finally {
-      centralDb?.close();
-    }
+    const { runSetupRemoteStatusCommand } = await import("./lib/setupRemoteStatusCommand.js");
+    await runSetupRemoteStatusCommand(opts);
   });
 
 setupRemoteCmd
