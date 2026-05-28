@@ -3954,40 +3954,8 @@ program
   .option("--scope <scope>", "Filter by scope: project, user, global (comma-separated)")
   .option("--json", "Output as JSON")
   .action(async (query: string, opts: { limit: string; directory?: string; global: boolean; scope?: string; json: boolean }) => {
-    let centralDb: GnosysDB | null = null;
-    try {
-      centralDb = GnosysDB.openCentral();
-      if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
-
-      const { federatedSearch, detectCurrentProject } = await import("./lib/federated.js");
-      const projectId = await detectCurrentProject(centralDb, opts.directory || undefined);
-      const scopeFilter = opts.scope ? opts.scope.split(",").map(s => s.trim()) as any : undefined;
-      const results = federatedSearch(centralDb, query, {
-        limit: parseInt(opts.limit, 10),
-        projectId,
-        includeGlobal: opts.global,
-        scopeFilter,
-      });
-
-      if (opts.json) {
-        console.log(JSON.stringify({ query, projectId, count: results.length, results }, null, 2));
-      } else {
-        if (results.length === 0) { console.log(`No results for "${query}".`); return; }
-        const ctx = projectId ? `Context: project ${projectId}` : "No project detected";
-        console.log(ctx);
-        for (const [i, r] of results.entries()) {
-          const proj = r.projectName ? ` [${r.projectName}]` : "";
-          console.log(`\n${i + 1}. ${r.title} (${r.category})${proj}`);
-          console.log(`   scope: ${r.scope} | score: ${r.score.toFixed(4)} | boosts: ${r.boosts.join(", ")}`);
-          if (r.snippet) console.log(`   ${r.snippet.substring(0, 120)}`);
-        }
-      }
-    } catch (err) {
-      console.error(`Error: ${err instanceof Error ? err.message : err}`);
-      process.exit(1);
-    } finally {
-      centralDb?.close();
-    }
+    const { runFsearchCommand } = await import("./lib/fsearchCommand.js");
+    await runFsearchCommand(query, opts);
   });
 
 // ─── gnosys ambiguity ────────────────────────────────────────────────────
