@@ -354,24 +354,8 @@ const setupRemoteCmd = setupCmd
 setupRemoteCmd
   .option("--path <path>", "Set remote path directly (non-interactive)")
   .action(async (opts: { path?: string }) => {
-    const { GnosysDB } = await import("./lib/db.js");
-    const db = GnosysDB.openLocal();
-    if (!db.isAvailable()) {
-      console.error("Central DB not available.");
-      db.close();
-      process.exit(1);
-    }
-    try {
-      if (opts.path) {
-        const { configureFromPath } = await import("./lib/remoteWizard.js");
-        await configureFromPath(db, opts.path);
-      } else {
-        const { runConfigureWizard } = await import("./lib/remoteWizard.js");
-        await runConfigureWizard(db);
-      }
-    } finally {
-      db.close();
-    }
+    const { runSetupRemoteCommand } = await import("./lib/setupRemoteCommand.js");
+    await runSetupRemoteCommand(opts);
   });
 
 setupRemoteCmd
