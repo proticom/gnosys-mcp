@@ -1312,20 +1312,8 @@ program
   .requiredOption("--category <category>", "Tag category (domain, type, concern, status_tag)")
   .requiredOption("--tag <tag>", "The new tag to add")
   .action(async (opts: { category: string; tag: string }) => {
-    const resolver = await getResolver();
-    const writeTarget = resolver.getWriteTarget();
-    if (!writeTarget) {
-      console.error("No store found.");
-      process.exit(1);
-    }
-    const tagRegistry = new GnosysTagRegistry(writeTarget.store.getStorePath());
-    await tagRegistry.load();
-    const added = await tagRegistry.addTag(opts.category, opts.tag);
-    if (added) {
-      console.log(`Tag '${opts.tag}' added to category '${opts.category}'.`);
-    } else {
-      console.log(`Tag '${opts.tag}' already exists in '${opts.category}'.`);
-    }
+    const { runTagsAddCommand } = await import("./lib/tagsAddCommand.js");
+    await runTagsAddCommand(getResolver, opts);
   });
 
 // ─── gnosys commit-context <context> ─────────────────────────────────────
