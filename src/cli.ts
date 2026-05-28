@@ -17,11 +17,9 @@ import { readFileSync, existsSync, copyFileSync } from "fs";
 // `await import(...)` inside its own action handler. This keeps
 // `gnosys --help` and other lightweight commands fast.
 import { GnosysResolver } from "./lib/resolver.js";
-import { getGnosysHome } from "./lib/paths.js";
 import { GnosysTagRegistry } from "./lib/tags.js";
 import { computeStats, type TimePeriod } from "./lib/timeline.js";
-import { loadConfig, generateConfigTemplate, type GnosysConfig, DEFAULT_CONFIG, writeConfig, updateConfig, resolveTaskModel, ALL_PROVIDERS, type LLMProviderName, getProviderModel } from "./lib/config.js";
-import { getLLMProvider, isProviderAvailable, type LLMProvider } from "./lib/llm.js";
+import { loadConfig, generateConfigTemplate, type GnosysConfig, writeConfig, updateConfig, ALL_PROVIDERS, getProviderModel } from "./lib/config.js";
 import { GnosysDB } from "./lib/db.js";
 import { logError } from "./lib/log.js";
 import { getSecureStorageSetupHint } from "./lib/platform.js";
