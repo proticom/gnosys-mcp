@@ -1247,44 +1247,8 @@ program
   .option("--limit-titles <n>", "Show titles inline when an entry has <= N memories (default 5)", "5")
   .option("--json", "Output as JSON")
   .action(async (opts: { period: string; project?: string; limitTitles: string; json?: boolean }) => {
-    const { groupDbByPeriod } = await import("./lib/timeline.js");
-    const centralDb = GnosysDB.openCentral();
-    if (!centralDb.isAvailable()) {
-      console.error("Central DB unavailable.");
-      process.exit(1);
-    }
-    try {
-      const memories = opts.project
-        ? centralDb.getMemoriesByProject(opts.project)
-        : centralDb.getActiveMemories();
-
-      if (memories.length === 0) {
-        outputResult(!!opts.json, { period: opts.period, count: 0, entries: [] }, () => {
-          console.log("No memories found.");
-        });
-        return;
-      }
-
-      const entries = groupDbByPeriod(memories, opts.period as TimePeriod);
-      const titleLimit = Math.max(0, parseInt(opts.limitTitles, 10) || 5);
-
-      outputResult(!!opts.json, { period: opts.period, count: memories.length, entries }, () => {
-        console.log(`Knowledge Timeline (by ${opts.period}, ${memories.length} memories):\n`);
-        for (const entry of entries) {
-          const parts = [];
-          if (entry.created > 0) parts.push(`${entry.created} created`);
-          if (entry.modified > 0) parts.push(`${entry.modified} modified`);
-          console.log(`  ${entry.period}: ${parts.join(", ")}`);
-          if (entry.titles.length > 0 && entry.titles.length <= titleLimit) {
-            for (const t of entry.titles) {
-              console.log(`    + ${t}`);
-            }
-          }
-        }
-      });
-    } finally {
-      centralDb.close();
-    }
+    const { runTimelineCommand } = await import("./lib/timelineCommand.js");
+    await runTimelineCommand(opts);
   });
 
 // ─── gnosys stats ───────────────────────────────────────────────────────
