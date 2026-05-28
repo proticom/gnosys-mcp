@@ -1964,32 +1964,8 @@ program
   .description("Check if a query matches memories in multiple projects")
   .option("--json", "Output as JSON")
   .action(async (query: string, opts: { json: boolean }) => {
-    let centralDb: GnosysDB | null = null;
-    try {
-      centralDb = GnosysDB.openCentral();
-      if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
-
-      const { detectAmbiguity } = await import("./lib/federated.js");
-      const ambiguity = detectAmbiguity(centralDb, query);
-
-      if (opts.json) {
-        console.log(JSON.stringify({ query, ambiguous: !!ambiguity, ...(ambiguity || {}) }, null, 2));
-      } else if (!ambiguity) {
-        console.log(`No ambiguity for "${query}" — matches at most one project.`);
-      } else {
-        console.log(ambiguity.message);
-        for (const c of ambiguity.candidates) {
-          console.log(`\n  ${c.projectName} (${c.projectId})`);
-          console.log(`    Dir: ${c.workingDirectory}`);
-          console.log(`    Matching memories: ${c.memoryCount}`);
-        }
-      }
-    } catch (err) {
-      console.error(`Error: ${err instanceof Error ? err.message : err}`);
-      process.exit(1);
-    } finally {
-      centralDb?.close();
-    }
+    const { runAmbiguityCommand } = await import("./lib/ambiguityCommand.js");
+    await runAmbiguityCommand(query, opts);
   });
 
 // ─── gnosys briefing ─────────────────────────────────────────────────────
