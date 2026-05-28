@@ -1064,7 +1064,7 @@ program
   .option("--content <content>", "New markdown content (replaces body)")
   .action(
     async (
-      memPath: string,
+      memoryPath: string,
       opts: {
         title?: string;
         status?: string;
@@ -1073,75 +1073,11 @@ program
         supersedes?: string;
         supersededBy?: string;
         content?: string;
-      }
+      },
     ) => {
-      // DB-first lookup (mirrors MCP tool fix)
-      let memoryId: string;
-      let currentTitle: string;
-
-      let centralDb: GnosysDB | null = null;
-      try {
-        centralDb = GnosysDB.openCentral();
-      } catch { /* handled below */ }
-
-      if (centralDb?.isAvailable()) {
-        const dbMem = centralDb.getMemory(memPath);
-        if (dbMem) {
-          memoryId = dbMem.id;
-          currentTitle = dbMem.title;
-        } else {
-          // Fallback to legacy resolver
-          const resolver = await getResolver();
-          const memory = await resolver.readMemory(memPath);
-          if (!memory || !memory.frontmatter.id) {
-            console.error(`Memory not found: ${memPath}`);
-            centralDb?.close();
-            process.exit(1);
-          }
-          memoryId = memory.frontmatter.id;
-          currentTitle = memory.frontmatter.title || memPath;
-        }
-      } else {
-        console.error("Central DB not available.");
-        process.exit(1);
-      }
-
-      const updates: Record<string, any> = {};
-      if (opts.title !== undefined) updates.title = opts.title;
-      if (opts.status !== undefined) updates.status = opts.status;
-      if (opts.confidence !== undefined) updates.confidence = parseFloat(opts.confidence);
-      if (opts.relevance !== undefined) updates.relevance = opts.relevance;
-      if (opts.supersedes !== undefined) updates.supersedes = opts.supersedes;
-      if (opts.supersededBy !== undefined) updates.superseded_by = opts.supersededBy;
-
-      const fullContent = opts.content
-        ? `# ${opts.title || currentTitle}\n\n${opts.content}`
-        : undefined;
-
-      try {
-        const { syncUpdateToDb } = await import("./lib/dbWrite.js");
-        syncUpdateToDb(centralDb, memoryId, updates as any, fullContent);
-
-        // Supersession cross-linking
-        if (opts.supersedes) {
-          syncUpdateToDb(
-            centralDb,
-            opts.supersedes,
-            { superseded_by: memoryId, status: "superseded" } as any
-          );
-          console.log(`Cross-linked: ${opts.supersedes} marked as superseded.`);
-        }
-      } finally {
-        centralDb?.close();
-      }
-
-      const changedFields = Object.keys(updates);
-      if (opts.content) changedFields.push("content");
-
-      console.log(`Memory updated: ${opts.title || currentTitle}`);
-      console.log(`ID: ${memoryId}`);
-      console.log(`Changed: ${changedFields.join(", ")}`);
-    }
+      const { runUpdateCommand } = await import("./lib/updateCommand.js");
+      await runUpdateCommand(getResolver, memoryPath, opts);
+    },
   );
 
 // ─── gnosys reinforce <memoryId> ────────────────────────────────────────
