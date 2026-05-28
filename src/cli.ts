@@ -266,81 +266,10 @@ program
   .option("-s, --store <store>", "Filter by store layer (project|user|global)")
   .option("--json", "Output as JSON")
   .option("--id-format <format>", "ID display format: short | long | raw (default: short)", "short")
-  .action(
-    async (opts: { category?: string; tag?: string; store?: string; json?: boolean; idFormat?: string }) => {
-      let centralDb: GnosysDB | null = null;
-      try {
-        centralDb = GnosysDB.openCentral();
-        if (!centralDb.isAvailable()) {
-          console.error("Central DB not available. Run 'gnosys init' first.");
-          process.exit(1);
-        }
-
-        // Detect current project to scope the listing
-        const projIdentity = await findProjectIdentity(process.cwd());
-        const projectId = projIdentity?.identity.projectId || null;
-
-        let memories = centralDb.getActiveMemories();
-
-        // Filter to current project's memories (plus user/global scope)
-        if (projectId) {
-          memories = memories.filter(
-            (m) => m.project_id === projectId || m.scope === "user" || m.scope === "global"
-          );
-        }
-
-        if (opts.store) {
-          memories = memories.filter((m) => m.scope === opts.store);
-        }
-        if (opts.category) {
-          memories = memories.filter((m) => m.category === opts.category);
-        }
-        if (opts.tag) {
-          memories = memories.filter((m) => {
-            try {
-              const tags: string[] = JSON.parse(m.tags || "[]");
-              return tags.includes(opts.tag!);
-            } catch {
-              return false;
-            }
-          });
-        }
-
-        const { formatMemoryIdHyperlink: formatMemoryId, buildProjectNameLookup, parseIdFormat } = await import("./lib/idFormat.js");
-        const idFormat = parseIdFormat(opts.idFormat);
-        const projectNames = buildProjectNameLookup(centralDb);
-
-        outputResult(!!opts.json, {
-          count: memories.length,
-          memories: memories.map((m) => ({
-            id: m.id,
-            title: m.title,
-            category: m.category,
-            status: m.status,
-            scope: m.scope,
-            confidence: m.confidence,
-            project: m.project_id ? projectNames.get(m.project_id) || null : null,
-          })),
-        }, () => {
-          console.log(`${memories.length} memories:\n`);
-          for (const m of memories) {
-            const projectName = m.project_id ? projectNames.get(m.project_id) || null : null;
-            const displayId = formatMemoryId(m.id, projectName, idFormat);
-            console.log(
-              `  [${m.scope}] [${m.status}] ${m.title}`
-            );
-            console.log(`    id: ${displayId} | category: ${m.category} | confidence: ${m.confidence}`);
-            console.log();
-          }
-        });
-      } catch (err) {
-        logError(err, { module: "cli", op: "list" });
-        process.exit(1);
-      } finally {
-        centralDb?.close();
-      }
-    }
-  );
+  .action(async (opts: { category?: string; tag?: string; store?: string; json?: boolean; idFormat?: string }) => {
+    const { runListCommand } = await import("./lib/listCommand.js");
+    await runListCommand(opts);
+  });
 
 // ─── gnosys add <input> ──────────────────────────────────────────────────
 program
