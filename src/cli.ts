@@ -1977,75 +1977,8 @@ program
   .option("-d, --directory <dir>", "Project directory for auto-detection")
   .option("--json", "Output as JSON")
   .action(async (projectNameOrId: string | undefined, opts: { project?: string; all?: boolean; directory?: string; json: boolean }) => {
-    let centralDb: GnosysDB | null = null;
-    try {
-      centralDb = GnosysDB.openCentral();
-      if (!centralDb.isAvailable()) { console.error("Central DB not available."); process.exit(1); }
-
-      const { generateBriefing, generateAllBriefings, detectCurrentProject } = await import("./lib/federated.js");
-
-      if (opts.all) {
-        const briefings = generateAllBriefings(centralDb);
-        if (opts.json) {
-          console.log(JSON.stringify({ count: briefings.length, briefings }, null, 2));
-        } else {
-          if (briefings.length === 0) { console.log("No projects registered."); return; }
-          for (const b of briefings) {
-            console.log(`\n## ${b.projectName}`);
-            console.log(b.summary);
-          }
-        }
-        return;
-      }
-
-      // v5.7.0: accept project name as positional argument in addition to --project <id>.
-      // Resolution order: positional name → --project flag → cwd auto-detect.
-      let pid = opts.project ?? null;
-      if (!pid && projectNameOrId) {
-        // Try as exact ID first, then by name lookup.
-        const byId = centralDb.getProject(projectNameOrId);
-        if (byId) {
-          pid = byId.id;
-        } else {
-          const all = centralDb.getAllProjects();
-          const byName = all.find((p) => p.name === projectNameOrId);
-          if (byName) pid = byName.id;
-        }
-        if (!pid) {
-          console.error(`Project not found: "${projectNameOrId}". Run 'gnosys projects' to list registered projects.`);
-          process.exit(1);
-        }
-      }
-      if (!pid) pid = await detectCurrentProject(centralDb, opts.directory || undefined);
-      if (!pid) { console.error("No project specified and none detected."); process.exit(1); }
-
-      const briefing = generateBriefing(centralDb, pid);
-      if (!briefing) { console.error(`Project not found: ${pid}`); process.exit(1); }
-
-      if (opts.json) {
-        console.log(JSON.stringify(briefing, null, 2));
-      } else {
-        console.log(`# Briefing: ${briefing.projectName}`);
-        console.log(`Directory: ${briefing.workingDirectory}`);
-        console.log(`Active memories: ${briefing.activeMemories} / ${briefing.totalMemories}`);
-        console.log(`\nCategories:`);
-        for (const [cat, count] of Object.entries(briefing.categories).sort((a, b) => b[1] - a[1])) {
-          console.log(`  ${cat}: ${count}`);
-        }
-        console.log(`\nRecent activity (7d):`);
-        if (briefing.recentActivity.length === 0) { console.log("  None"); }
-        for (const r of briefing.recentActivity) {
-          console.log(`  - ${r.title} (${r.modified})`);
-        }
-        console.log(`\nTop tags: ${briefing.topTags.slice(0, 10).map((t) => `${t.tag}(${t.count})`).join(", ") || "None"}`);
-        console.log(`\n${briefing.summary}`);
-      }
-    } catch (err) {
-      console.error(`Error: ${err instanceof Error ? err.message : err}`);
-      process.exit(1);
-    } finally {
-      centralDb?.close();
-    }
+    const { runBriefingCommand } = await import("./lib/briefingCommand.js");
+    await runBriefingCommand(projectNameOrId, opts);
   });
 
 // `gnosys portfolio` was removed in v5.7.1.
