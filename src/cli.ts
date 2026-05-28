@@ -1495,22 +1495,8 @@ program
   .option("--dir <dir>", "Project dir for cursor config (default: cwd)")
   .option("--print", "Print the config snippet instead of writing files")
   .action(async (opts: { url: string; token?: string; ide?: string; dir?: string; print?: boolean }) => {
-    const m = await import("./lib/mcpClientConfig.js");
-    const remote = { url: opts.url, token: opts.token };
-    if (opts.print) {
-      console.log(JSON.stringify({ mcpServers: { gnosys: m.remoteMcpEntry(remote) } }, null, 2));
-      return;
-    }
-    const ide: "cursor" | "claude-desktop" = opts.ide === "claude-desktop" ? "claude-desktop" : "cursor";
-    try {
-      const file = await m.writeRemoteClientConfig(ide, opts.dir || process.cwd(), remote);
-      console.log(`✓ Pointed ${ide} at ${opts.url}`);
-      console.log(`  wrote: ${file}${opts.token ? "  (bearer token included)" : ""}`);
-      console.log("  Restart the IDE / MCP servers to pick it up.");
-    } catch (e) {
-      console.error(`connect failed: ${e instanceof Error ? e.message : e}`);
-      process.exit(1);
-    }
+    const { runConnectCommand } = await import("./lib/connectCommand.js");
+    await runConnectCommand(opts);
   });
 
 program
