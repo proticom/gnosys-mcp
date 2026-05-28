@@ -21,7 +21,6 @@ import { getGnosysHome } from "./lib/paths.js";
 import { GnosysSearch } from "./lib/search.js";
 import { GnosysTagRegistry } from "./lib/tags.js";
 import { computeStats, type TimePeriod } from "./lib/timeline.js";
-import { buildLinkGraph, formatGraphSummary } from "./lib/wikilinks.js";
 import { loadConfig, generateConfigTemplate, type GnosysConfig, DEFAULT_CONFIG, writeConfig, updateConfig, resolveTaskModel, ALL_PROVIDERS, type LLMProviderName, getProviderModel } from "./lib/config.js";
 import { getLLMProvider, isProviderAvailable, type LLMProvider } from "./lib/llm.js";
 import { GnosysDB } from "./lib/db.js";
@@ -1631,73 +1630,8 @@ program
   .description("Show the [[wikilink]] cross-reference graph between memories. Empty until you start using [[Title]] in memory content — then this shows which memories reference each other.")
   .option("--json", "Output as JSON")
   .action(async (opts: { json?: boolean }) => {
-    // v5.4.1: Query the central DB directly. Previously this used the
-    // filesystem resolver, which returns nothing in v5.x DB-only mode
-    // because memories no longer live as markdown files.
-    let centralDb: GnosysDB | null = null;
-    try {
-      centralDb = GnosysDB.openCentral();
-      if (!centralDb.isAvailable()) {
-        console.error("Central DB not available.");
-        process.exit(1);
-      }
-
-      const dbMemories = centralDb.getAllMemories();
-      if (dbMemories.length === 0) {
-        outputResult(!!opts.json, { totalLinks: 0, orphanedLinks: [], nodes: [] }, () => {
-          console.log("No memories found.");
-        });
-        return;
-      }
-
-      // Adapt DbMemory → legacy Memory shape that buildLinkGraph expects.
-      // The graph builder only reads id, title, content, and synthesises
-      // a filesystem-style path for display.
-      const adapted = dbMemories.map((m) => {
-        let parsedTags: Record<string, string[]> | string[] = [];
-        try {
-          parsedTags = JSON.parse(m.tags);
-        } catch {
-          parsedTags = [];
-        }
-        const relativePath = `${m.category}/${m.id}.md`;
-        return {
-          frontmatter: {
-            id: m.id,
-            title: m.title,
-            category: m.category,
-            tags: parsedTags,
-            relevance: m.relevance,
-            author: m.author as "human" | "ai" | "human+ai",
-            authority: m.authority as "declared" | "observed" | "imported" | "inferred",
-            confidence: m.confidence,
-            created: m.created,
-            modified: m.modified,
-            last_reviewed: m.modified,
-            status: m.status as "active" | "archived" | "superseded",
-            supersedes: m.supersedes,
-          },
-          content: m.content,
-          filePath: relativePath,
-          relativePath,
-        };
-      });
-
-      const graph = buildLinkGraph(adapted);
-      outputResult(
-        !!opts.json,
-        {
-          totalLinks: graph.totalLinks,
-          orphanedLinks: graph.orphanedLinks,
-          nodes: Array.from(graph.nodes.values()),
-        },
-        () => {
-          console.log(formatGraphSummary(graph));
-        },
-      );
-    } finally {
-      centralDb?.close();
-    }
+    const { runGraphCommand } = await import("./lib/graphCommand.js");
+    await runGraphCommand(opts);
   });
 
 // ─── gnosys bootstrap <sourceDir> ────────────────────────────────────────
