@@ -1177,9 +1177,24 @@ program
 
     console.log(`Running: ${cmd} ...`);
 
-    const { execSync } = await import("child_process");
+    const { execSync, spawn } = await import("child_process");
+    const { makeNpmStderrFilter } = await import("./lib/installOutput.js");
     try {
-      execSync(cmd, { stdio: "inherit" });
+      // Stream the install live, but filter out the two unfixable, harmless
+      // deprecation warnings (prebuild-install, boolean — see installOutput.ts).
+      // stdout is inherited; stderr is piped so we can drop those lines.
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn(cmd, { shell: true, stdio: ["inherit", "inherit", "pipe"] });
+        const filter = makeNpmStderrFilter((text) => process.stderr.write(text));
+        child.stderr?.setEncoding("utf8");
+        child.stderr?.on("data", (chunk: string) => filter.feed(chunk));
+        child.on("error", reject);
+        child.on("close", (code) => {
+          filter.end();
+          if (code === 0) resolve();
+          else reject(new Error(`${cmd} exited with code ${code}`));
+        });
+      });
     } catch (err) {
       console.error(`\nUpgrade failed: ${err instanceof Error ? err.message : err}`);
       console.error(`Try running '${cmd}' manually.`);

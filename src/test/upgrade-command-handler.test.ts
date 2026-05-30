@@ -11,8 +11,11 @@ describe("gnosys upgrade command wiring", () => {
     expect(cli).toContain("--no-sync");
     expect(cli).toContain("detectPackageManager");
     expect(cli).toContain("upgradeCommand(pm)");
-    expect(cli).toContain('await import("child_process")');
-    expect(cli).toContain('execSync(cmd, { stdio: "inherit" })');
+    expect(cli).toContain("const { execSync, spawn } = await import(\"child_process\");");
+    // The install is spawned with stderr piped so we can filter the two
+    // unfixable deprecation warnings; stdout still streams live.
+    expect(cli).toContain("makeNpmStderrFilter");
+    expect(cli).toContain('stdio: ["inherit", "inherit", "pipe"]');
     expect(cli).toContain("writeUpgradeMarker");
   });
 
