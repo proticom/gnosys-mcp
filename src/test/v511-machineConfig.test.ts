@@ -117,6 +117,22 @@ describe("v5.11 machineConfig: ensure & hostname guard", () => {
     const b = getMachineId();
     expect(a).toBe(b);
   });
+
+  it("records the old hostname in previousHostnames on a rename", () => {
+    const renamed: MachineConfig = {
+      machineId: "fixed-id",
+      hostname: `${os.hostname()}-OLD-NAME`,
+      roots: {},
+      remote: { enabled: false },
+      schemaVersion: 1,
+    };
+    writeMachineConfig(renamed);
+
+    const res = ensureMachineConfig();
+    expect(res.regenerated).toBe(true);
+    expect(res.config.hostname).toBe(os.hostname());
+    expect(res.config.previousHostnames).toEqual([`${os.hostname()}-OLD-NAME`]);
+  });
 });
 
 describe("v5.11 machineConfig: root <-> relative path helpers", () => {

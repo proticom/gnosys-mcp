@@ -1583,6 +1583,63 @@ machineCmd
     }
   });
 
+machineCmd
+  .command("list")
+  .alias("ls")
+  .description("List machines in the connected-machines registry (shared brain)")
+  .option("--json", "Output as JSON")
+  .action(async (opts: { json?: boolean }) => {
+    const os = await import("os");
+    const { readMachineRegistry } = await import("./lib/machineRegistry.js");
+    const db = GnosysDB.openCentral();
+    if (!db.isAvailable()) {
+      console.error("Central DB not available (better-sqlite3 missing).");
+      process.exit(1);
+    }
+    const registry = readMachineRegistry(db);
+    db.close();
+    const currentHost = os.hostname();
+    const entries = Object.entries(registry);
+    outputResult(!!opts.json, registry, () => {
+      if (entries.length === 0) {
+        console.log("No machines recorded yet.");
+        return;
+      }
+      console.log("Connected machines:");
+      for (const [host, info] of entries) {
+        const here = host === currentHost ? "  ← this machine" : "";
+        const seen = info.lastSeen ? info.lastSeen.split("T")[0] : "unknown";
+        console.log(`  ${host}  v${info.version}  last seen ${seen}${here}`);
+      }
+    });
+  });
+
+machineCmd
+  .command("forget <hostname>")
+  .description("Remove a machine from the connected-machines registry (e.g. a phantom left by a rename)")
+  .action(async (hostname: string) => {
+    const os = await import("os");
+    const { forgetMachine } = await import("./lib/machineRegistry.js");
+    if (hostname === os.hostname()) {
+      console.error(`Refusing to forget '${hostname}' — that's this machine.`);
+      console.error("It would just re-register on the next 'gnosys setup sync-projects'.");
+      process.exit(1);
+    }
+    const db = GnosysDB.openCentral();
+    if (!db.isAvailable()) {
+      console.error("Central DB not available (better-sqlite3 missing).");
+      process.exit(1);
+    }
+    const removed = forgetMachine(db, hostname);
+    db.close();
+    if (removed) {
+      console.log(`✓ Removed '${hostname}' from the connected-machines registry.`);
+    } else {
+      console.log(`No machine named '${hostname}' in the registry. Nothing to do.`);
+      console.log("Run 'gnosys machine list' to see registered machines.");
+    }
+  });
+
 program
   .command("scan")
   .description("Discover projects under this machine's roots (machine.json) and record their machine-portable locations")

@@ -194,14 +194,18 @@ export async function runSetupSyncProjectsCommand(
       centralDb.setMeta("last_upgrade", new Date().toISOString());
       centralDb.setMeta("upgraded_by", hostname);
 
-      // Track all machines that have accessed this DB
-      let machines: Record<string, { version: string; lastSeen: string }> = {};
-      try {
-        const raw = centralDb.getMeta("machines");
-        if (raw) machines = JSON.parse(raw);
-      } catch { /* fresh start */ }
-      machines[hostname] = { version: currentVersion, lastSeen: new Date().toISOString() };
-      centralDb.setMeta("machines", JSON.stringify(machines));
+      // Record this machine in the connected-machines registry. Keyed by
+      // hostname, but we pass machineId + any previous hostnames so a renamed
+      // machine prunes its own orphaned entry instead of showing up twice.
+      const { ensureMachineConfig } = await import("./machineConfig.js");
+      const { recordMachine } = await import("./machineRegistry.js");
+      const machine = ensureMachineConfig().config;
+      recordMachine(centralDb, {
+        hostname,
+        version: currentVersion,
+        machineId: machine.machineId,
+        aliases: machine.previousHostnames,
+      });
 
       centralDb.close();
     }
@@ -241,10 +245,10 @@ export async function runSetupSyncProjectsCommand(
   try {
     const centralDb = GnosysDB.openCentral();
     if (centralDb.isAvailable()) {
-      const raw = centralDb.getMeta("machines");
-      if (raw) {
-        const machines = JSON.parse(raw) as Record<string, { version: string; lastSeen: string }>;
-        const entries = Object.entries(machines);
+      const { readMachineRegistry } = await import("./machineRegistry.js");
+      const machines = readMachineRegistry(centralDb);
+      const entries = Object.entries(machines);
+      if (entries.length > 0) {
         const currentHost = os.hostname();
         const machineRows = entries.map(([host, info]) => ({
           hostname: host,

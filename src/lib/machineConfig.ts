@@ -45,12 +45,21 @@ export interface MachineConfig {
   machineId: string;
   /** os.hostname() at write time — used to detect a synced-in foreign file. */
   hostname: string;
+  /**
+   * Earlier hostnames this same machine has used (most recent last). Lets the
+   * connected-machines registry prune the orphaned entry a rename leaves
+   * behind, so a renamed machine doesn't show up twice. Capped to a few.
+   */
+  previousHostnames?: string[];
   /** Named root → absolute path on THIS machine. */
   roots: Record<string, string>;
   /** Per-machine remote-sync connection. */
   remote: MachineRemoteConfig;
   schemaVersion: number;
 }
+
+/** Keep the previous-hostname trail short — we only need it to prune aliases. */
+const MAX_PREVIOUS_HOSTNAMES = 5;
 
 /** A fresh machine config for the current host. */
 export function defaultMachineConfig(): MachineConfig {
@@ -77,9 +86,13 @@ function normalize(parsed: Partial<MachineConfig> | null | undefined): MachineCo
     enabled: Boolean(parsed.remote?.enabled),
     ...(typeof parsed.remote?.path === "string" ? { path: parsed.remote.path } : {}),
   };
+  const previousHostnames = Array.isArray(parsed.previousHostnames)
+    ? parsed.previousHostnames.filter((h): h is string => typeof h === "string" && h.length > 0)
+    : [];
   return {
     machineId: typeof parsed.machineId === "string" && parsed.machineId ? parsed.machineId : base.machineId,
     hostname: typeof parsed.hostname === "string" && parsed.hostname ? parsed.hostname : base.hostname,
+    ...(previousHostnames.length > 0 ? { previousHostnames } : {}),
     roots,
     remote,
     schemaVersion: typeof parsed.schemaVersion === "number" ? parsed.schemaVersion : MACHINE_CONFIG_VERSION,
@@ -146,10 +159,18 @@ export function ensureMachineConfig(): EnsureResult {
   }
 
   if (existing.hostname !== host) {
+    // Remember the old hostname (dedup, most-recent-last, capped) so the
+    // connected-machines registry can prune the entry it left orphaned.
+    const trail = (existing.previousHostnames ?? []).filter(
+      (h) => h !== existing.hostname && h !== host,
+    );
+    trail.push(existing.hostname);
+    const previousHostnames = trail.slice(-MAX_PREVIOUS_HOSTNAMES);
     const regenerated: MachineConfig = {
       ...existing,
       machineId: randomUUID(),
       hostname: host,
+      previousHostnames,
     };
     writeMachineConfig(regenerated);
     return { config: regenerated, created: false, regenerated: true };
