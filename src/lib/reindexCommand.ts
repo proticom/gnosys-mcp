@@ -1,5 +1,6 @@
 import { GnosysSearch } from "./search.js";
 import type { GnosysResolver } from "./resolver.js";
+import type { GnosysEmbeddings } from "./embeddings.js";
 
 type GetResolver = () => Promise<GnosysResolver>;
 
@@ -7,7 +8,7 @@ export async function runReindexCommand(
   getResolver: GetResolver,
 ): Promise<void> {
   let search: GnosysSearch | undefined;
-  let embeddings: { close(): void } | undefined;
+  let embeddings: GnosysEmbeddings | undefined;
 
   try {
     const resolver = await getResolver();

@@ -2,6 +2,7 @@ import path from "path";
 import type { GnosysConfig } from "./config.js";
 import { GnosysDB } from "./db.js";
 import type { GnosysResolver } from "./resolver.js";
+import type { RemoteStatus } from "./remote.js";
 
 export type StatusCommandOptions = {
   directory?: string;
@@ -56,10 +57,10 @@ export async function runStatusCommand(
       }
       const { RemoteSync, formatStatus } = await import("./remote.js");
       const { withHeartbeat } = await import("./heartbeat.js");
-      let sync: RemoteSync | null = null;
+      let sync: InstanceType<typeof RemoteSync> | null = null;
       try {
         sync = new RemoteSync(remoteCentralDb, remotePath);
-        const status = await withHeartbeat("Checking remote sync status", () => sync!.getStatus());
+        const status = await withHeartbeat<RemoteStatus>("Checking remote sync status", () => sync!.getStatus());
         if (opts.json) {
           console.log(JSON.stringify(status, null, 2));
         } else {
