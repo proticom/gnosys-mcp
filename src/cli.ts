@@ -1286,6 +1286,7 @@ type DreamRunOpts = {
   relationships?: boolean;
   json?: boolean;
   force?: boolean;
+  scheduled?: boolean;
 };
 
 // Bare `gnosys dream` runs a cycle (preserves v5.4.1 behavior).
@@ -1295,6 +1296,7 @@ dreamCmd
   .option("--no-summaries", "Skip summary generation")
   .option("--no-relationships", "Skip relationship discovery")
   .option("--force", "Run even if this machine is not the designated dream node")
+  .option("--scheduled", "Run as the machine-level scheduler (applies night/idle/cooldown gates)")
   .option("--json", "Output raw JSON report")
   .action(async (opts: DreamRunOpts) => {
     const { runDreamCommand } = await import("./lib/dreamCommand.js");
@@ -1311,6 +1313,7 @@ dreamCmd
   .option("--no-summaries", "Skip summary generation")
   .option("--no-relationships", "Skip relationship discovery")
   .option("--force", "Run even if this machine is not the designated dream node")
+  .option("--scheduled", "Run as the machine-level scheduler (applies night/idle/cooldown gates)")
   .option("--json", "Output raw JSON report")
   .action(async (opts: DreamRunOpts) => {
     const { runDreamCommand } = await import("./lib/dreamCommand.js");
