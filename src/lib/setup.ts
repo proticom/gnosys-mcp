@@ -2497,8 +2497,11 @@ export async function runDreamSetup(opts: DreamSetupOpts = {}): Promise<void> {
         dream: { ...(existingDream ?? {}), enabled: false },
       });
       clearDreamMachineEverywhere();
+      const { uninstallDreamLaunchAgent } = await import("./dreamLaunchd.js");
+      const launchdPath = uninstallDreamLaunchAgent();
       console.log();
       printStatus("ok", "dream mode disabled · designation cleared");
+      if (launchdPath) printStatus("ok", "launchd agent removed", launchdPath);
       localDb.close();
       remoteDb?.close();
       return;
@@ -2610,6 +2613,12 @@ export async function runDreamSetup(opts: DreamSetupOpts = {}): Promise<void> {
     const dIdle = existingDream?.idleMinutes ?? 10;
     const dRuntime = existingDream?.maxRuntimeMinutes ?? 30;
     const dMinMem = existingDream?.minMemories ?? 10;
+    const dScheduleStart = existingDream?.schedule?.startHour ?? 2;
+    const dScheduleEnd = existingDream?.schedule?.endHour ?? 5;
+    const dSystemIdle = existingDream?.systemIdleMinutes ?? 30;
+    const dMinNewMemories = existingDream?.minNewMemoriesToDream ?? 10;
+    const dMinHours = existingDream?.minHoursBetweenRuns ?? 20;
+    const dMaxCalls = existingDream?.maxLLMCallsPerRun ?? 12;
     const dSelfCritique = existingDream?.selfCritique ?? true;
     const dGenSummaries = existingDream?.generateSummaries ?? true;
     const dDiscover = existingDream?.discoverRelationships ?? true;
@@ -2628,6 +2637,12 @@ export async function runDreamSetup(opts: DreamSetupOpts = {}): Promise<void> {
     let idleMinutes = dIdle;
     let maxRuntimeMinutes = dRuntime;
     let minMemories = dMinMem;
+    let scheduleStartHour = dScheduleStart;
+    let scheduleEndHour = dScheduleEnd;
+    let systemIdleMinutes = dSystemIdle;
+    let minNewMemoriesToDream = dMinNewMemories;
+    let minHoursBetweenRuns = dMinHours;
+    let maxLLMCallsPerRun = dMaxCalls;
     let selfCritique = dSelfCritique;
     let generateSummaries = dGenSummaries;
     let discoverRelationships = dDiscover;
@@ -2639,6 +2654,18 @@ export async function runDreamSetup(opts: DreamSetupOpts = {}): Promise<void> {
       maxRuntimeMinutes = Math.max(1, parseInt(runtimeAns) || dRuntime);
       const minMemAns = await askInput(rl, "minimum memories before activating", { default: String(dMinMem) });
       minMemories = Math.max(1, parseInt(minMemAns) || dMinMem);
+      const scheduleStartAns = await askInput(rl, "night window start hour (0-23)", { default: String(dScheduleStart) });
+      scheduleStartHour = Math.min(23, Math.max(0, parseInt(scheduleStartAns) || dScheduleStart));
+      const scheduleEndAns = await askInput(rl, "night window end hour (0-23)", { default: String(dScheduleEnd) });
+      scheduleEndHour = Math.min(23, Math.max(0, parseInt(scheduleEndAns) || dScheduleEnd));
+      const systemIdleAns = await askInput(rl, "real machine idle minutes required", { default: String(dSystemIdle) });
+      systemIdleMinutes = Math.max(1, parseInt(systemIdleAns) || dSystemIdle);
+      const minNewAns = await askInput(rl, "minimum changed memories before dreaming", { default: String(dMinNewMemories) });
+      minNewMemoriesToDream = Math.max(0, parseInt(minNewAns) || dMinNewMemories);
+      const minHoursAns = await askInput(rl, "minimum hours between successful dreams", { default: String(dMinHours) });
+      minHoursBetweenRuns = Math.max(0, parseInt(minHoursAns) || dMinHours);
+      const maxCallsAns = await askInput(rl, "maximum LLM calls per dream run", { default: String(dMaxCalls) });
+      maxLLMCallsPerRun = Math.max(0, parseInt(maxCallsAns) || dMaxCalls);
       selfCritique = await askYesNo(rl, "self-critique (rule + LLM-based review flagging)", dSelfCritique);
       generateSummaries = await askYesNo(rl, "generate summaries (LLM)", dGenSummaries);
       discoverRelationships = await askYesNo(rl, "discover relationships (LLM)", dDiscover);
@@ -2654,6 +2681,11 @@ export async function runDreamSetup(opts: DreamSetupOpts = {}): Promise<void> {
         minMemories,
         provider: dreamProvider as LLMProviderName,
         model: dreamModel || undefined,
+        schedule: { startHour: scheduleStartHour, endHour: scheduleEndHour },
+        systemIdleMinutes,
+        minNewMemoriesToDream,
+        minHoursBetweenRuns,
+        maxLLMCallsPerRun,
         selfCritique,
         generateSummaries,
         discoverRelationships,
@@ -2663,6 +2695,8 @@ export async function runDreamSetup(opts: DreamSetupOpts = {}): Promise<void> {
     // Reset consecutive failure counter on a fresh setup so Layer 4
     // doesn't fire immediately based on stale history.
     localDb.resetDreamConsecutiveFailures();
+    const { installDreamLaunchAgent } = await import("./dreamLaunchd.js");
+    const launchdPath = installDreamLaunchAgent();
     localDb.close();
     remoteDb?.close();
 
@@ -2696,7 +2730,8 @@ export async function runDreamSetup(opts: DreamSetupOpts = {}): Promise<void> {
       ),
     );
     const dreamerName = designate ? localMachine : (designatedMachine ?? "the designated machine");
-    printStatus("progress", `first cycle runs after ${dreamerName} is idle for ${idleMinutes} min`);
+    printStatus("progress", `scheduled dream checks run nightly (${scheduleStartHour}:00-${scheduleEndHour}:00) on ${dreamerName}`);
+    if (launchdPath) printStatus("ok", "launchd agent installed", launchdPath);
     printStatus("progress", "check status anytime with `gnosys status --system`");
   } finally {
     if (ownsRl) rl.close();

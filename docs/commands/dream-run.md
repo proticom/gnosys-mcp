@@ -21,7 +21,10 @@ gnosys dream run --no-critique --no-summaries
 | `--no-summaries` | Skip summary generation |
 | `--no-relationships` | Skip relationship discovery |
 | `--force` | Run even if this machine is not the designated dream node |
+| `--scheduled` | Apply designated-machine, night-window, real-idle, and dreamworthiness gates (used by launchd) |
 | `--json` | Output raw JSON report instead of formatted text |
+
+When `--scheduled` is set, the run acquires `~/.gnosys/dream.lock`, exits cheaply unless all gates pass, and honors `dream.maxLLMCallsPerRun`. Every run (including skips) is appended to `~/.gnosys/dream-runs.jsonl`.
 
 ## Behavior
 

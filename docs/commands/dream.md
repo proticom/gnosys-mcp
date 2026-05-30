@@ -1,6 +1,14 @@
 # gnosys dream
 
-Dream Mode — idle-time memory consolidation. The parent command runs a cycle; subcommands provide an explicit alias and audit log access.
+Dream Mode — night-time memory consolidation. Manual commands run one cycle immediately; scheduled runs are launched by a single machine-level launchd agent, not by MCP connections.
+
+## Scheduled runs
+
+`gnosys setup dream` installs `~/Library/LaunchAgents/com.gnosys.dream.plist` on macOS, which runs `gnosys dream run --scheduled`. Scheduled runs apply four cheap gates before any LLM work — designated machine, night window (`dream.schedule`), real system idle time (`dream.systemIdleMinutes`), and dreamworthiness (`dream.minNewMemoriesToDream` + `dream.minHoursBetweenRuns`) — and write a skipped-run record explaining any skip.
+
+## Cost controls
+
+`dream.maxLLMCallsPerRun` is a hard ceiling. Relationship/summary/critique work skips memory batches already analyzed (fingerprints in `~/.gnosys/dream-state.json`). Every run logs LLM calls made vs skipped, estimated tokens, and estimated cost to `~/.gnosys/dream-runs.jsonl`; view it with `gnosys dream report`.
 
 ## Usage
 
@@ -21,6 +29,7 @@ gnosys dream log
 | `--no-summaries` | Skip summary generation |
 | `--no-relationships` | Skip relationship discovery |
 | `--force` | Run even if this machine is not the designated dream node |
+| `--scheduled` | Apply the launchd scheduler gates (designated machine, night window, system idle, dreamworthiness) |
 | `--json` | Output raw JSON report instead of formatted text |
 
 ## Behavior
@@ -65,6 +74,7 @@ Use `--force` for testing on non-designated nodes. Use `gnosys setup dream` to c
 |---------|---------|
 | `gnosys dream run` | Explicit alias for running a cycle now (same options as bare `gnosys dream`) |
 | `gnosys dream log` | Show recent dream runs from the central audit log |
+| `gnosys dream report` | Generate `dream-dashboard.html` from `~/.gnosys/dream-runs.jsonl` |
 
 ### `gnosys dream log` (summary)
 

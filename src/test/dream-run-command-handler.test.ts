@@ -17,6 +17,7 @@ describe("gnosys dream run command wiring", () => {
     expect(cli).toContain("--no-summaries");
     expect(cli).toContain("--no-relationships");
     expect(cli).toContain("--force");
+    expect(cli).toContain("--scheduled");
     expect(cli).toContain("--json");
     expect(cli).toContain(
       'const { runDreamCommand } = await import("./lib/dreamCommand.js")',
@@ -31,6 +32,11 @@ describe("gnosys dream run command wiring", () => {
     expect(handler).toContain("Dream Mode requires gnosys.db");
     expect(handler).toContain("getDreamMachineId()");
     expect(handler).toContain("opts.force");
+    expect(handler).toContain("acquireDreamLock");
+    expect(handler).toContain("isInsideNightWindow");
+    expect(handler).toContain("getSystemIdleMinutes");
+    expect(handler).toContain("countChangedMemoriesSince");
+    expect(handler).toContain("appendDreamRun");
     expect(handler).toContain("GnosysDreamEngine");
     expect(handler).toContain("engine.dream");
     expect(handler).toContain("JSON.stringify(report, null, 2)");

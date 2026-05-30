@@ -14,7 +14,8 @@ gnosys setup dream
 - Enables or disables Dream Mode.
 - Designates this machine as the dream node, or clears or keeps an existing designation.
 - Chooses the dream provider and model and validates access when possible.
-- Configures idle minutes, max runtime, minimum memories, self-critique, summary generation, and relationship discovery.
+- Configures max runtime, minimum memories, night window, real system idle threshold, cooldown, minimum changed memories, hard LLM call cap, self-critique, summary generation, and relationship discovery.
+- On macOS, installs or removes the single machine-level launchd agent (`com.gnosys.dream.plist`) that runs `gnosys dream run --scheduled`.
 
 ## Writes and side effects
 
