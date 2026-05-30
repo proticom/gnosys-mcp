@@ -20,8 +20,8 @@
 
 import os from "os";
 import type { GnosysDB, DbMemory } from "./db.js";
-import type { GnosysConfig, LLMProviderName } from "./config.js";
-import { type LLMProvider, getLLMProvider } from "./llm.js";
+import { getProviderModel, type GnosysConfig, type LLMProviderName } from "./config.js";
+import { type LLMProvider, createProvider } from "./llm.js";
 import { notifyDesktop } from "./desktopNotify.js";
 import { syncConfidenceToDb, auditToDb } from "./dbWrite.js";
 import { logError } from "./log.js";
@@ -118,7 +118,9 @@ export class GnosysDreamEngine {
     // run (in dream()), we record the unavailability to audit_log so the
     // user gets visibility (Layer 2 alert) and can react via the dashboard.
     try {
-      this.provider = getLLMProvider(this.config, "structuring");
+      const provider = this.dreamConfig.provider;
+      const model = this.dreamConfig.model || getProviderModel(this.config, provider);
+      this.provider = createProvider(provider, model, this.config);
     } catch (err) {
       this.provider = null;
       this.providerInitError = err instanceof Error ? err.message : String(err);

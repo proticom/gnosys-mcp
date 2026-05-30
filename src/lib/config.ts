@@ -115,6 +115,19 @@ const DreamConfigSchema = z.object({
   discoverRelationships: z.boolean().default(true),
   /** Min memory count before dream mode activates */
   minMemories: z.number().int().min(1).default(10),
+  /** Night-only launch window for scheduled Dream runs. Hours are local 0-23. */
+  schedule: z.object({
+    startHour: z.number().int().min(0).max(23).default(2),
+    endHour: z.number().int().min(0).max(23).default(5),
+  }).default({ startHour: 2, endHour: 5 }),
+  /** Required real machine idle time before scheduled Dream can run. */
+  systemIdleMinutes: z.number().int().min(1).default(30),
+  /** Minimum new or changed memories since the last successful run. */
+  minNewMemoriesToDream: z.number().int().min(0).default(10),
+  /** Cooldown between scheduled Dream runs. */
+  minHoursBetweenRuns: z.number().int().min(0).default(20),
+  /** Hard cap on paid LLM calls in a single Dream run. */
+  maxLLMCallsPerRun: z.number().int().min(0).default(12),
 });
 
 export type DreamConfig = z.infer<typeof DreamConfigSchema>;
@@ -281,6 +294,11 @@ export const GnosysConfigSchema = z.object({
     generateSummaries: true,
     discoverRelationships: true,
     minMemories: 10,
+    schedule: { startHour: 2, endHour: 5 },
+    systemIdleMinutes: 30,
+    minNewMemoriesToDream: 10,
+    minHoursBetweenRuns: 20,
+    maxLLMCallsPerRun: 12,
   }),
 
   /** Chat TUI — interactive chat configuration (v5.8.0) */
