@@ -58,7 +58,10 @@ export class GnosysEmbeddings {
     // Dynamic import — keeps @huggingface/transformers out of the main bundle.
     // dtype 'q8' replaces the v2-era `quantized: true` option (8-bit quantized,
     // ~80 MB vs ~280 MB for fp32). Smaller is fine for sentence embeddings.
-    let pipeline: typeof import("@huggingface/transformers")["pipeline"];
+    // Use `any` here so `tsc` succeeds even when the optional dep is not installed
+    // (CI network-share-simulation job, fresh checkouts, etc.). The real type
+    // is only needed at runtime when the package is present.
+    let pipeline: any;
     try {
       ({ pipeline } = await import("@huggingface/transformers"));
     } catch {

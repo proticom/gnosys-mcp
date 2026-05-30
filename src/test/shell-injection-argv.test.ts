@@ -55,10 +55,19 @@ describe("shell injection argv form", () => {
       "utf-8",
     );
     const cli = readFileSync(join(process.cwd(), "src/cli.ts"), "utf-8");
+    const statusCommand = readFileSync(
+      join(process.cwd(), "src/lib/statusCommand.ts"),
+      "utf-8",
+    );
 
+    // projectIdentity uses safe argv form for cp (added in security hardening)
     expect(projectIdentity).not.toMatch(/cp -a "\$\{/);
     expect(projectIdentity).toMatch(/execFileSync\("cp"/);
+
+    // statusCommand (the --web dashboard path) uses safe argv form for open.
+    // cli no longer contains the open call after the status command refactor.
     expect(cli).not.toMatch(/open "\$\{/);
-    expect(cli).toMatch(/execFile\("open"/);
+    expect(statusCommand).not.toMatch(/open "\$\{/);
+    expect(statusCommand).toMatch(/execFile\("open"/);
   });
 });

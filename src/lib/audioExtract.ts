@@ -150,9 +150,12 @@ async function transcribeWithLocal(
   let pipeline: (task: string, model: string) => Promise<unknown>;
 
   try {
-    // Dynamic import — @huggingface/transformers is an optional dependency
-    const transformers = await import("@huggingface/transformers");
-    pipeline = transformers.pipeline as typeof pipeline;
+    // Dynamic import — @huggingface/transformers is an optional dependency.
+    // Cast to any so TypeScript does not require the module's type declarations
+    // at compile time (the package is optional; CI and clean checkouts may not
+    // have it installed when running `tsc` / `npm run build`).
+    const transformers: any = await import("@huggingface/transformers");
+    pipeline = transformers.pipeline;
   } catch {
     throw new Error(
       "Local Whisper transcription requires @huggingface/transformers. " +
