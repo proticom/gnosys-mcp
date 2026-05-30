@@ -169,7 +169,14 @@ export class GnosysDreamEngine {
     // user gets visibility (Layer 2 alert) and can react via the dashboard.
     try {
       const provider = this.dreamConfig.provider;
-      const model = this.dreamConfig.model || getProviderModel(this.config, provider);
+      let model = this.dreamConfig.model;
+      if (!model) {
+        try {
+          model = getProviderModel(this.config, provider);
+        } catch {
+          model = "";
+        }
+      }
       this.provider = createProvider(provider, model, this.config);
     } catch (err) {
       this.provider = null;

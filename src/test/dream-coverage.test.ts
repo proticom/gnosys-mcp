@@ -15,7 +15,7 @@ import {
   formatDreamReport,
   type DreamReport,
 } from "../lib/dream.js";
-import { getLLMProvider } from "../lib/llm.js";
+import { createProvider, getLLMProvider } from "../lib/llm.js";
 import { notifyDesktop } from "../lib/desktopNotify.js";
 import { makeMemory } from "./_helpers.js";
 
@@ -29,7 +29,11 @@ const fakeProvider = {
 
 vi.mock("../lib/llm.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/llm.js")>();
-  return { ...actual, getLLMProvider: vi.fn(() => fakeProvider) };
+  return {
+    ...actual,
+    getLLMProvider: vi.fn(() => fakeProvider),
+    createProvider: vi.fn(() => fakeProvider),
+  };
 });
 
 vi.mock("../lib/desktopNotify.js", () => ({
@@ -65,17 +69,27 @@ function todayIso(): string {
 
 let tmp: string;
 let db: GnosysDB;
+let prevGnosysHome: string | undefined;
 
 beforeEach(() => {
   vi.mocked(getLLMProvider).mockImplementation(() => fakeProvider);
+  vi.mocked(createProvider).mockImplementation(() => fakeProvider);
   mockGenerate.mockReset();
   vi.mocked(notifyDesktop).mockClear();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "gnosys-dream-cov-"));
+  // Isolate dream-runs.jsonl / dream-state.json from the real ~/.gnosys.
+  prevGnosysHome = process.env.GNOSYS_HOME;
+  process.env.GNOSYS_HOME = tmp;
   db = new GnosysDB(tmp);
 });
 
 afterEach(() => {
   db.close();
+  if (prevGnosysHome === undefined) {
+    delete process.env.GNOSYS_HOME;
+  } else {
+    process.env.GNOSYS_HOME = prevGnosysHome;
+  }
   fs.rmSync(tmp, { recursive: true, force: true });
   vi.useRealTimers();
 });
@@ -98,7 +112,7 @@ describe("GnosysDreamEngine.dream() orchestrator", () => {
   });
 
   it("records provider-init error and increments consecutive failures", async () => {
-    vi.mocked(getLLMProvider).mockImplementationOnce(() => {
+    vi.mocked(createProvider).mockImplementationOnce(() => {
       throw new Error("no key");
     });
     for (let i = 0; i < 5; i++) insertMemory(db, { id: `prov-${i}` });
@@ -113,7 +127,7 @@ describe("GnosysDreamEngine.dream() orchestrator", () => {
 
   it("fires desktop notification at consecutive failure threshold", async () => {
     db.setMeta("dream_consecutive_failures", "2");
-    vi.mocked(getLLMProvider).mockImplementationOnce(() => {
+    vi.mocked(createProvider).mockImplementationOnce(() => {
       throw new Error("no key");
     });
     for (let i = 0; i < 5; i++) insertMemory(db, { id: `notify-${i}` });
