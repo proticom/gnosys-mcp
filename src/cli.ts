@@ -1333,6 +1333,17 @@ dreamCmd
     await runDreamLogCommand(opts, { parentJson: !!this.parent?.opts().json });
   });
 
+// `gnosys dream report` — render JSONL run history as a self-contained HTML dashboard
+dreamCmd
+  .command("report")
+  .description("Generate an HTML dashboard from ~/.gnosys/dream-runs.jsonl")
+  .option("--output <file>", "Output HTML file", "dream-dashboard.html")
+  .option("--last <N>", "Number of most recent runs to include")
+  .action(async (opts: { output?: string; last?: string }) => {
+    const { runDreamReportCommand } = await import("./lib/dreamReport.js");
+    await runDreamReportCommand(opts);
+  });
+
 // ─── gnosys export (parent + subcommands) ────────────────────────────────
 const exportCmd = program
   .command("export")
