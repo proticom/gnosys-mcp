@@ -25,6 +25,20 @@ import { type LLMProvider, createProvider } from "./llm.js";
 import { notifyDesktop } from "./desktopNotify.js";
 import { syncConfidenceToDb, auditToDb } from "./dbWrite.js";
 import { logError } from "./log.js";
+import {
+  type DreamEffectivenessRecord,
+  type DreamLLMCallRecord,
+  type DreamRunPhaseRecord,
+  type DreamRunRecord,
+  type DreamState,
+  type DreamTrigger,
+  estimateCost,
+  estimateTokens,
+  fingerprintMemories,
+  memoryWatermark,
+  readDreamState,
+  writeDreamState,
+} from "./dreamRunLog.js";
 
 /** Layer 4 alert threshold: fire desktop notification at this many consecutive provider failures. */
 const DREAM_FAILURE_NOTIFY_THRESHOLD = 3;
@@ -50,6 +64,16 @@ export interface DreamConfig {
   discoverRelationships: boolean;
   /** Min memory count before dream mode activates (default: 10) */
   minMemories: number;
+  /** Night-only launch window for scheduled Dream runs. */
+  schedule: { startHour: number; endHour: number };
+  /** Real system idle minutes required before scheduled Dream runs. */
+  systemIdleMinutes: number;
+  /** Minimum changed memories required before scheduled Dream runs. */
+  minNewMemoriesToDream: number;
+  /** Minimum hours between scheduled Dream runs. */
+  minHoursBetweenRuns: number;
+  /** Hard LLM call ceiling for one Dream run. */
+  maxLLMCallsPerRun: number;
 }
 
 export const DEFAULT_DREAM_CONFIG: DreamConfig = {
@@ -62,6 +86,11 @@ export const DEFAULT_DREAM_CONFIG: DreamConfig = {
   generateSummaries: true,
   discoverRelationships: true,
   minMemories: 10,
+  schedule: { startHour: 2, endHour: 5 },
+  systemIdleMinutes: 30,
+  minNewMemoriesToDream: 10,
+  minHoursBetweenRuns: 20,
+  maxLLMCallsPerRun: 12,
 };
 
 // ─── Dream Report ────────────────────────────────────────────────────────
@@ -79,6 +108,15 @@ export interface DreamReport {
   errors: string[];
   aborted: boolean;
   abortReason?: string;
+  id?: string;
+  trigger?: DreamTrigger;
+  machine?: { hostname: string; machineId?: string };
+  provider?: string;
+  model?: string;
+  phases?: DreamRunPhaseRecord[];
+  llmCalls?: DreamLLMCallRecord[];
+  totals?: DreamRunRecord["totals"];
+  effectiveness?: DreamEffectivenessRecord;
 }
 
 export interface ReviewSuggestion {
@@ -103,15 +141,27 @@ export class GnosysDreamEngine {
   private provider: LLMProvider | null = null;
   private abortRequested = false;
   private startTime = 0;
+  private trigger: DreamTrigger;
+  private machineId?: string;
+  private dreamState: DreamState = readDreamState();
+  private pendingFingerprints: DreamState["analyzedFingerprints"] = {};
+  private llmCallsMade = 0;
 
   constructor(
     db: GnosysDB,
     config: GnosysConfig,
-    dreamConfig?: Partial<DreamConfig>
+    dreamConfig?: Partial<DreamConfig>,
+    options?: { trigger?: DreamTrigger; machineId?: string }
   ) {
     this.db = db;
     this.config = config;
-    this.dreamConfig = { ...DEFAULT_DREAM_CONFIG, ...dreamConfig };
+    this.dreamConfig = {
+      ...DEFAULT_DREAM_CONFIG,
+      ...dreamConfig,
+      schedule: { ...DEFAULT_DREAM_CONFIG.schedule, ...(dreamConfig?.schedule ?? {}) },
+    };
+    this.trigger = options?.trigger ?? "manual";
+    this.machineId = options?.machineId;
 
     // Initialize LLM provider for dream operations.
     // v5.4.2: Failure here is no longer silent — when dream tries to actually
@@ -129,6 +179,122 @@ export class GnosysDreamEngine {
 
   /** Captured at construction if getLLMProvider throws. Used in dream() to write a Layer 2 audit entry. */
   private providerInitError: string | null = null;
+
+  private createPhase(name: DreamRunPhaseRecord["name"]): DreamRunPhaseRecord {
+    return {
+      name,
+      status: "ran",
+      durationMs: 0,
+      memoryIdsTouched: [],
+      llmCallsMade: 0,
+      llmCallsSkipped: 0,
+      estimatedInputTokens: 0,
+      estimatedOutputTokens: 0,
+      estimatedCostUsd: 0,
+    };
+  }
+
+  private finishPhase(phase: DreamRunPhaseRecord, startedAtMs: number): void {
+    phase.durationMs = Date.now() - startedAtMs;
+    phase.memoryIdsTouched = Array.from(new Set(phase.memoryIdsTouched));
+    phase.estimatedCostUsd = Math.round(phase.estimatedCostUsd * 1_000_000) / 1_000_000;
+  }
+
+  private addTouched(phase: DreamRunPhaseRecord, memoryIds: string[]): void {
+    for (const id of memoryIds) {
+      if (id) phase.memoryIdsTouched.push(id);
+    }
+  }
+
+  private recordLLMSkip(
+    phase: DreamRunPhaseRecord,
+    label: string,
+    reason: string,
+    memoryIds: string[] = [],
+    fingerprint?: string,
+  ): void {
+    phase.llmCallsSkipped++;
+    this.llmCalls.push({
+      phase: phase.name,
+      label,
+      status: "skipped",
+      reason,
+      provider: this.dreamConfig.provider,
+      model: this.dreamConfig.model || this.provider?.model || getProviderModel(this.config, this.dreamConfig.provider),
+      memoryIds,
+      fingerprint,
+      estimatedInputTokens: 0,
+      estimatedOutputTokens: 0,
+      estimatedCostUsd: 0,
+    });
+  }
+
+  private llmCalls: DreamLLMCallRecord[] = [];
+
+  private async generateWithAccounting(
+    phase: DreamRunPhaseRecord,
+    label: string,
+    prompt: string,
+    maxTokens: number,
+    memoryIds: string[],
+    fingerprint?: string,
+  ): Promise<string | null> {
+    if (!this.provider) {
+      this.recordLLMSkip(phase, label, "provider unavailable", memoryIds, fingerprint);
+      return null;
+    }
+
+    const inputTokens = estimateTokens(prompt);
+    this.llmCallsMade++;
+    try {
+      const response = await this.provider.generate(prompt, { maxTokens });
+      const outputTokens = estimateTokens(response);
+      const cost = estimateCost(this.provider.model, inputTokens, outputTokens);
+      phase.llmCallsMade++;
+      phase.estimatedInputTokens += inputTokens;
+      phase.estimatedOutputTokens += outputTokens;
+      phase.estimatedCostUsd += cost;
+      this.llmCalls.push({
+        phase: phase.name,
+        label,
+        status: "made",
+        provider: this.provider.name,
+        model: this.provider.model,
+        memoryIds,
+        fingerprint,
+        estimatedInputTokens: inputTokens,
+        estimatedOutputTokens: outputTokens,
+        estimatedCostUsd: cost,
+      });
+      if (fingerprint && response) {
+        this.pendingFingerprints[fingerprint] = {
+          kind: phase.name === "relationships" ? "relationship" : phase.name === "summaries" ? "summary" : "critique",
+          lastAnalyzedAt: new Date().toISOString(),
+          memoryIds,
+        };
+      }
+      return response;
+    } catch (err) {
+      phase.llmCallsMade++;
+      const cost = estimateCost(this.provider.model, inputTokens, 0);
+      phase.estimatedInputTokens += inputTokens;
+      phase.estimatedCostUsd += cost;
+      this.llmCalls.push({
+        phase: phase.name,
+        label,
+        status: "failed",
+        reason: err instanceof Error ? err.message : String(err),
+        provider: this.provider.name,
+        model: this.provider.model,
+        memoryIds,
+        fingerprint,
+        estimatedInputTokens: inputTokens,
+        estimatedOutputTokens: 0,
+        estimatedCostUsd: cost,
+      });
+      throw err;
+    }
+  }
 
   /** Expose the local DB so DreamScheduler can read designation meta. */
   getDb(): GnosysDB {
@@ -169,10 +335,17 @@ export class GnosysDreamEngine {
   ): Promise<DreamReport> {
     this.startTime = Date.now();
     this.abortRequested = false;
+    this.llmCallsMade = 0;
+    this.llmCalls = [];
+    this.pendingFingerprints = {};
+    this.dreamState = readDreamState();
     const log = onProgress || (() => {});
+    const startedAt = new Date().toISOString();
 
     const report: DreamReport = {
-      startedAt: new Date().toISOString(),
+      id: `dream-${Date.parse(startedAt)}-${Math.random().toString(36).slice(2, 8)}`,
+      trigger: this.trigger,
+      startedAt,
       finishedAt: "",
       durationMs: 0,
       decayUpdated: 0,
@@ -183,6 +356,27 @@ export class GnosysDreamEngine {
       duplicatesFound: 0,
       errors: [],
       aborted: false,
+      machine: { hostname: os.hostname(), machineId: this.machineId },
+      provider: this.dreamConfig.provider,
+      model: this.dreamConfig.model || this.provider?.model,
+      phases: [],
+      llmCalls: [],
+      totals: {
+        llmCallsMade: 0,
+        llmCallsSkipped: 0,
+        estimatedInputTokens: 0,
+        estimatedOutputTokens: 0,
+        estimatedCostUsd: 0,
+      },
+      effectiveness: {
+        usefulOutputScore: 0,
+        costPerUsefulOutput: null,
+        decaysApplied: 0,
+        summariesGenerated: 0,
+        summariesUpdated: 0,
+        reviewSuggestions: 0,
+        relationshipsDiscovered: 0,
+      },
     };
 
     if (!this.db.isAvailable() || !this.db.isMigrated()) {
@@ -240,11 +434,18 @@ export class GnosysDreamEngine {
 
     // ─── Phase 1: Confidence Decay Sweep ─────────────────────────────────
     log("decay", "Phase 1: Confidence decay sweep...");
+    const decayPhase = this.createPhase("decay");
+    const decayStart = Date.now();
+    report.phases!.push(decayPhase);
     try {
-      report.decayUpdated = this.decaySweep();
+      const decayResult = this.decaySweep();
+      report.decayUpdated = decayResult.count;
+      this.addTouched(decayPhase, decayResult.memoryIds);
       log("decay", `Updated ${report.decayUpdated} memories`);
     } catch (err) {
       report.errors.push(`Decay sweep: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      this.finishPhase(decayPhase, decayStart);
     }
 
     let check = this.shouldStop();
@@ -257,11 +458,17 @@ export class GnosysDreamEngine {
     // ─── Phase 2: Self-Critique (Review Suggestions) ─────────────────────
     if (this.dreamConfig.selfCritique) {
       log("critique", "Phase 2: Self-critique...");
+      const critiquePhase = this.createPhase("critique");
+      const critiqueStart = Date.now();
+      report.phases!.push(critiquePhase);
       try {
-        report.reviewSuggestions = await this.selfCritique(log);
+        report.reviewSuggestions = await this.selfCritique(log, critiquePhase);
+        this.addTouched(critiquePhase, report.reviewSuggestions.map((s) => s.memoryId));
         log("critique", `Generated ${report.reviewSuggestions.length} review suggestions`);
       } catch (err) {
         report.errors.push(`Self-critique: ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        this.finishPhase(critiquePhase, critiqueStart);
       }
 
       check = this.shouldStop();
@@ -275,13 +482,19 @@ export class GnosysDreamEngine {
     // ─── Phase 3: Summary Generation ─────────────────────────────────────
     if (this.dreamConfig.generateSummaries && this.provider) {
       log("summaries", "Phase 3: Summary generation...");
+      const summariesPhase = this.createPhase("summaries");
+      const summariesStart = Date.now();
+      report.phases!.push(summariesPhase);
       try {
-        const summaryResult = await this.generateSummaries(log);
+        const summaryResult = await this.generateSummaries(log, summariesPhase);
         report.summariesGenerated = summaryResult.generated;
         report.summariesUpdated = summaryResult.updated;
+        this.addTouched(summariesPhase, summaryResult.memoryIds);
         log("summaries", `Generated ${summaryResult.generated}, updated ${summaryResult.updated}`);
       } catch (err) {
         report.errors.push(`Summary generation: ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        this.finishPhase(summariesPhase, summariesStart);
       }
 
       check = this.shouldStop();
@@ -295,11 +508,18 @@ export class GnosysDreamEngine {
     // ─── Phase 4: Relationship Discovery ─────────────────────────────────
     if (this.dreamConfig.discoverRelationships && this.provider) {
       log("relationships", "Phase 4: Relationship discovery...");
+      const relationshipsPhase = this.createPhase("relationships");
+      const relationshipsStart = Date.now();
+      report.phases!.push(relationshipsPhase);
       try {
-        report.relationshipsDiscovered = await this.discoverRelationships(log);
+        const relationshipsResult = await this.discoverRelationships(log, relationshipsPhase);
+        report.relationshipsDiscovered = relationshipsResult.count;
+        this.addTouched(relationshipsPhase, relationshipsResult.memoryIds);
         log("relationships", `Discovered ${report.relationshipsDiscovered} new relationships`);
       } catch (err) {
         report.errors.push(`Relationship discovery: ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        this.finishPhase(relationshipsPhase, relationshipsStart);
       }
     }
 
@@ -309,6 +529,55 @@ export class GnosysDreamEngine {
   private finalize(report: DreamReport): DreamReport {
     report.finishedAt = new Date().toISOString();
     report.durationMs = Date.now() - this.startTime;
+    report.llmCalls = this.llmCalls;
+    report.totals = this.llmCalls.reduce(
+      (totals, call) => {
+        if (call.status === "made" || call.status === "failed") totals.llmCallsMade++;
+        if (call.status === "skipped") totals.llmCallsSkipped++;
+        totals.estimatedInputTokens += call.estimatedInputTokens;
+        totals.estimatedOutputTokens += call.estimatedOutputTokens;
+        totals.estimatedCostUsd += call.estimatedCostUsd;
+        return totals;
+      },
+      {
+        llmCallsMade: 0,
+        llmCallsSkipped: 0,
+        estimatedInputTokens: 0,
+        estimatedOutputTokens: 0,
+        estimatedCostUsd: 0,
+      }
+    );
+    report.totals.estimatedCostUsd = Math.round(report.totals.estimatedCostUsd * 1_000_000) / 1_000_000;
+    const usefulOutputScore =
+      report.decayUpdated +
+      report.summariesGenerated * 5 +
+      report.summariesUpdated * 3 +
+      report.relationshipsDiscovered * 2;
+    report.effectiveness = {
+      usefulOutputScore,
+      costPerUsefulOutput: usefulOutputScore > 0
+        ? Math.round((report.totals.estimatedCostUsd / usefulOutputScore) * 1_000_000) / 1_000_000
+        : null,
+      decaysApplied: report.decayUpdated,
+      summariesGenerated: report.summariesGenerated,
+      summariesUpdated: report.summariesUpdated,
+      reviewSuggestions: report.reviewSuggestions.length,
+      relationshipsDiscovered: report.relationshipsDiscovered,
+    };
+
+    const memories = this.db.isAvailable() ? this.db.getActiveMemories() : [];
+    const watermark = memoryWatermark(memories);
+    writeDreamState({
+      ...this.dreamState,
+      lastRunAt: report.finishedAt,
+      lastSuccessfulRunAt: report.errors.length === 0 && !report.aborted ? report.finishedAt : this.dreamState.lastSuccessfulRunAt,
+      lastMemoryCount: watermark.count,
+      lastMemoryMaxModified: watermark.maxModified,
+      analyzedFingerprints: {
+        ...this.dreamState.analyzedFingerprints,
+        ...this.pendingFingerprints,
+      },
+    });
 
     // v5.4.2: A run is considered "successful with LLM work" if any of the
     // LLM-dependent counters moved. Resetting the consecutive-failure count
@@ -327,6 +596,10 @@ export class GnosysDreamEngine {
       summariesGenerated: report.summariesGenerated,
       reviewSuggestions: report.reviewSuggestions.length,
       relationshipsDiscovered: report.relationshipsDiscovered,
+      llmCallsMade: report.totals.llmCallsMade,
+      llmCallsSkipped: report.totals.llmCallsSkipped,
+      estimatedCostUsd: report.totals.estimatedCostUsd,
+      usefulOutputScore: report.effectiveness.usefulOutputScore,
       errors: report.errors.length,
       aborted: report.aborted,
       providerUnreachable: !this.provider,
@@ -344,11 +617,11 @@ export class GnosysDreamEngine {
    * Formula: decayed = confidence * e^(-λ * days_since_reinforced)
    * Only updates if decayed value differs from stored value by > 0.01.
    */
-  private decaySweep(): number {
+  private decaySweep(): { count: number; memoryIds: string[] } {
     const now = new Date();
-    const today = now.toISOString().split("T")[0];
     const memories = this.db.getActiveMemories();
     let updated = 0;
+    const memoryIds: string[] = [];
 
     for (const mem of memories) {
       const lastReinforced = mem.last_reinforced || mem.modified || mem.created;
@@ -364,10 +637,11 @@ export class GnosysDreamEngine {
       if (Math.abs(rounded - mem.confidence) > 0.01) {
         syncConfidenceToDb(this.db, mem.id, rounded);
         updated++;
+        memoryIds.push(mem.id);
       }
     }
 
-    return updated;
+    return { count: updated, memoryIds };
   }
 
   // ─── Phase 2: Self-Critique ────────────────────────────────────────────
@@ -377,7 +651,8 @@ export class GnosysDreamEngine {
    * NEVER deletes or archives — only flags for human review.
    */
   private async selfCritique(
-    log: (phase: string, detail: string) => void
+    log: (phase: string, detail: string) => void,
+    phase: DreamRunPhaseRecord,
   ): Promise<ReviewSuggestion[]> {
     const suggestions: ReviewSuggestion[] = [];
     const memories = this.db.getActiveMemories();
@@ -410,7 +685,7 @@ export class GnosysDreamEngine {
         if (check.stop) break;
 
         try {
-          const llmSuggestion = await this.llmCritique(mem);
+          const llmSuggestion = await this.llmCritique(mem, phase);
           if (llmSuggestion) {
             suggestions.push(llmSuggestion);
           }
@@ -484,8 +759,9 @@ export class GnosysDreamEngine {
   /**
    * LLM-based critique for borderline memories.
    */
-  private async llmCritique(mem: DbMemory): Promise<ReviewSuggestion | null> {
+  private async llmCritique(mem: DbMemory, phase: DreamRunPhaseRecord): Promise<ReviewSuggestion | null> {
     if (!this.provider) return null;
+    const fingerprint = fingerprintMemories("critique", [mem]);
 
     const prompt = `You are a knowledge management quality reviewer. Evaluate this memory and decide if it needs attention.
 
@@ -506,7 +782,15 @@ Respond with ONLY one of these JSON objects (no explanation):
 - {"action": "consider-merge", "reason": "..."} if it seems to overlap with other common knowledge`;
 
     try {
-      const response = await this.provider.generate(prompt, { maxTokens: 200 });
+      const response = await this.generateWithAccounting(
+        phase,
+        `critique:${mem.id}`,
+        prompt,
+        200,
+        [mem.id],
+        fingerprint,
+      );
+      if (!response) return null;
       const jsonMatch = response.match(/\{[^}]+\}/);
       if (!jsonMatch) return null;
 
@@ -541,13 +825,15 @@ Respond with ONLY one of these JSON objects (no explanation):
    * Uses LLM to synthesize category-level overviews.
    */
   private async generateSummaries(
-    log: (phase: string, detail: string) => void
-  ): Promise<{ generated: number; updated: number }> {
-    if (!this.provider) return { generated: 0, updated: 0 };
+    log: (phase: string, detail: string) => void,
+    phase: DreamRunPhaseRecord,
+  ): Promise<{ generated: number; updated: number; memoryIds: string[] }> {
+    if (!this.provider) return { generated: 0, updated: 0, memoryIds: [] };
 
     const categories = this.db.getCategories();
     let generated = 0;
     let updated = 0;
+    const touched: string[] = [];
 
     for (const category of categories) {
       const check = this.shouldStop();
@@ -563,13 +849,17 @@ Respond with ONLY one of these JSON objects (no explanation):
         const currentIds = memories.map((m) => m.id);
         const unchanged = existingIds.length === currentIds.length &&
           existingIds.every((id) => currentIds.includes(id));
-        if (unchanged) continue; // No new memories in this category
+        if (unchanged) {
+          phase.llmCallsSkipped++;
+          phase.reason = phase.reason || "unchanged summaries skipped";
+          continue; // No new memories in this category
+        }
       }
 
       log("summaries", `Summarizing ${category} (${memories.length} memories)...`);
 
       try {
-        const summary = await this.summarizeCategory(category, memories);
+        const summary = await this.summarizeCategory(category, memories, phase);
         if (summary) {
           const today = new Date().toISOString().split("T")[0];
           const id = existing?.id || `summary-${category}-${today}`;
@@ -589,19 +879,24 @@ Respond with ONLY one of these JSON objects (no explanation):
           } else {
             generated++;
           }
+          touched.push(...memories.map((m) => m.id));
         }
       } catch (err) {
         log("summaries", `Failed to summarize ${category}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
-    return { generated, updated };
+    return { generated, updated, memoryIds: touched };
   }
 
   /**
    * Use LLM to generate a category summary.
    */
-  private async summarizeCategory(category: string, memories: DbMemory[]): Promise<string | null> {
+  private async summarizeCategory(
+    category: string,
+    memories: DbMemory[],
+    phase: DreamRunPhaseRecord,
+  ): Promise<string | null> {
     if (!this.provider) return null;
 
     // Build context from memories (truncate to fit context window)
@@ -625,7 +920,14 @@ ${memoryTexts}
 Category summary:`;
 
     try {
-      return await this.provider.generate(prompt, { maxTokens: 1024 });
+      return await this.generateWithAccounting(
+        phase,
+        `summary:${category}`,
+        prompt,
+        1024,
+        memories.map((m) => m.id),
+        fingerprintMemories("summary", memories),
+      );
     } catch {
       return null;
     }
@@ -638,14 +940,16 @@ Category summary:`;
    * Only creates new edges — never removes existing ones.
    */
   private async discoverRelationships(
-    log: (phase: string, detail: string) => void
-  ): Promise<number> {
-    if (!this.provider) return 0;
+    log: (phase: string, detail: string) => void,
+    phase: DreamRunPhaseRecord,
+  ): Promise<{ count: number; memoryIds: string[] }> {
+    if (!this.provider) return { count: 0, memoryIds: [] };
 
     const memories = this.db.getActiveMemories();
-    if (memories.length < 3) return 0;
+    if (memories.length < 3) return { count: 0, memoryIds: [] };
 
     let discovered = 0;
+    const touched = new Set<string>();
     const today = new Date().toISOString().split("T")[0];
 
     // Get existing relationships to avoid duplicates
@@ -675,7 +979,7 @@ Category summary:`;
       log("relationships", `Analyzing relationships for: ${batchTitles}`);
 
       try {
-        const relationships = await this.findRelationships(batch, memoryIndex);
+        const relationships = await this.findRelationships(batch, memoryIndex, phase);
 
         for (const rel of relationships) {
           const key = `${rel.source_id}→${rel.target_id}→${rel.rel_type}`;
@@ -692,13 +996,15 @@ Category summary:`;
 
           existingPairs.add(key);
           discovered++;
+          touched.add(rel.source_id);
+          touched.add(rel.target_id);
         }
       } catch (err) {
         log("relationships", `Failed for batch: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
-    return discovered;
+    return { count: discovered, memoryIds: Array.from(touched) };
   }
 
   /**
@@ -706,7 +1012,8 @@ Category summary:`;
    */
   private async findRelationships(
     sources: DbMemory[],
-    memoryIndex: string
+    memoryIndex: string,
+    phase: DreamRunPhaseRecord,
   ): Promise<Array<{ source_id: string; target_id: string; rel_type: string; label: string; confidence: number }>> {
     if (!this.provider) return [];
 
@@ -729,7 +1036,15 @@ Only output relationships with confidence >= 0.7. Do NOT create self-referencing
 Output ONLY the JSON array, no explanation.`;
 
     try {
-      const response = await this.provider.generate(prompt, { maxTokens: 1024 });
+      const response = await this.generateWithAccounting(
+        phase,
+        `relationships:${sources.map((s) => s.id).join(",")}`,
+        prompt,
+        1024,
+        sources.map((s) => s.id),
+        fingerprintMemories("relationship", sources),
+      );
+      if (!response) return [];
 
       // Extract JSON array from response
       const jsonMatch = response.match(/\[[\s\S]*\]/);
@@ -917,7 +1232,7 @@ export function formatDreamReport(report: DreamReport): string {
   lines.push(`Started: ${report.startedAt}`);
   lines.push(`Finished: ${report.finishedAt}`);
   if (report.aborted) {
-    lines.push(`⚠ Aborted: ${report.abortReason}`);
+    lines.push(`Aborted: ${report.abortReason}`);
   }
   lines.push("");
 
@@ -927,6 +1242,10 @@ export function formatDreamReport(report: DreamReport): string {
   lines.push(`  Summaries updated: ${report.summariesUpdated}`);
   lines.push(`  Relationships discovered: ${report.relationshipsDiscovered}`);
   lines.push(`  Duplicates flagged: ${report.duplicatesFound}`);
+  if (report.totals) {
+    lines.push(`  LLM calls: ${report.totals.llmCallsMade} made, ${report.totals.llmCallsSkipped} skipped`);
+    lines.push(`  Estimated cost: $${report.totals.estimatedCostUsd.toFixed(6)}`);
+  }
   lines.push("");
 
   if (report.reviewSuggestions.length > 0) {
