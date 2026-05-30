@@ -243,6 +243,14 @@ export class GnosysDreamEngine {
       this.recordLLMSkip(phase, label, "provider unavailable", memoryIds, fingerprint);
       return null;
     }
+    if (fingerprint && (this.dreamState.analyzedFingerprints[fingerprint] || this.pendingFingerprints[fingerprint])) {
+      this.recordLLMSkip(phase, label, "already analyzed fingerprint", memoryIds, fingerprint);
+      return null;
+    }
+    if (this.llmCallsMade >= this.dreamConfig.maxLLMCallsPerRun) {
+      this.recordLLMSkip(phase, label, "maxLLMCallsPerRun reached", memoryIds, fingerprint);
+      return null;
+    }
 
     const inputTokens = estimateTokens(prompt);
     this.llmCallsMade++;
