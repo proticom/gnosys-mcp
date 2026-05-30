@@ -68,7 +68,7 @@ import type { GnosysIngestion } from "./lib/ingest.js";
 import type { GnosysEmbeddings } from "./lib/embeddings.js";
 import type { GnosysHybridSearch } from "./lib/hybridSearch.js";
 import type { GnosysAsk } from "./lib/ask.js";
-import type { GnosysDreamEngine, DreamScheduler } from "./lib/dream.js";
+import type { GnosysDreamEngine } from "./lib/dream.js";
 
 // Initialize resolver (discovers all layered stores)
 const resolver = new GnosysResolver();
@@ -159,8 +159,6 @@ let askEngine: GnosysAsk | null = null;
 let gnosysDb: GnosysDB | null = null;
 /** v3.0: Central DB at ~/.gnosys/gnosys.db */
 let centralDb: GnosysDB | null = null;
-/** v2.0: Dream scheduler (idle-time consolidation) */
-let dreamScheduler: DreamScheduler | null = null;
 
 // ─── Multi-Project Support ───────────────────────────────────────────────
 // Each tool call can optionally pass a `projectRoot` to target a specific
@@ -2398,9 +2396,6 @@ regTool(
       };
     }
 
-    // Record activity to reset idle timer (if scheduler is running)
-    dreamScheduler?.recordActivity();
-
     const dreamConfig = {
       enabled: true,
       idleMinutes: 0, // Run immediately (manual trigger)
@@ -2418,6 +2413,34 @@ regTool(
     const engine = new GnosysDreamEngine(ctx.centralDb, ctx.config || DEFAULT_CONFIG, dreamConfig);
     const report = await engine.dream((phase, detail) => {
       console.error(`[dream:${phase}] ${detail}`);
+    });
+    const { appendDreamRun } = await import("./lib/dreamRunLog.js");
+    appendDreamRun({
+      ...report,
+      id: report.id || `dream-${Date.now()}`,
+      trigger: report.trigger || "manual",
+      status: report.aborted ? "aborted" : report.errors.length > 0 ? "failed" : "completed",
+      machine: report.machine || { hostname: "unknown" },
+      provider: report.provider || dreamConfig.provider,
+      phases: report.phases || [],
+      llmCalls: report.llmCalls || [],
+      totals: report.totals || {
+        llmCallsMade: 0,
+        llmCallsSkipped: 0,
+        estimatedInputTokens: 0,
+        estimatedOutputTokens: 0,
+        estimatedCostUsd: 0,
+      },
+      effectiveness: report.effectiveness || {
+        usefulOutputScore: 0,
+        costPerUsefulOutput: null,
+        decaysApplied: report.decayUpdated,
+        summariesGenerated: report.summariesGenerated,
+        summariesUpdated: report.summariesUpdated,
+        reviewSuggestions: report.reviewSuggestions.length,
+        relationshipsDiscovered: report.relationshipsDiscovered,
+      },
+      gates: [],
     });
 
     return {
@@ -2598,9 +2621,6 @@ regResource(
     },
   },
   async () => {
-    // Record activity for dream scheduler (this fires on every turn)
-    dreamScheduler?.recordActivity();
-
     if (!search) {
       return {
         contents: [
@@ -3643,12 +3663,10 @@ async function initHeavyDeps(): Promise<void> {
     `Ask engine: ${askEngine.isLLMAvailable ? `ready (${askEngine.providerName}/${askEngine.modelName})` : "disabled (configure LLM provider)"}`,
   );
 
-  // Dream mode (only constructed if enabled; designation gate inside start()).
+  // Dream mode scheduling is machine-level now (`gnosys dream run --scheduled`
+  // via launchd). MCP may still run manual dream tool calls, but it no longer
+  // owns an idle timer per connection.
   if (gnosysDb && config.dream?.enabled) {
-    const { GnosysDreamEngine, DreamScheduler } = await import("./lib/dream.js");
-    const dreamEngine = new GnosysDreamEngine(gnosysDb, config, config.dream);
-    dreamScheduler = new DreamScheduler(dreamEngine, config.dream);
-
     // Layer 3: probe the dream provider if this machine is the dream node.
     try {
       const designated = gnosysDb.getDreamMachineId();
@@ -3693,10 +3711,9 @@ async function initHeavyDeps(): Promise<void> {
         }
       }
     } catch {
-      // Probe failed — non-fatal. Continue with scheduler start.
+      // Probe failed — non-fatal.
     }
 
-    dreamScheduler.start();
     const designated = gnosysDb.getDreamMachineId();
     const localId = gnosysDb.getMeta("machine_id");
     if (!designated) {
@@ -3705,7 +3722,7 @@ async function initHeavyDeps(): Promise<void> {
       console.error(`Dream Mode: enabled — designated to '${designated}'. This machine (${localId || "?"}) will not dream.`);
     } else {
       console.error(
-        `Dream Mode: enabled on this machine (idle ${config.dream.idleMinutes}min, max ${config.dream.maxRuntimeMinutes}min)`,
+        `Dream Mode: enabled on this machine (scheduled outside MCP via launchd, max ${config.dream.maxRuntimeMinutes}min)`,
       );
     }
   } else {
