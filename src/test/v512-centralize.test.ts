@@ -15,6 +15,12 @@ let target: string;
 
 beforeEach(async () => {
   env = await createTestEnv("v512-central");
+  if (!env.db.isAvailable()) {
+    throw new Error(
+      "GnosysDB unavailable in test environment — better-sqlite3 must load for centralize tests",
+    );
+  }
+  expect(fs.existsSync(path.join(env.tmpDir, "gnosys.db"))).toBe(true);
   target = fs.mkdtempSync(path.join(os.tmpdir(), "gnosys-central-to-"));
   fs.rmSync(target, { recursive: true, force: true }); // start absent
 });
